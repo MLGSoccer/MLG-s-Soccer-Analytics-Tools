@@ -423,22 +423,21 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
         display_matches = matches
 
     display_shots = [m['shots'] for m in display_matches]
-    display_xg_per_shot = [m['xg'] / m['shots'] if m['shots'] > 0 else 0 for m in display_matches]
+    display_xg = [m['xg'] for m in display_matches]
     display_labels = [f"{m['opponent']} ({m['minutes']}')" for m in display_matches]
     x_pos = np.arange(len(display_matches))
 
     # Calculate season averages (from all matches)
     avg_shots = sum(shots_values) / len(shots_values) if shots_values else 1
-    all_xg_per_shot = [m['xg'] / m['shots'] if m['shots'] > 0 else 0 for m in matches]
-    avg_xg_per_shot = sum(all_xg_per_shot) / len(all_xg_per_shot) if all_xg_per_shot else 1
+    avg_xg = sum(xg_values) / len(xg_values) if xg_values else 1
 
     # Normalize to season average (1.0 = average)
     shots_norm = [v / avg_shots if avg_shots > 0 else 0 for v in display_shots]
-    xg_per_shot_norm = [v / avg_xg_per_shot if avg_xg_per_shot > 0 else 0 for v in display_xg_per_shot]
+    xg_norm = [v / avg_xg if avg_xg > 0 else 0 for v in display_xg]
 
     bar_width = 0.35
     bars1 = ax4.bar(x_pos - bar_width/2, shots_norm, bar_width, label='Shots', color=color_xg, edgecolor='white', linewidth=0.5)
-    bars2 = ax4.bar(x_pos + bar_width/2, xg_per_shot_norm, bar_width, label='xG/Shot', color=color_goals, edgecolor='white', linewidth=0.5)
+    bars2 = ax4.bar(x_pos + bar_width/2, xg_norm, bar_width, label='xG', color=color_goals, edgecolor='white', linewidth=0.5)
 
     # Add value labels on top of each bar
     def add_bar_labels(bars, values, ax):
@@ -450,7 +449,7 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
                        ha='center', va='bottom', fontsize=6, color='white', fontweight='bold')
 
     add_bar_labels(bars1, display_shots, ax4)
-    add_bar_labels(bars2, display_xg_per_shot, ax4)
+    add_bar_labels(bars2, display_xg, ax4)
 
     # Season average line at 1.0
     ax4.axhline(y=1.0, color='white', linestyle='--', linewidth=1.5, alpha=0.7)
@@ -465,7 +464,7 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     ax4.tick_params(axis='y', length=0)
 
     # Set y limits with padding for labels
-    max_val = max(max(shots_norm), max(xg_per_shot_norm)) if display_matches else 1
+    max_val = max(max(shots_norm), max(xg_norm)) if display_matches else 1
     ax4.set_ylim(0, max_val * 1.15)
 
     # Style
@@ -792,22 +791,21 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
         display_matches = matches
 
     display_shots = [m['shots'] for m in display_matches]
-    display_xg_per_shot = [m['xg'] / m['shots'] if m['shots'] > 0 else 0 for m in display_matches]
+    display_xg = [m['xg'] for m in display_matches]
     display_labels = [f"{m['opponent']} ({m['minutes']}')" for m in display_matches]
     x_pos = np.arange(len(display_matches))
 
     # Calculate season averages (from all matches)
     avg_shots = sum(shots_values) / len(shots_values) if shots_values else 1
-    all_xg_per_shot = [m['xg'] / m['shots'] if m['shots'] > 0 else 0 for m in matches]
-    avg_xg_per_shot = sum(all_xg_per_shot) / len(all_xg_per_shot) if all_xg_per_shot else 1
+    avg_xg = sum(xg_values) / len(xg_values) if xg_values else 1
 
     # Normalize to season average (1.0 = average)
     shots_norm = [v / avg_shots if avg_shots > 0 else 0 for v in display_shots]
-    xg_per_shot_norm = [v / avg_xg_per_shot if avg_xg_per_shot > 0 else 0 for v in display_xg_per_shot]
+    xg_norm = [v / avg_xg if avg_xg > 0 else 0 for v in display_xg]
 
     bar_width = 0.35
     bars1 = ax4.bar(x_pos - bar_width/2, shots_norm, bar_width, label='Shots', color=color_xg, edgecolor='white', linewidth=0.5)
-    bars2 = ax4.bar(x_pos + bar_width/2, xg_per_shot_norm, bar_width, label='xG/Shot', color=color_goals, edgecolor='white', linewidth=0.5)
+    bars2 = ax4.bar(x_pos + bar_width/2, xg_norm, bar_width, label='xG', color=color_goals, edgecolor='white', linewidth=0.5)
 
     # Add value labels on top of each bar
     def add_bar_labels(bars, values, ax):
@@ -819,7 +817,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
                        ha='center', va='bottom', fontsize=7, color='white', fontweight='bold')
 
     add_bar_labels(bars1, display_shots, ax4)
-    add_bar_labels(bars2, display_xg_per_shot, ax4)
+    add_bar_labels(bars2, display_xg, ax4)
 
     # Season average line at 1.0
     ax4.axhline(y=1.0, color='white', linestyle='--', linewidth=1.5, alpha=0.7)
@@ -834,7 +832,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     ax4.tick_params(axis='y', length=0)
 
     # Set y limits with padding for labels
-    max_val = max(max(shots_norm), max(xg_per_shot_norm)) if display_matches else 1
+    max_val = max(max(shots_norm), max(xg_norm)) if display_matches else 1
     ax4.set_ylim(0, max_val * 1.15)
 
     # Style
