@@ -365,6 +365,60 @@ def expand_team_name(abbrev):
     return custom_abbrevs.get(abbrev, abbrev)
 
 
+def get_team_abbrev(team_name):
+    """Get abbreviation for a team name (reverse lookup).
+
+    Uses fuzzy matching to find the best match.
+    Returns the abbreviation if found, or first 3 letters uppercased if not.
+    """
+    team_lower = team_name.lower().strip()
+
+    # Check for exact match first
+    for abbrev, full_name in TEAM_ABBREV.items():
+        if full_name.lower() == team_lower:
+            return abbrev
+
+    # Score-based matching to find best match
+    best_match = None
+    best_score = 0
+
+    for abbrev, full_name in TEAM_ABBREV.items():
+        full_lower = full_name.lower()
+        score = 0
+
+        # Exact match (already checked above, but just in case)
+        if team_lower == full_lower:
+            return abbrev
+
+        # Full name starts with input or input starts with full name
+        if full_lower.startswith(team_lower):
+            score = 90 + (1 / len(full_lower))  # Prefer shorter matches
+        elif team_lower.startswith(full_lower):
+            score = 85 + (1 / len(team_lower))
+
+        # Full name ends with input (e.g., "Milan" matches "AC Milan")
+        elif full_lower.endswith(team_lower):
+            score = 80 + (len(team_lower) / len(full_lower))  # Prefer closer length matches
+
+        # Input ends with full name
+        elif team_lower.endswith(full_lower):
+            score = 75
+
+        # All words in input appear in full name
+        elif all(word in full_lower for word in team_lower.split()):
+            score = 70
+
+        if score > best_score:
+            best_score = score
+            best_match = abbrev
+
+    if best_match:
+        return best_match
+
+    # Fallback: return first 3 characters uppercased
+    return team_name[:3].upper()
+
+
 def expand_team_name_with_prompt(abbrev):
     """Convert abbreviation to full team name, prompting if unknown."""
     if abbrev in TEAM_ABBREV:
@@ -523,6 +577,29 @@ def lighten_color(hex_color, factor=0.4):
     r = int(r + (255 - r) * factor)
     g = int(g + (255 - g) * factor)
     b = int(b + (255 - b) * factor)
+
+    return rgb_to_hex(r, g, b)
+
+
+def darken_color(hex_color, factor=0.3):
+    """Darken a hex color by blending toward black.
+
+    Args:
+        hex_color: Hex color string (e.g., '#6CABDD')
+        factor: How much to darken (0 = no change, 1 = pure black)
+
+    Returns:
+        Darkened hex color string
+    """
+    hex_color = hex_color.lstrip('#')
+    r = int(hex_color[0:2], 16)
+    g = int(hex_color[2:4], 16)
+    b = int(hex_color[4:6], 16)
+
+    # Blend toward black (0, 0, 0)
+    r = int(r * (1 - factor))
+    g = int(g * (1 - factor))
+    b = int(b * (1 - factor))
 
     return rgb_to_hex(r, g, b)
 
