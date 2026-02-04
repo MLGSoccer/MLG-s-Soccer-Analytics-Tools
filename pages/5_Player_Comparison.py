@@ -12,7 +12,8 @@ from mostly_finished_charts.player_comparison_chart import (
     load_player_data,
     get_player_percentiles,
     create_comparison_chart,
-    create_category_chart
+    create_category_chart,
+    POSITION_CATEGORIES
 )
 
 st.set_page_config(page_title="Player Comparison", page_icon="📈", layout="wide")
@@ -64,11 +65,11 @@ if uploaded_file is not None:
             help="Filter peers by minimum minutes played"
         )
 
-        # Position filter
-        positions = ["Auto (use player's position)", "Forward", "Midfielder", "Defender", "Goalkeeper"]
+        # Position filter - use actual position categories
+        position_options = ["Auto (use player's position)"] + POSITION_CATEGORIES
         compare_position = st.sidebar.selectbox(
             "Compare Against Position",
-            options=positions,
+            options=position_options,
             help="Which position group to compare against"
         )
         if compare_position == "Auto (use player's position)":
