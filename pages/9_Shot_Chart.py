@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shot_chart import (
+from mostly_finished_charts.shot_chart import (
     load_shot_data,
     create_team_shot_chart,
     create_combined_shot_chart,
