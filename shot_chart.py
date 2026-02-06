@@ -177,14 +177,14 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         line_color='white',
         linewidth=2,
         goal_type='box',
-        pad_top=5,  # Room for goal
-        pad_bottom=2,
-        pad_left=2,
-        pad_right=2
+        pad_top=3,
+        pad_bottom=0,
+        pad_left=1,
+        pad_right=1
     )
 
-    # Create figure and axes with background color
-    fig, ax = plt.subplots(figsize=(10, 10))
+    # Create figure - wider than tall for half-pitch view
+    fig, ax = plt.subplots(figsize=(12, 9))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
 
@@ -197,8 +197,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     pitch.draw(ax=ax)
 
     # Clip view to pitch bounds (hide lines extending into padding)
-    ax.set_xlim(-2, 102)  # Small margin for sidelines
-    ax.set_ylim(50, 105)  # Start at halfway line, room for goal at top
+    ax.set_xlim(-1, 101)  # Minimal margin for sidelines
+    ax.set_ylim(50, 103)  # Start at halfway line, room for goal at top
 
     # Plot shots
     plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=flip_coords)
@@ -210,7 +210,7 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
 
     # Title with score
     fig.suptitle(f"{team_name.upper()} {team_final_score}-{opponent_goals} {opponent_name.upper()}",
-                 fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.98)
+                 fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
     subtitle_parts = [f"{team_name.upper()} SHOT MAP"]
@@ -219,12 +219,12 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     if match_info.get('date_formatted'):
         subtitle_parts.append(match_info['date_formatted'])
 
-    fig.text(0.5, 0.93, ' | '.join(subtitle_parts),
+    fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
              ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Legend as third headline line with team color
     # Calculate positions based on text length for proper centering
-    legend_ax = fig.add_axes([0, 0.87, 1, 0.04], facecolor='none')
+    legend_ax = fig.add_axes([0, 0.85, 1, 0.04], facecolor='none')
     legend_ax.set_xlim(0, 1)
     legend_ax.set_ylim(0, 1)
     legend_ax.axis('off')
@@ -262,13 +262,16 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         goals_text += f" + {own_goals_for} OG"
 
     stats_text = f"Shots: {total_shots}  |  xG: {total_xg:.2f}  |  Goals: {goals_text}"
-    fig.text(0.5, 0.12, stats_text,
+    fig.text(0.5, 0.08, stats_text,
              ha='center', va='center', fontsize=16, fontweight='bold',
              color=TEXT_PRIMARY,
              bbox=dict(boxstyle='round,pad=0.5', facecolor=CBS_BLUE,
                       edgecolor='white', linewidth=2, alpha=0.95))
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.88])
+    plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.84])
+
+    # Add CBS Sports and TruMedia branding
+    add_cbs_footer(fig, data_source='TruMedia')
 
     return fig
 
@@ -317,24 +320,24 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
         line_color='white',
         linewidth=2,
         goal_type='box',
-        pad_top=2,
-        pad_bottom=2,
-        pad_left=5,  # Room for goal
-        pad_right=5  # Room for goal
+        pad_top=1,
+        pad_bottom=1,
+        pad_left=3,  # Room for goal
+        pad_right=3  # Room for goal
     )
 
-    # Create figure and axes with background color
-    fig, ax = plt.subplots(figsize=(14, 9))
+    # Create figure - proportions match full pitch (~1.5:1 length:width)
+    fig, ax = plt.subplots(figsize=(12, 8))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
-
-    # Draw pitch lines
-    pitch.draw(ax=ax)
 
     # Add green rectangle for just the pitch area (inside the lines)
     # Horizontal pitch: x=0-100 (length), y=0-100 (width)
     pitch_rect = Rectangle((0, 0), 100, 100, facecolor=PITCH_COLOR, zorder=0)
     ax.add_patch(pitch_rect)
+
+    # Draw pitch lines
+    pitch.draw(ax=ax)
 
     # Filter shots by team
     team1_shots = shots_df[shots_df['Team'] == team1_name]
@@ -367,7 +370,7 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
 
     # Title with score
     fig.suptitle(f"{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}",
-                 fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.98)
+                 fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
     subtitle_parts = ['SHOT MAP']
@@ -376,12 +379,12 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     if match_info.get('date_formatted'):
         subtitle_parts.append(match_info['date_formatted'])
 
-    fig.text(0.5, 0.93, ' | '.join(subtitle_parts),
+    fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
              ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Legend as third headline line with team colors
     # Calculate positions based on text length for proper centering
-    legend_ax = fig.add_axes([0, 0.87, 1, 0.04], facecolor='none')
+    legend_ax = fig.add_axes([0, 0.85, 1, 0.04], facecolor='none')
     legend_ax.set_xlim(0, 1)
     legend_ax.set_ylim(0, 1)
     legend_ax.axis('off')
@@ -433,13 +436,16 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
 
     stats_text = (f"{team1_name}: {team1_total_shots} shots, {team1_xg:.2f} xG, {team1_goals_text}   |   "
                   f"{team2_name}: {team2_total_shots} shots, {team2_xg:.2f} xG, {team2_goals_text}")
-    fig.text(0.5, 0.10, stats_text,
+    fig.text(0.5, 0.06, stats_text,
              ha='center', va='center', fontsize=14, fontweight='bold',
              color=TEXT_PRIMARY,
              bbox=dict(boxstyle='round,pad=0.5', facecolor=CBS_BLUE,
                       edgecolor='white', linewidth=2, alpha=0.95))
 
-    plt.tight_layout(rect=[0, 0.02, 1, 0.88])
+    plt.tight_layout(rect=[0.02, 0.03, 0.98, 0.84])
+
+    # Add CBS Sports and TruMedia branding
+    add_cbs_footer(fig, data_source='TruMedia')
 
     return fig
 
