@@ -228,6 +228,7 @@ def parse_trumedia_csv(file_path):
             match_info = None
             has_extra_time = False
             penalty_shootout_excluded = 0
+            first_half_end_minute = 45  # Default, will update based on Period 1 shots
 
             for row in reader:
                 # Only process rows with a shooter (shots)
@@ -244,6 +245,7 @@ def parse_trumedia_csv(file_path):
                         xg = float(row[xg_idx]) if row[xg_idx] else 0.0
 
                         # Check period and filter out penalty shootout (Period > 4)
+                        period = 1  # Default to first half
                         if period_idx and len(row) > period_idx and row[period_idx]:
                             try:
                                 period = int(row[period_idx])
@@ -255,6 +257,10 @@ def parse_trumedia_csv(file_path):
                                     has_extra_time = True
                             except ValueError:
                                 pass
+
+                        # Track first half end minute
+                        if period == 1:
+                            first_half_end_minute = max(first_half_end_minute, minute)
 
                         # Map playType to outcome
                         play_type = row[play_type_idx] if play_type_idx and len(row) > play_type_idx else "Unknown"
@@ -301,11 +307,13 @@ def parse_trumedia_csv(file_path):
                         continue
 
             if shots:
-                # Update match_info with extra time detection
+                # Update match_info with extra time detection and halftime position
                 if match_info:
                     match_info['has_extra_time'] = has_extra_time
+                    match_info['first_half_end_minute'] = first_half_end_minute
 
                 print(f"✓ Extracted {len(shots)} shots from CSV")
+                print(f"✓ First half ended at minute {first_half_end_minute:.1f}")
                 print(f"✓ Teams found: {', '.join(team_colors.keys())}")
                 if team_colors:
                     print(f"✓ Team colors auto-detected")
@@ -558,7 +566,7 @@ def get_team_info(shots, auto_date=None, csv_team_colors=None, config=None):
         default_date = datetime.now().strftime("%b %d, %Y").upper()
         match_date_input = input(f"Match date (default: {default_date}, press Enter to accept): ").strip().upper()
         match_date = match_date_input if match_date_input else default_date
-    
+
     return {
         'team1': {'name': team1, 'color': color1},
         'team2': {'name': team2, 'color': color2},
@@ -566,7 +574,8 @@ def get_team_info(shots, auto_date=None, csv_team_colors=None, config=None):
         'date': match_date,
         'own_goals': own_goals,
         'extra_time': has_extra_time,
-        'different_line_styles': use_different_line_styles
+        'different_line_styles': use_different_line_styles,
+        'first_half_end_minute': 45  # Default for non-TruMedia sources
     }
 
 def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=None):
@@ -718,7 +727,8 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
         'date': match_date,
         'own_goals': own_goals,
         'extra_time': has_extra_time,
-        'different_line_styles': use_different_line_styles
+        'different_line_styles': use_different_line_styles,
+        'first_half_end_minute': match_info.get('first_half_end_minute', 45)
     }
 
 
@@ -1007,13 +1017,14 @@ def create_xg_chart(shots, team_info):
         ax.plot(minute, xg_at_minute, 's', color='white', markersize=7, 
                alpha=0.8, zorder=5.5)
     
-    # ENHANCEMENT 3: Half-time marker with cinematic style
-    ax.axvline(x=45, color='#00325B', linestyle='--', linewidth=2.5, 
+    # ENHANCEMENT 3: Half-time marker with cinematic style (dynamic position)
+    ht_minute = team_info.get('first_half_end_minute', 45)
+    ax.axvline(x=ht_minute, color='#00325B', linestyle='--', linewidth=2.5,
                alpha=0.4, zorder=1)
     # Add glow to HT marker
-    ax.axvline(x=45, color='white', linestyle='--', linewidth=1, 
+    ax.axvline(x=ht_minute, color='white', linestyle='--', linewidth=1,
                alpha=0.2, zorder=1.1)
-    ax.text(45, ax.get_ylim()[1] * 0.98, 'HT', ha='center', va='top',
+    ax.text(ht_minute, ax.get_ylim()[1] * 0.98, 'HT', ha='center', va='top',
            fontsize=11, fontweight='bold', color='#00325B',
            bbox=dict(boxstyle='round,pad=0.4', facecolor='white', 
                     edgecolor='#00325B', linewidth=2, alpha=0.95))

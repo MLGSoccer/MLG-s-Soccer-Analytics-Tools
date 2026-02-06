@@ -534,6 +534,12 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     X-axis: 0-100 (length, goal to goal)
     Y-axis: 0-100 (width, sideline to sideline)
     """
+    from matplotlib.patches import Ellipse
+    import math
+
+    # Aspect ratio compensation (pitch is 105m x 68m, displayed with aspect 68/105)
+    aspect_ratio = 68 / 105
+
     # Pitch markings (percentage-based)
     penalty_area_depth = 16.5 / 105 * 100
     penalty_area_width_pct = 40.3 / 68 * 100
@@ -547,7 +553,13 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     goal_bottom = (100 - goal_width_pct) / 2
 
     penalty_spot_dist = 11 / 105 * 100
-    center_circle_radius = 9.15 / 105 * 100
+    center_circle_radius_x = 9.15 / 105 * 100  # Radius in X (length) direction
+    center_circle_radius_y = 9.15 / 68 * 100   # Radius in Y (width) direction
+
+    # Calculate penalty arc angle where it meets the penalty box
+    # Distance from penalty spot to box edge = 16.5m - 11m = 5.5m
+    # Arc radius = 9.15m, so angle = arccos(5.5/9.15)
+    arc_angle = math.degrees(math.acos(5.5 / 9.15))  # ≈ 53.1 degrees
 
     # Draw pitch background
     pitch_bg = FancyBboxPatch(
@@ -558,12 +570,12 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     )
     ax.add_patch(pitch_bg)
 
-    # Center line
-    ax.axvline(x=50, color=line_color, linewidth=2, alpha=0.8, zorder=1)
+    # Center line (contained within pitch)
+    ax.plot([50, 50], [0, 100], color=line_color, linewidth=2, alpha=0.8, zorder=1)
 
-    # Center circle
-    center_circle = Circle(
-        (50, 50), center_circle_radius * 100 / 100,
+    # Center circle (use Ellipse to compensate for aspect ratio)
+    center_circle = Ellipse(
+        (50, 50), center_circle_radius_x * 2, center_circle_radius_y * 2,
         fill=False, edgecolor=line_color, linewidth=1.5, alpha=0.7, zorder=1
     )
     ax.add_patch(center_circle)
@@ -588,10 +600,10 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     # LEFT penalty spot
     ax.plot(penalty_spot_dist, 50, 'o', color=line_color, markersize=4, zorder=2)
 
-    # LEFT penalty arc
+    # LEFT penalty arc (connects to penalty box)
     left_arc = Arc(
-        (penalty_spot_dist, 50), center_circle_radius * 2, center_circle_radius * 2 * (105/68),
-        angle=0, theta1=-55, theta2=55,
+        (penalty_spot_dist, 50), center_circle_radius_x * 2, center_circle_radius_y * 2,
+        angle=0, theta1=-arc_angle, theta2=arc_angle,
         color=line_color, linewidth=1.5, alpha=0.7, zorder=1
     )
     ax.add_patch(left_arc)
@@ -621,10 +633,10 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     # RIGHT penalty spot
     ax.plot(100 - penalty_spot_dist, 50, 'o', color=line_color, markersize=4, zorder=2)
 
-    # RIGHT penalty arc
+    # RIGHT penalty arc (connects to penalty box)
     right_arc = Arc(
-        (100 - penalty_spot_dist, 50), center_circle_radius * 2, center_circle_radius * 2 * (105/68),
-        angle=0, theta1=125, theta2=235,
+        (100 - penalty_spot_dist, 50), center_circle_radius_x * 2, center_circle_radius_y * 2,
+        angle=0, theta1=180 - arc_angle, theta2=180 + arc_angle,
         color=line_color, linewidth=1.5, alpha=0.7, zorder=1
     )
     ax.add_patch(right_arc)
@@ -639,7 +651,7 @@ def draw_full_pitch_horizontal(ax, pitch_color='#2E7D32', line_color='white', al
     # Set axis limits
     ax.set_xlim(-3, 103)
     ax.set_ylim(-1, 101)
-    ax.set_aspect(68 / 105)  # Real pitch proportions
+    ax.set_aspect(aspect_ratio)  # Real pitch proportions
     ax.axis('off')
 
 
