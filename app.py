@@ -30,6 +30,7 @@ Use the sidebar to navigate between chart types.
 | **Set Piece Report** | Attacking/defensive set piece analysis |
 | **Player Bar Chart** | Leaderboard or team roster stats |
 | **Team Chart Generator** | Custom scatter/bar charts from any data |
+| **Shot Chart** | Shot locations on pitch for a single match |
 
 ### Data Format
 
