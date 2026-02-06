@@ -258,9 +258,19 @@ def parse_trumedia_csv(file_path):
                             except ValueError:
                                 pass
 
-                        # Track first half end minute
+                        # Track first half end minute (based on raw gameClock)
                         if period == 1:
                             first_half_end_minute = max(first_half_end_minute, minute)
+
+                        # Adjust minute for period (in case gameClock resets at halftime)
+                        # Period 2 shots should come after all Period 1 shots
+                        if period == 2 and minute < 46:
+                            # gameClock likely reset - add offset
+                            minute = minute + 45
+                        elif period == 3 and minute < 91:
+                            minute = minute + 90
+                        elif period == 4 and minute < 106:
+                            minute = minute + 105
 
                         # Map playType to outcome
                         play_type = row[play_type_idx] if play_type_idx and len(row) > play_type_idx else "Unknown"
