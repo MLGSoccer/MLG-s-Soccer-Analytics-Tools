@@ -761,8 +761,8 @@ def create_xg_chart(shots, team_info):
     use_different_styles = team_info.get('different_line_styles', False)
     team2_linestyle = '--' if use_different_styles else '-'
 
-    team1_shots = [(m, xg, outcome) for m, team, xg, outcome in shots if team == team1_name]
-    team2_shots = [(m, xg, outcome) for m, team, xg, outcome in shots if team == team2_name]
+    team1_shots = sorted([(m, xg, outcome) for m, team, xg, outcome in shots if team == team1_name], key=lambda x: x[0])
+    team2_shots = sorted([(m, xg, outcome) for m, team, xg, outcome in shots if team == team2_name], key=lambda x: x[0])
     
     # SAFETY CHECK: Handle teams with zero shots
     if not team1_shots and not team2_shots:
