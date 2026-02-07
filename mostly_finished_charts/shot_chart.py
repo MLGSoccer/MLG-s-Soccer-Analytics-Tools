@@ -118,7 +118,7 @@ def _use_decimal_coords(df):
     return df
 
 
-def load_shot_data(file_path):
+def load_shot_data(file_path, exclude_penalties=False):
     """
     Load and filter shot data from TruMedia CSV.
 
@@ -132,6 +132,12 @@ def load_shot_data(file_path):
     # Filter to shot events only
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
     shots_df = _use_decimal_coords(shots_df)
+
+    # Exclude penalties if requested
+    if exclude_penalties and 'ShotPlayStyle' in shots_df.columns:
+        before = len(shots_df)
+        shots_df = shots_df[shots_df['ShotPlayStyle'] != 'Penalty'].copy()
+        print(f"Excluded {before - len(shots_df)} penalty shots")
 
     # Normalize team names (strip "Women" where safe)
     if 'Team' in shots_df.columns:
@@ -174,7 +180,7 @@ def load_shot_data(file_path):
     return shots_df, match_info, team_colors
 
 
-def load_multi_match_shot_data(file_path):
+def load_multi_match_shot_data(file_path, exclude_penalties=False):
     """
     Load multi-match shot data from TruMedia CSV (season-long, single team).
 
@@ -191,6 +197,12 @@ def load_multi_match_shot_data(file_path):
     # Filter to shot events only
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
     shots_df = _use_decimal_coords(shots_df)
+
+    # Exclude penalties if requested
+    if exclude_penalties and 'ShotPlayStyle' in shots_df.columns:
+        before = len(shots_df)
+        shots_df = shots_df[shots_df['ShotPlayStyle'] != 'Penalty'].copy()
+        print(f"Excluded {before - len(shots_df)} penalty shots")
 
     # Normalize team names (strip "Women" where safe)
     if 'Team' in shots_df.columns:
@@ -336,7 +348,8 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
 def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                            opponent_name, team_final_score=0, opponent_goals=0,
                            own_goals_for=0, own_goals_against=0,
-                           flip_coords=False, competition=''):
+                           flip_coords=False, competition='',
+                           exclude_penalties=False):
     """
     Create a single team's shot chart using mplsoccer VerticalPitch.
     """
@@ -384,7 +397,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                  fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    subtitle_parts = [f"{team_name.upper()} SHOT MAP"]
+    shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
+    subtitle_parts = [f"{team_name.upper()} {shot_map_label}"]
     if competition:
         subtitle_parts.append(competition.upper())
     if match_info.get('date_formatted'):
@@ -448,7 +462,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
 
 
 def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_info,
-                                   competition='', player_name=None):
+                                   competition='', player_name=None,
+                                   exclude_penalties=False):
     """
     Create a multi-match shot chart for one team on a vertical half-pitch.
 
@@ -532,10 +547,12 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         edgecolor=bar_edge, linewidth=bar_lw, zorder=10
     ))
 
-    # Add competition and date range to subtitle
+    # Add competition and date range (or non-penalty label) to subtitle
     if competition:
         subtitle_parts.append(competition.upper())
-    if date_range:
+    if exclude_penalties:
+        subtitle_parts.append('Non-Penalty Shots')
+    elif date_range:
         subtitle_parts.append(date_range)
 
     if subtitle_parts:
@@ -618,7 +635,8 @@ def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False):
 
 def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                                 team2_name, team2_color, team2_flip,
-                                match_info, competition=''):
+                                match_info, competition='',
+                                exclude_penalties=False):
     """
     Create a combined shot chart showing both teams on a full horizontal pitch.
 
@@ -684,7 +702,8 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                  fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    subtitle_parts = ['SHOT MAP']
+    shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
+    subtitle_parts = [shot_map_label]
     if competition:
         subtitle_parts.append(competition.upper())
     if match_info.get('date_formatted'):

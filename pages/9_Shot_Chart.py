@@ -39,6 +39,12 @@ competition = st.sidebar.text_input(
 if competition:
     st.sidebar.success(f"Competition: {competition}")
 
+exclude_penalties = st.sidebar.checkbox(
+    "Exclude Penalties",
+    value=False,
+    help="Filter out penalty shots from the chart"
+)
+
 # File upload
 uploaded_file = st.file_uploader(
     "Upload TruMedia Event Log CSV",
@@ -77,7 +83,7 @@ if uploaded_file is not None:
             )
 
             with st.spinner("Parsing match data..."):
-                shots_df, match_info, team_colors = load_shot_data(tmp_path)
+                shots_df, match_info, team_colors = load_shot_data(tmp_path, exclude_penalties=exclude_penalties)
 
             if shots_df.empty:
                 st.error("No shot data found in CSV.")
@@ -156,7 +162,8 @@ if uploaded_file is not None:
                                     team2_name, team_final_score=team1_final_score,
                                     opponent_goals=team2_final_score,
                                     own_goals_for=team1_own_goals,
-                                    flip_coords=team1_flip, competition=competition
+                                    flip_coords=team1_flip, competition=competition,
+                                    exclude_penalties=exclude_penalties
                                 )
                                 path1 = os.path.join(tmp_dir, f"shot_chart_{team1_name.replace(' ', '_')}.png")
                                 fig1.savefig(path1, dpi=300, bbox_inches='tight',
@@ -170,7 +177,8 @@ if uploaded_file is not None:
                                     team1_name, team_final_score=team2_final_score,
                                     opponent_goals=team1_final_score,
                                     own_goals_for=team2_own_goals,
-                                    flip_coords=team2_flip, competition=competition
+                                    flip_coords=team2_flip, competition=competition,
+                                    exclude_penalties=exclude_penalties
                                 )
                                 path2 = os.path.join(tmp_dir, f"shot_chart_{team2_name.replace(' ', '_')}.png")
                                 fig2.savefig(path2, dpi=300, bbox_inches='tight',
@@ -183,7 +191,8 @@ if uploaded_file is not None:
                                 fig_combined = create_combined_shot_chart(
                                     shots_df, team1_name, team1_color, team1_flip,
                                     team2_name, team2_color, team2_flip,
-                                    match_info, competition=competition
+                                    match_info, competition=competition,
+                                    exclude_penalties=exclude_penalties
                                 )
                                 path_combined = os.path.join(tmp_dir, f"shot_chart_combined.png")
                                 fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight',
@@ -209,7 +218,7 @@ if uploaded_file is not None:
         else:
             # ── MULTI-MATCH MODE ───────────────────────────────────────
             with st.spinner("Parsing season data..."):
-                shots_df, multi_match_info, team_color_raw = load_multi_match_shot_data(tmp_path)
+                shots_df, multi_match_info, team_color_raw = load_multi_match_shot_data(tmp_path, exclude_penalties=exclude_penalties)
 
             if shots_df.empty:
                 st.error("No shot data found in CSV.")
@@ -299,7 +308,8 @@ if uploaded_file is not None:
                             with tempfile.TemporaryDirectory() as tmp_dir:
                                 fig = create_multi_match_shot_chart(
                                     chart_shots, team_name, team_color, chart_info,
-                                    competition=competition, player_name=selected_player
+                                    competition=competition, player_name=selected_player,
+                                    exclude_penalties=exclude_penalties
                                 )
 
                                 name_part = team_name.replace(' ', '_')
