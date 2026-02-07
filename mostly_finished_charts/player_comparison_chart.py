@@ -86,6 +86,41 @@ def get_text_color_for_background(bg_color):
 # =============================================================================
 # POSITION MAPPING
 # =============================================================================
+# =============================================================================
+# LEAGUE CATEGORY MAPPING
+# =============================================================================
+def get_league_category(league_name):
+    """Map a TruMedia league name to a display category.
+
+    Returns one of: "Big 5 European Leagues", "Americas Big 4", "Women's Soccer",
+    or the raw league name if no category matches.
+    """
+    if not league_name or (isinstance(league_name, float) and pd.isna(league_name)):
+        return None
+
+    league_lower = str(league_name).lower()
+
+    # Women's leagues (check first - most specific)
+    if any(w in league_lower for w in ['nwsl', 'wsl', 'women']):
+        return "Women's Soccer"
+
+    # Big 5 European Leagues
+    if any(w in league_lower for w in ['premier league', 'la liga', 'bundesliga', 'ligue 1',
+                                        'champions league', 'europa league', 'conference league']):
+        return "Big 5 European Leagues"
+    if 'serie a' in league_lower and not any(w in league_lower for w in ['brazil', 'brasileir']):
+        return "Big 5 European Leagues"
+
+    # Americas Big 4
+    if any(w in league_lower for w in ['mls', 'major league soccer', 'liga mx',
+                                        'brasileir', 'brazil serie', 'primera division',
+                                        'argentine', 'argentina']):
+        return "Americas Big 4"
+
+    # Fallback to raw league name
+    return league_name
+
+
 POSITION_MAPPING = {
     # Center Back
     'Left Centre Back': 'Center Back',
@@ -500,8 +535,10 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
             ha='right', transform=ax.transAxes)
 
     # Footer
+    league_category = get_league_category(player_row.get('newestLeague', ''))
+    footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig.text(0.98, 0.01, f'Data: TruMedia  •  n={peer_count} {position}s',
+    fig.text(0.98, 0.01, footer_right,
              fontsize=8, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -742,8 +779,10 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
             ha='right', transform=ax.transAxes)
 
     # Footer
+    league_category = get_league_category(player_row.get('newestLeague', ''))
+    footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {position}s'
     fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE)
-    fig.text(0.98, 0.015, f'Data: TruMedia  •  Percentile rank among {position}s (n={peer_count}, min. 900 min)',
+    fig.text(0.98, 0.015, footer_right,
              fontsize=9, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -1367,7 +1406,9 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
             fontsize=7, color='#556B7F', transform=ax.transAxes, va='center', ha='right')
 
     # Data attribution
-    fig.text(info_x, brand_y, f'Data: TruMedia  •  Percentile rank among {comparison_position}s (n={peer_count}, min. 900 min)',
+    league_category = get_league_category(player_rows[0].get('newestLeague', ''))
+    footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s'
+    fig.text(info_x, brand_y, footer_right,
              fontsize=8, color='#666666', ha='right')
 
     # CBS SPORTS branding (bottom)
@@ -1463,8 +1504,10 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
                       row_spacing=row_spacing, use_colormaps=False, label_fontsize=15)
 
     # Footer
+    league_category = get_league_category(player_rows[0].get('newestLeague', ''))
+    footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
     fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig.text(0.98, 0.015, f'Data: TruMedia  •  n={peer_count} {comparison_position}s',
+    fig.text(0.98, 0.015, footer_right,
              fontsize=8, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -1607,7 +1650,7 @@ def main():
     print("PLAYER COMPARISON CHART BUILDER")
     print("="*60)
     print("Compares a player against position peers using percentile rankings.")
-    print("Data source: TruMedia CSV export (last 365 days)")
+    print("Data source: Opta/STATS Perform CSV export (last 365 days)")
 
     # Get CSV file
     csv_path = get_file_path("Player stats CSV file")
