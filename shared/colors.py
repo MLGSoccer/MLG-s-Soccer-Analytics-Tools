@@ -290,7 +290,6 @@ TEAM_COLORS = {
 
     # Bundesliga
     'Bayern Munich': '#DC052D',
-    'Bayern München': '#DC052D',
     'Bayern Munchen': '#DC052D',
     'Borussia Dortmund': '#FDE100',
     'RB Leipzig': '#DD0741',
@@ -299,8 +298,6 @@ TEAM_COLORS = {
     'Eintracht Frankfurt': '#E1000F',
     'Schalke': '#004D9D',
     'Borussia Monchengladbach': '#000000',
-    'Borussia Mönchengladbach': '#000000',
-    'FC Köln': '#EC1C24',
     'FC Koln': '#EC1C24',
 
     # Ligue 1
