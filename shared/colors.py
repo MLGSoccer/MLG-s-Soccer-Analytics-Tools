@@ -198,6 +198,25 @@ TEAM_ABBREV = {
     'JSL': 'Juárez',
     'ASL': 'Atlético San Luis',
     'CTJ': 'Club Tijuana',
+
+    # NWSL
+    'ANG': 'Angel City FC',
+    'BAY': 'Bay FC',
+    'CRS': 'Chicago Red Stars',
+    'HOU': 'Houston Dash',
+    'KC': 'Kansas City Current',
+    'LOU': 'Racing Louisville FC',
+    'NJY': 'NJ/NY Gotham FC',
+    'NCC': 'North Carolina Courage',
+    'OLR': 'OL Reign',
+    'ORL': 'Orlando Pride',
+    'POR': 'Portland Thorns FC',
+    'SDW': 'San Diego Wave FC',
+    'UTA': 'Utah Royals',
+    'WAS': 'Washington Spirit',
+
+    # WSL (women-only clubs)
+    'LCL': 'London City Lionesses',
 }
 
 
@@ -373,6 +392,27 @@ TEAM_COLORS = {
     'Juárez': '#C68E28',
     'Atlético San Luis': '#E31837',
     'Club Tijuana': '#C8102E',
+
+    # NWSL
+    'Angel City FC': '#010101',
+    'Bay FC': '#051C2C',
+    'Chicago Red Stars': '#051C2C',
+    'Houston Dash': '#101820',
+    'Kansas City Current': '#64CCC9',
+    'Racing Louisville FC': '#C5B4E3',
+    'NJ/NY Gotham FC': '#9ADBE8',
+    'North Carolina Courage': '#01426A',
+    'OL Reign': '#003087',
+    'Orlando Pride': '#5F249F',
+    'Portland Thorns FC': '#93282C',
+    'Portland Thorns': '#93282C',
+    'San Diego Wave FC': '#041E42',
+    'San Diego Wave': '#041E42',
+    'Utah Royals': '#001E62',
+    'Washington Spirit': '#C8102E',
+
+    # WSL (women-only clubs)
+    'London City Lionesses': '#D4AF37',
 }
 
 
@@ -498,6 +538,40 @@ def expand_team_name_with_prompt(abbrev):
         return full_name
 
     return abbrev
+
+
+# Women's-only club names (no men's team with the same name)
+# Used by normalize_team_name to safely strip "Women" suffix
+WOMENS_ONLY_CLUBS = {
+    'Angel City FC', 'Bay FC', 'Chicago Red Stars', 'Houston Dash',
+    'Kansas City Current', 'Racing Louisville FC', 'NJ/NY Gotham FC',
+    'North Carolina Courage', 'OL Reign', 'Orlando Pride',
+    'Portland Thorns FC', 'Portland Thorns', 'San Diego Wave FC',
+    'San Diego Wave', 'Utah Royals', 'Washington Spirit',
+    'London City Lionesses',
+}
+
+
+def normalize_team_name(team_name, color_dict=None):
+    """
+    Normalize team names from TruMedia CSVs.
+
+    Strips ' Women' suffix when the base name is a women's-only club
+    (no men's team shares the name). E.g.:
+        'Washington Spirit Women' -> 'Washington Spirit'
+        'Chelsea Women' -> 'Chelsea Women' (men's Chelsea exists)
+    """
+    if not team_name.endswith(' Women'):
+        return team_name
+
+    base_name = team_name[:-6]  # Strip ' Women'
+
+    # If base name is a known women's-only club, safe to strip
+    if base_name in WOMENS_ONLY_CLUBS:
+        return base_name
+
+    # Otherwise keep "Women" suffix (likely shares name with men's team)
+    return team_name
 
 
 def fuzzy_match_team(team_name, color_dict):

@@ -21,7 +21,7 @@ from mplsoccer import Pitch, VerticalPitch
 
 # Import shared utilities
 from shared.colors import (
-    TEAM_COLORS, fuzzy_match_team
+    TEAM_COLORS, fuzzy_match_team, normalize_team_name
 )
 from shared.styles import BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer
 
@@ -133,13 +133,17 @@ def load_shot_data(file_path):
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
     shots_df = _use_decimal_coords(shots_df)
 
+    # Normalize team names (strip "Women" where safe)
+    if 'Team' in shots_df.columns:
+        shots_df['Team'] = shots_df['Team'].apply(normalize_team_name)
+
     print(f"Found {len(shots_df)} shots")
 
     # Extract match info
     first_row = df.iloc[0]
     match_info = {
-        'home_team': first_row.get('homeTeam', 'Home'),
-        'away_team': first_row.get('awayTeam', 'Away'),
+        'home_team': normalize_team_name(first_row.get('homeTeam', 'Home')),
+        'away_team': normalize_team_name(first_row.get('awayTeam', 'Away')),
         'date': first_row.get('Date', ''),
         'home_score': int(first_row.get('homeFinalScore')) if pd.notna(first_row.get('homeFinalScore')) else int(df['homeCurrentScore'].max()) if 'homeCurrentScore' in df.columns else 0,
         'away_score': int(first_row.get('awayFinalScore')) if pd.notna(first_row.get('awayFinalScore')) else int(df['awayCurrentScore'].max()) if 'awayCurrentScore' in df.columns else 0,
@@ -187,6 +191,11 @@ def load_multi_match_shot_data(file_path):
     # Filter to shot events only
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
     shots_df = _use_decimal_coords(shots_df)
+
+    # Normalize team names (strip "Women" where safe)
+    if 'Team' in shots_df.columns:
+        shots_df['Team'] = shots_df['Team'].apply(normalize_team_name)
+
     print(f"Found {len(shots_df)} shots across multiple matches")
 
     if shots_df.empty:
