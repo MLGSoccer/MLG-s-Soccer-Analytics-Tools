@@ -141,8 +141,8 @@ def load_shot_data(file_path):
         'home_team': first_row.get('homeTeam', 'Home'),
         'away_team': first_row.get('awayTeam', 'Away'),
         'date': first_row.get('Date', ''),
-        'home_score': int(first_row.get('homeFinalScore', 0)),
-        'away_score': int(first_row.get('awayFinalScore', 0)),
+        'home_score': int(first_row.get('homeFinalScore')) if pd.notna(first_row.get('homeFinalScore')) else int(df['homeCurrentScore'].max()) if 'homeCurrentScore' in df.columns else 0,
+        'away_score': int(first_row.get('awayFinalScore')) if pd.notna(first_row.get('awayFinalScore')) else int(df['awayCurrentScore'].max()) if 'awayCurrentScore' in df.columns else 0,
     }
 
     # Format date
