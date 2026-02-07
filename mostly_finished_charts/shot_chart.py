@@ -109,6 +109,15 @@ def detect_csv_mode(df):
     return 'single'
 
 
+def _use_decimal_coords(df):
+    """Use decimal coordinate columns when available, overwriting integer ones."""
+    if 'EventXDecimal' in df.columns:
+        df['EventX'] = df['EventXDecimal']
+    if 'EventYDecimal1' in df.columns:
+        df['EventY'] = df['EventYDecimal1']
+    return df
+
+
 def load_shot_data(file_path):
     """
     Load and filter shot data from TruMedia CSV.
@@ -122,6 +131,7 @@ def load_shot_data(file_path):
 
     # Filter to shot events only
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
+    shots_df = _use_decimal_coords(shots_df)
 
     print(f"Found {len(shots_df)} shots")
 
@@ -176,6 +186,7 @@ def load_multi_match_shot_data(file_path):
 
     # Filter to shot events only
     shots_df = df[df['playType'].isin(SHOT_TYPES)].copy()
+    shots_df = _use_decimal_coords(shots_df)
     print(f"Found {len(shots_df)} shots across multiple matches")
 
     if shots_df.empty:
