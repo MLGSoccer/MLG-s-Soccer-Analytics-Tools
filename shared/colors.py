@@ -223,13 +223,7 @@ TEAM_ALTERNATE_COLORS = {
     'Eintracht Frankfurt': '#FFFFFF', # White
     'AFC Bournemouth': '#000000',   # Black
 
-    # Blue teams
-    'Chelsea': '#FFFFFF',           # White
-    'Manchester City': '#FFFFFF',   # White (or navy #1C2C5B)
-    'Everton': '#FFFFFF',           # White
-    'Napoli': '#FFFFFF',            # White
-    'Inter Milan': '#FFFFFF',       # White
-    'Tottenham': '#FFFFFF',         # White (primary is navy)
+    # Blue teams (actual colors defined in league sections below)
     'Lazio': '#000080',             # Navy
     'PSG': '#E30613',               # Red
     'Paris Saint-Germain': '#E30613', # Red
@@ -252,11 +246,16 @@ TEAM_COLORS = {
     'Villarreal': '#FFE667',
     'Real Sociedad': '#0A3A82',
     'Athletic Bilbao': '#EE2523',
+    'Athletic Club': '#EE2523',
     'Real Betis': '#00954C',
+    'Celta Vigo': '#8AC3EE',
+    'Getafe': '#005999',
 
     # Premier League
     'Manchester United': '#DA291C',
+    'Man United': '#DA291C',
     'Manchester City': '#6CABDD',
+    'Man City': '#6CABDD',
     'Liverpool': '#C8102E',
     'Chelsea': '#034694',
     'Arsenal': '#EF0107',
@@ -269,16 +268,21 @@ TEAM_COLORS = {
     'Everton': '#003399',
     'Leeds United': '#FFCD00',
     'Wolves': '#FDB913',
+    'Wolverhampton Wanderers': '#FDB913',
     'Brighton': '#0057B8',
+    'Brighton and Hove Albion': '#0057B8',
     'Crystal Palace': '#1B458F',
     'AFC Bournemouth': '#B50E12',
 
     # Serie A
     'Juventus': '#000000',
     'Inter Milan': '#0068A8',
+    'Internazionale': '#0068A8',
     'AC Milan': '#FB090B',
     'Napoli': '#00A1DD',
     'Roma': '#8B0304',
+    'AS Roma': '#8B0304',
+    'Hellas Verona': '#FFED00',
     'Lazio': '#87D8F7',
     'Atalanta': '#1B3B82',
     'Fiorentina': '#512D6D',
@@ -286,6 +290,8 @@ TEAM_COLORS = {
 
     # Bundesliga
     'Bayern Munich': '#DC052D',
+    'Bayern München': '#DC052D',
+    'Bayern Munchen': '#DC052D',
     'Borussia Dortmund': '#FDE100',
     'RB Leipzig': '#DD0741',
     'Bayer Leverkusen': '#E32221',
@@ -293,12 +299,18 @@ TEAM_COLORS = {
     'Eintracht Frankfurt': '#E1000F',
     'Schalke': '#004D9D',
     'Borussia Monchengladbach': '#000000',
+    'Borussia Mönchengladbach': '#000000',
+    'FC Köln': '#EC1C24',
+    'FC Koln': '#EC1C24',
 
     # Ligue 1
     'Paris Saint-Germain': '#004170',
     'PSG': '#004170',
     'Marseille': '#2BB5E8',
+    'Olympique de Marseille': '#2BB5E8',
+    'Olympique Marseille': '#2BB5E8',
     'Lyon': '#DA020E',
+    'Olympique Lyonnais': '#DA020E',
     'Monaco': '#E30613',
     'Lille': '#D01317',
 
