@@ -204,16 +204,30 @@ def extract_match_info(filepath):
     away_idx = get_idx('awayTeam')
     home_score_idx = get_idx('homeFinalScore')
     away_score_idx = get_idx('awayFinalScore')
+    home_current_idx = get_idx('homeCurrentScore')
+    away_current_idx = get_idx('awayCurrentScore')
     date_idx = get_idx('Date')
 
     row = next(reader)
     f.close()
 
+    def safe_score(final_idx, current_idx):
+        """Get score: prefer final, fall back to current, then 0."""
+        if final_idx is not None:
+            val = row[final_idx]
+            if val and val.lower() not in ('nan', ''):
+                return val
+        if current_idx is not None:
+            val = row[current_idx]
+            if val and val.lower() not in ('nan', ''):
+                return val
+        return '0'
+
     return {
         'home_team': row[home_idx] if home_idx else 'Home',
         'away_team': row[away_idx] if away_idx else 'Away',
-        'home_score': row[home_score_idx] if home_score_idx else '0',
-        'away_score': row[away_score_idx] if away_score_idx else '0',
+        'home_score': safe_score(home_score_idx, home_current_idx),
+        'away_score': safe_score(away_score_idx, away_current_idx),
         'date': row[date_idx] if date_idx else ''
     }
 
