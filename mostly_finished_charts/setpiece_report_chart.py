@@ -223,7 +223,7 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.94])
     plt.subplots_adjust(hspace=0.35)
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     # Save combined chart
     if output_folder:
@@ -254,7 +254,7 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
         style_axis(ax1)
         ax1.set_xlim(0, df_sorted['SPxG_pg'].max() * 1.15)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig1, data_source='TruMedia')
+        add_cbs_footer(fig1, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig1, output_folder, f"setpiece_attacking_xg_created_{league_slug}.png"))
 
         # Panel 2: xG Reliance %
@@ -275,7 +275,7 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
         style_axis(ax2)
         ax2.set_xlim(0, df_sorted['SP_xG_Pct'].max() * 1.15)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig2, data_source='TruMedia')
+        add_cbs_footer(fig2, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig2, output_folder, f"setpiece_attacking_reliance_{league_slug}.png"))
 
         # Panel 3: Shot Quality
@@ -305,7 +305,7 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
         ax3.text(0.97, 0.03, 'Many Shots\nLow Quality', transform=ax3.transAxes,
                  fontsize=8, color=TEXT_MUTED, va='bottom', ha='right', alpha=0.7)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig3, data_source='TruMedia')
+        add_cbs_footer(fig3, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig3, output_folder, f"setpiece_attacking_shot_quality_{league_slug}.png"))
 
         # Panel 4: Finishing
@@ -331,7 +331,7 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
         ax4.text(0.97, 0.03, 'Underperforming\n(Fewer goals than xG)', transform=ax4.transAxes,
                  fontsize=8, color=TEXT_MUTED, va='bottom', ha='right', alpha=0.7)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig4, data_source='TruMedia')
+        add_cbs_footer(fig4, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig4, output_folder, f"setpiece_attacking_finishing_{league_slug}.png"))
 
     return saved_files
@@ -469,7 +469,7 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.94])
     plt.subplots_adjust(hspace=0.35)
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     # Save combined chart
     if output_folder:
@@ -500,7 +500,7 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
         style_axis(ax1)
         ax1.set_xlim(0, df_sorted['SPxGA_pg'].max() * 1.15)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig1, data_source='TruMedia')
+        add_cbs_footer(fig1, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig1, output_folder, f"setpiece_defensive_xga_conceded_{league_slug}.png"))
 
         # Panel 2: Vulnerability %
@@ -521,7 +521,7 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
         style_axis(ax2)
         ax2.set_xlim(0, df_sorted['SP_xGA_Pct'].max() * 1.15)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig2, data_source='TruMedia')
+        add_cbs_footer(fig2, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig2, output_folder, f"setpiece_defensive_vulnerability_{league_slug}.png"))
 
         # Panel 3: Shot Quality Faced
@@ -551,7 +551,7 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
         ax3.text(0.97, 0.03, 'Many Shots\nLow Quality', transform=ax3.transAxes,
                  fontsize=8, color=TEXT_MUTED, va='bottom', ha='right', alpha=0.7)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig3, data_source='TruMedia')
+        add_cbs_footer(fig3, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig3, output_folder, f"setpiece_defensive_shot_quality_{league_slug}.png"))
 
         # Panel 4: Defense Performance
@@ -577,7 +577,7 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
         ax4.text(0.97, 0.03, 'Lucky\n(Conceding less than xGA)', transform=ax4.transAxes,
                  fontsize=8, color=TEXT_MUTED, va='bottom', ha='right', alpha=0.7)
         plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-        add_cbs_footer(fig4, data_source='TruMedia')
+        add_cbs_footer(fig4, data_source='Opta/STATS Perform')
         saved_files.append(_save_figure(fig4, output_folder, f"setpiece_defensive_performance_{league_slug}.png"))
 
     return saved_files

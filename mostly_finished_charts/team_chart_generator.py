@@ -174,7 +174,7 @@ def create_scatter_chart(df, team_info, x_col, y_col, title, x_label, y_label, o
 
     # Footer
     plt.tight_layout(rect=[0, 0.03, 1, 0.93])
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     # Save
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -253,7 +253,7 @@ def create_horizontal_bar_chart(df, team_info, value_col, title, x_label, output
 
     # Footer
     plt.tight_layout(rect=[0, 0.02, 1, 0.96])
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     # Save
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -331,7 +331,7 @@ def create_vertical_bar_chart(df, team_info, value_col, title, y_label, output_p
 
     # Footer
     plt.tight_layout(rect=[0, 0.02, 1, 0.93])
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     # Save
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')

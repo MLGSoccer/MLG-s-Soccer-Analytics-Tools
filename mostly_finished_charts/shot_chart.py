@@ -433,7 +433,7 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.84])
 
     # Add CBS Sports and TruMedia branding
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     return fig
 
@@ -573,7 +573,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.84])
 
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     return fig
 
@@ -747,7 +747,7 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     plt.tight_layout(rect=[0.02, 0.03, 0.98, 0.84])
 
     # Add CBS Sports and TruMedia branding
-    add_cbs_footer(fig, data_source='TruMedia')
+    add_cbs_footer(fig, data_source='Opta/STATS Perform')
 
     return fig
 
