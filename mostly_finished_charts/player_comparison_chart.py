@@ -18,7 +18,8 @@ from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SE
 from shared.file_utils import get_file_path, get_output_folder
 from shared.colors import (
     TEAM_COLORS, fuzzy_match_team, check_colors_need_fix,
-    lighten_color, darken_color, color_distance, get_team_abbrev
+    lighten_color, darken_color, color_distance, get_team_abbrev,
+    normalize_team_name
 )
 
 
@@ -208,6 +209,11 @@ METRICS = {
 def load_player_data(csv_path):
     """Load and process player data from CSV"""
     df = pd.read_csv(csv_path, encoding='utf-8')
+
+    # Normalize team names (strip "Women" where safe)
+    for col in ['newestTeam', 'teamName']:
+        if col in df.columns:
+            df[col] = df[col].apply(lambda x: normalize_team_name(x) if pd.notna(x) else x)
 
     # Map positions to our categories
     df['PositionCategory'] = df['Position'].map(POSITION_MAPPING)
