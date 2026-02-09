@@ -446,7 +446,9 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
 
     ax1.set_xlabel('MATCH', fontsize=12, fontweight='bold', color='white')
     ax1.set_ylabel('xG DIFFERENCE', fontsize=12, fontweight='bold', color='white')
-    ax1.set_title(f'xG DIFFERENCE ({window}-GAME ROLLING)', fontsize=14, fontweight='bold', color='white', pad=10)
+    ax1.set_title('xG DIFFERENCE TREND LINE', fontsize=14, fontweight='bold', color='white', pad=22)
+    ax1.text(0.5, 1.01, f'{window}-Game Rolling Average', transform=ax1.transAxes,
+             ha='center', fontsize=10, color='#8BA3B8', style='italic')
 
     style_axis(ax1)
     draw_season_boundaries(ax1, season_boundaries, y_pos='top')
@@ -583,8 +585,8 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     style_axis(ax1)
     draw_season_boundaries(ax1, season_boundaries, y_pos='top')
 
-    fig1.text(0.5, 0.95, title_base, ha='center', fontsize=20, fontweight='bold', color='white')
-    fig1.text(0.5, 0.90, f'{season_text}xG DIFFERENCE ({window}-GAME ROLLING)', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig1.text(0.5, 0.95, f'{title_base} -- xG Difference Trend Line', ha='center', fontsize=20, fontweight='bold', color='white')
+    fig1.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
     fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -608,8 +610,8 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     style_axis(ax2)
     draw_season_boundaries(ax2, season_boundaries, y_pos='top')
 
-    fig2.text(0.5, 0.95, title_base, ha='center', fontsize=20, fontweight='bold', color='white')
-    fig2.text(0.5, 0.90, f'{season_text}xG FOR & AGAINST ({window}-GAME ROLLING)', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig2.text(0.5, 0.95, f'{title_base} -- xG For & Against', ha='center', fontsize=20, fontweight='bold', color='white')
+    fig2.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
     fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -635,8 +637,8 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     style_axis(ax3)
     draw_season_boundaries(ax3, season_boundaries, y_pos='top')
 
-    fig3.text(0.5, 0.95, title_base, ha='center', fontsize=20, fontweight='bold', color='white')
-    fig3.text(0.5, 0.90, f'{season_text}COMBINED VIEW ({window}-GAME ROLLING)', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig3.text(0.5, 0.95, f'{title_base} -- Combined xG View', ha='center', fontsize=20, fontweight='bold', color='white')
+    fig3.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
     fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -662,8 +664,8 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     style_axis(ax4)
     draw_season_boundaries(ax4, season_boundaries, y_pos='top')
 
-    fig4.text(0.5, 0.95, title_base, ha='center', fontsize=20, fontweight='bold', color='white')
-    fig4.text(0.5, 0.90, f'{season_text}CUMULATIVE xG vs ACTUAL GOALS', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig4.text(0.5, 0.95, f'{title_base} -- Cumulative xG vs Goals', ha='center', fontsize=20, fontweight='bold', color='white')
+    fig4.text(0.5, 0.90, f'{season_text}{len(matches)} Matches', ha='center', fontsize=12, color='#8BA3B8', style='italic')
     fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
