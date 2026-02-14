@@ -541,7 +541,7 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
 
     # Footer
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig.text(0.98, 0.01, 'DATA: TRUMEDIA', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    fig.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
@@ -691,7 +691,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
 
     layout_rect = add_info_strip_to_figure(fig1, title_base, f'{subtitle} | GOALS/90 vs xG/90 ({window}-GAME ROLLING)')
     fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig1.text(0.98, 0.01, 'DATA: TRUMEDIA', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    fig1.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=layout_rect)
     path1 = os.path.join(output_folder, "player_goals_vs_xg_rolling.png")
@@ -721,7 +721,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
 
     layout_rect = add_info_strip_to_figure(fig2, title_base, f'{subtitle} | xG PER 90 TREND')
     fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig2.text(0.98, 0.01, 'DATA: TRUMEDIA', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    fig2.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=layout_rect)
     path2 = os.path.join(output_folder, "player_xg_per90_trend.png")
@@ -770,7 +770,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
 
     layout_rect = add_info_strip_to_figure(fig3, title_base, f'{subtitle} | SHOT VOLUME & QUALITY')
     fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig3.text(0.98, 0.01, 'DATA: TRUMEDIA', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    fig3.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=layout_rect)
     path3 = os.path.join(output_folder, "player_shot_volume_quality.png")
@@ -848,7 +848,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
 
     layout_rect = add_info_strip_to_figure(fig4, title_base, f'{subtitle} | LAST {len(display_matches)} MATCHES (vs SEASON AVG)')
     fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig4.text(0.98, 0.01, 'DATA: TRUMEDIA', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    fig4.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=layout_rect)
     path4 = os.path.join(output_folder, "player_last10_vs_avg.png")

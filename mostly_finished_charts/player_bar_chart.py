@@ -498,7 +498,7 @@ def create_horizontal_bar_chart(data, stat_display, title, subtitle, output_path
     fig.text(0.5, 0.90, subtitle, ha='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Footer
-    add_cbs_footer(fig, 'TruMedia')
+    add_cbs_footer(fig)
 
     # Save
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')

@@ -31,6 +31,7 @@ Use the sidebar to navigate between chart types.
 | **Player Bar Chart** | Leaderboard or team roster stats |
 | **Team Chart Generator** | Custom scatter/bar charts from any data |
 | **Shot Chart** | Shot locations on pitch for a single match |
+| **Passing Flow** | Sankey diagram of pass progression through pitch zones |
 
 ### Data Format
 
@@ -46,4 +47,4 @@ All charts use **TruMedia CSV** files. Upload your CSV and the app will auto-det
 """)
 
 st.markdown("---")
-st.caption("CBS SPORTS | Data: TruMedia")
+st.caption("CBS SPORTS | Data: Opta/Stats Perform")

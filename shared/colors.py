@@ -62,6 +62,8 @@ TEAM_ABBREV = {
     'BRN': 'Barnsley',
     'ROT': 'Rotherham United',
     'BIR': 'Birmingham City',
+    'WRX': 'Wrexham',
+    'CHA': 'Charlton Athletic',
 
     # Serie A
     'JUV': 'Juventus',
@@ -95,6 +97,7 @@ TEAM_ABBREV = {
     'RMA': 'Real Madrid',
     'BAR': 'Barcelona',
     'ATM': 'Atletico Madrid',
+    'Atletico de Madrid': 'Atletico Madrid',
     'SEV': 'Sevilla',
     'VAL': 'Valencia',
     'VIL': 'Villarreal',
@@ -344,6 +347,8 @@ TEAM_COLORS = {
     'Barnsley': '#E41E26',
     'Rotherham United': '#E21836',
     'Birmingham City': '#0000FF',
+    'Wrexham': '#E31837',
+    'Charlton Athletic': '#D4021D',
     'Burnley': '#6C1D45',
     'Norwich City': '#00A650',
     'Watford': '#FBEE23',
@@ -470,6 +475,8 @@ def get_team_abbrev(team_name):
     Uses fuzzy matching to find the best match.
     Returns the abbreviation if found, or first 3 letters uppercased if not.
     """
+    if not team_name or not isinstance(team_name, str):
+        return team_name[:3].upper() if team_name else '???'
     team_lower = team_name.lower().strip()
 
     # Check for exact match first
@@ -561,6 +568,8 @@ def normalize_team_name(team_name, color_dict=None):
         'Washington Spirit Women' -> 'Washington Spirit'
         'Chelsea Women' -> 'Chelsea Women' (men's Chelsea exists)
     """
+    if not team_name or not isinstance(team_name, str):
+        return team_name
     if not team_name.endswith(' Women'):
         return team_name
 
@@ -578,6 +587,8 @@ def fuzzy_match_team(team_name, color_dict):
     """Try to find a fuzzy match for team name in color dictionary.
     Returns (color, matched_name, ambiguous_candidates) where ambiguous_candidates
     is a list of close matches if the result is ambiguous, or None if clear."""
+    if not team_name or not isinstance(team_name, str):
+        return None, None, None
     team_lower = team_name.lower().strip()
     candidates = []
 

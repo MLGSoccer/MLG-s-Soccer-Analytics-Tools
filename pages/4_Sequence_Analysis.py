@@ -19,6 +19,23 @@ from shared.colors import get_team_color
 
 st.set_page_config(page_title="Sequence Analysis", page_icon="🔄", layout="wide")
 
+
+@st.cache_data
+def _load_sequences_cached(file_content):
+    """Cache sequence extraction and analysis from uploaded bytes."""
+    import tempfile as _tempfile
+    with _tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        sequences, csv_team_colors = extract_sequences(tmp_path)
+        length_data, team_data, shot_sequences, team_length_data = analyze_sequences(sequences)
+        match_info = extract_match_info(tmp_path)
+        return sequences, csv_team_colors, length_data, team_data, shot_sequences, team_length_data, match_info
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("Sequence Analysis Chart")
 st.markdown("Analyze how possessions build toward shots - sequence length, shot quality, and team comparisons.")
 
@@ -30,21 +47,13 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
-        with st.spinner("Extracting sequences..."):
-            sequences, csv_team_colors = extract_sequences(tmp_path)
+        with st.spinner("Analyzing sequences..."):
+            sequences, csv_team_colors, length_data, team_data, shot_sequences, team_length_data, match_info = _load_sequences_cached(file_content)
 
-        st.success(f"Found {len(sequences)} sequences")
-
-        with st.spinner("Analyzing sequence patterns..."):
-            length_data, team_data, shot_sequences, team_length_data = analyze_sequences(sequences)
-            match_info = extract_match_info(tmp_path)
-
-        st.info(f"Found {len(shot_sequences)} shot sequences")
+        st.success(f"Found {len(sequences)} sequences, {len(shot_sequences)} shot sequences")
 
         # Show teams
         teams = list(team_data.keys())
@@ -127,10 +136,6 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Event Log CSV to get started")

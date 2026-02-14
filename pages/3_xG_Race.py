@@ -17,6 +17,20 @@ import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="xG Race Chart", page_icon="🏁", layout="wide")
 
+
+@st.cache_data
+def _parse_xg_race_cached(file_content):
+    """Cache xG race CSV parsing from uploaded bytes."""
+    import tempfile as _tempfile
+    with _tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return parse_trumedia_csv(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("xG Race Chart")
 st.markdown("Visualize how xG accumulates throughout a single match.")
 
@@ -38,13 +52,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
         with st.spinner("Parsing match data..."):
-            shots, match_info, team_colors = parse_trumedia_csv(tmp_path)
+            shots, match_info, team_colors = _parse_xg_race_cached(file_content)
 
         if not shots:
             st.error("No shot data found in CSV.")
@@ -145,10 +157,6 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Event Log CSV for a single match")

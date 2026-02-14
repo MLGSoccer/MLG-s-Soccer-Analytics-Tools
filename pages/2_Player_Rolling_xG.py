@@ -16,6 +16,20 @@ from mostly_finished_charts.player_rollingxg_chart import (
 
 st.set_page_config(page_title="Player Rolling xG", page_icon="📊", layout="wide")
 
+
+@st.cache_data
+def _parse_player_csv_cached(file_content):
+    """Cache player CSV parsing from uploaded bytes."""
+    import tempfile as _tempfile
+    with _tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return parse_player_summary_csv(tmp_path, gui_mode=True)
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("Player Rolling xG Analysis")
 st.markdown("Analyze individual player xG, goals, and shots over time with rolling averages.")
 
@@ -37,13 +51,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
         with st.spinner("Parsing player data..."):
-            matches, player_name, team_name, team_color, season, player_info = parse_player_summary_csv(tmp_path, gui_mode=True)
+            matches, player_name, team_name, team_color, season, player_info = _parse_player_csv_cached(file_content)
 
         st.success(f"Found {len(matches)} matches for **{player_name}** ({team_name})")
 
@@ -120,10 +132,6 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Player Summary CSV to get started")

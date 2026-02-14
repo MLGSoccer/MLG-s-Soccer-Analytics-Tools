@@ -46,7 +46,7 @@ def style_axis_full_grid(ax):
     ax.set_axisbelow(True)
 
 
-def add_cbs_footer(fig, data_source=None):
+def add_cbs_footer(fig, data_source='Opta/Stats Perform'):
     """Add CBS Sports branding footer to figure."""
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
     if data_source:

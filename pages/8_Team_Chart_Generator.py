@@ -18,6 +18,20 @@ from mostly_finished_charts.team_chart_generator import (
 
 st.set_page_config(page_title="Team Chart Generator", page_icon="📉", layout="wide")
 
+
+@st.cache_data
+def _load_team_data_cached(file_content):
+    """Cache team data loading from uploaded bytes."""
+    import tempfile as _tempfile
+    with _tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return load_csv_data(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("Team Chart Generator")
 st.markdown("Create custom scatter or bar charts from any team data.")
 
@@ -29,13 +43,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
         with st.spinner("Loading data..."):
-            df, team_info = load_csv_data(tmp_path)
+            df, team_info = _load_team_data_cached(file_content)
 
         st.success(f"Loaded {len(df)} teams")
 
@@ -45,11 +57,8 @@ if uploaded_file is not None:
             team_names = df[team_info['name_col']].dropna().unique().tolist()
             csv_colors = {}
             if team_info.get('color_col'):
-                for _, row in df.iterrows():
-                    name = row.get(team_info['name_col'])
-                    color = row.get(team_info['color_col'])
-                    if name and color:
-                        csv_colors[name] = color
+                color_df = df[[team_info['name_col'], team_info['color_col']]].dropna()
+                csv_colors = dict(zip(color_df[team_info['name_col']], color_df[team_info['color_col']]))
             check_team_colors(team_names, csv_colors)
 
         # Get numeric columns
@@ -116,10 +125,6 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a CSV with team data to get started")

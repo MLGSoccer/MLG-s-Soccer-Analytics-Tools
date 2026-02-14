@@ -22,6 +22,20 @@ from mostly_finished_charts.player_comparison_chart import (
 
 st.set_page_config(page_title="Player Comparison", page_icon="📈", layout="wide")
 
+
+@st.cache_data
+def _load_player_data_cached(file_content):
+    """Cache player data loading from uploaded bytes."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return load_player_data(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("Player Comparison Chart")
 st.markdown("Compare player stats to position peers using percentile rankings.")
 
@@ -33,13 +47,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
         with st.spinner("Loading player data..."):
-            df = load_player_data(tmp_path)
+            df = _load_player_data_cached(file_content)
 
         st.success(f"Loaded {len(df)} players")
 
@@ -269,10 +281,6 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Player Stats CSV to get started")

@@ -15,7 +15,10 @@ from mostly_finished_charts import (
     run_sequence,
     run_xg_race,
     run_setpiece_report,
-    run_player_bar
+    run_player_bar,
+    run_shot_chart,
+    run_passing_flow,
+    run_zone_passing,
 )
 import mostly_finished_charts.player_comparison_chart as player_comparison_chart
 import mostly_finished_charts.team_chart_generator as team_chart_generator
@@ -61,15 +64,28 @@ def display_menu():
     print("     - Modes: individual players, team roster, or league leaderboard")
     print("     - Requires: TruMedia player stats CSV")
     print()
-    print("  9. Exit")
+    print("  9. Shot Chart")
+    print("     - Shot locations on pitch (single match or season)")
+    print("     - Auto-detects single vs multi-match CSV")
+    print("     - Requires: TruMedia event log CSV")
+    print()
+    print("  10. Passing Flow (Sankey)")
+    print("      - How a team progresses the ball through pitch zones")
+    print("      - Requires: TruMedia event log CSV")
+    print()
+    print("  11. Zone Passing Chart")
+    print("      - Where passes go from each pitch zone (overview + detail)")
+    print("      - Requires: TruMedia event log CSV")
+    print()
+    print("  12. Exit")
     print()
     print("-" * 60)
 
     while True:
-        choice = input("Select chart type (1-9): ").strip()
-        if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9']:
+        choice = input("Select chart type (1-12): ").strip()
+        if choice in ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12']:
             return choice
-        print("Invalid choice. Please enter 1-9.")
+        print("Invalid choice. Please enter 1-12.")
 
 
 def prompt_rolling_window():
@@ -286,6 +302,131 @@ def run_player_bar_chart_menu():
         print(f"\n[ERROR] Chart generation failed: {e}")
 
 
+def run_shot_chart_menu():
+    """Collect inputs and run shot chart."""
+    print("\n" + "-" * 60)
+    print("SHOT CHART")
+    print("-" * 60)
+    print("Shot locations on pitch (auto-detects single match or season).")
+
+    file_path = get_file_path("TruMedia Event Log CSV file")
+    if not file_path:
+        return
+
+    competition = input("Competition (e.g., PREMIER LEAGUE) [optional]: ").strip().upper()
+
+    exclude_input = input("Exclude penalty shots? (y/n, default=n): ").strip().lower()
+    exclude_penalties = exclude_input in ('y', 'yes')
+
+    print("\nHighlight shot type?")
+    print("  1. All (default, no highlighting)")
+    print("  2. Open Play")
+    print("  3. Set Piece")
+    hl_choice = input("Select (1-3, default=1): ").strip()
+    if hl_choice == '2':
+        highlight_mode = 'Open Play'
+    elif hl_choice == '3':
+        highlight_mode = 'Set Piece'
+    else:
+        highlight_mode = 'All'
+
+    output_folder = get_output_folder()
+
+    config = {
+        'file_path': file_path,
+        'output_folder': output_folder,
+        'competition': competition,
+        'exclude_penalties': exclude_penalties,
+        'highlight_mode': highlight_mode,
+        'save': True
+    }
+
+    try:
+        run_shot_chart(config)
+    except Exception as e:
+        print(f"\n[ERROR] Chart generation failed: {e}")
+
+
+def run_passing_flow_menu():
+    """Collect inputs and run passing flow (Sankey) chart."""
+    print("\n" + "-" * 60)
+    print("PASSING FLOW (SANKEY)")
+    print("-" * 60)
+    print("How a team progresses the ball through pitch zones.")
+
+    file_path = get_file_path("TruMedia Event Log CSV file")
+    if not file_path:
+        return
+
+    competition = input("Competition (e.g., PREMIER LEAGUE) [optional]: ").strip().upper()
+
+    fwd_input = input("Forward passes only? (y/n, default=y): ").strip().lower()
+    forward_only = fwd_input not in ('n', 'no')
+
+    output_folder = get_output_folder()
+
+    config = {
+        'file_path': file_path,
+        'output_folder': output_folder,
+        'competition': competition,
+        'forward_only': forward_only,
+    }
+
+    try:
+        run_passing_flow(config)
+    except Exception as e:
+        print(f"\n[ERROR] Chart generation failed: {e}")
+
+
+def run_zone_passing_menu():
+    """Collect inputs and run zone passing chart."""
+    print("\n" + "-" * 60)
+    print("ZONE PASSING CHART")
+    print("-" * 60)
+    print("Where passes go from each pitch zone (overview + detail).")
+
+    file_path = get_file_path("TruMedia Event Log CSV file")
+    if not file_path:
+        return
+
+    competition = input("Competition (e.g., PREMIER LEAGUE) [optional]: ").strip().upper()
+
+    from mostly_finished_charts.zone_passing_chart import ZONE_NAMES
+
+    print("\nGenerate detail charts for which zones?")
+    print("  1. Overview only (default)")
+    print("  2. All zones")
+    print("  3. Specific zone")
+    zone_choice = input("Select (1-3, default=1): ").strip()
+
+    zone_arg = None
+    if zone_choice == '2':
+        zone_arg = 'all'
+    elif zone_choice == '3':
+        print("\nAvailable zones:")
+        for i, z in enumerate(ZONE_NAMES, 1):
+            print(f"  {i}. {z}")
+        z_choice = input(f"Select zone (1-{len(ZONE_NAMES)}): ").strip()
+        try:
+            zone_arg = ZONE_NAMES[int(z_choice) - 1]
+        except (ValueError, IndexError):
+            print("Invalid choice, generating overview only.")
+
+    output_folder = get_output_folder()
+
+    config = {
+        'file_path': file_path,
+        'output_folder': output_folder,
+        'competition': competition,
+        'zone': zone_arg,
+    }
+
+    try:
+        run_zone_passing(config)
+    except Exception as e:
+        print(f"\n[ERROR] Chart generation failed: {e}")
+
+
 def main():
     """Main launcher loop."""
     print("\n" + "=" * 60)
@@ -312,6 +453,12 @@ def main():
         elif choice == '8':
             run_player_bar_chart_menu()
         elif choice == '9':
+            run_shot_chart_menu()
+        elif choice == '10':
+            run_passing_flow_menu()
+        elif choice == '11':
+            run_zone_passing_menu()
+        elif choice == '12':
             print("\nGoodbye!")
             sys.exit(0)
 

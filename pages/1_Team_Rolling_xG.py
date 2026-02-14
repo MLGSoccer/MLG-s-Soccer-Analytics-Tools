@@ -2,7 +2,6 @@
 Team Rolling xG Chart - Streamlit Page
 """
 import streamlit as st
-import matplotlib.pyplot as plt
 import tempfile
 import os
 import sys
@@ -15,9 +14,21 @@ from mostly_finished_charts.team_rollingxg_chart import (
     create_rolling_charts,
     create_individual_charts
 )
-from shared.styles import BG_COLOR
 
 st.set_page_config(page_title="Team Rolling xG", page_icon="📈", layout="wide")
+
+
+@st.cache_data
+def _parse_csv_cached(file_content):
+    """Cache CSV parsing from uploaded bytes."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return parse_trumedia_csv(tmp_path, gui_mode=True)
+    finally:
+        os.unlink(tmp_path)
+
 
 st.title("Team Rolling xG Analysis")
 st.markdown("Analyze team xG performance over a season with rolling averages.")
@@ -40,15 +51,12 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    # Save uploaded file to temp location (existing code expects file path)
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
-        # Parse the data
+        # Parse the data (cached)
         with st.spinner("Parsing match data..."):
-            matches, team_name, team_color = parse_trumedia_csv(tmp_path, gui_mode=True)
+            matches, team_name, team_color = _parse_csv_cached(file_content)
 
         st.success(f"Found {len(matches)} matches for **{team_name}**")
 
@@ -63,12 +71,6 @@ if uploaded_file is not None:
         # Generate button
         if st.button("Generate Charts", type="primary"):
             with st.spinner("Generating charts..."):
-                # Create combined chart
-                fig = plt.figure(figsize=(16, 10))
-                fig.patch.set_facecolor(BG_COLOR)
-
-                # We need to modify create_rolling_charts to return the figure
-                # For now, save to temp and reload
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     output_path = os.path.join(tmp_dir, "combined.png")
                     create_rolling_charts(matches, team_name, team_color, output_path, window_size)
@@ -120,11 +122,6 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-
-    finally:
-        # Clean up temp file
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia CSV file to get started")

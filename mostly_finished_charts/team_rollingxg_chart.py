@@ -16,7 +16,7 @@ from shared.colors import (
     get_contrast_color, fuzzy_match_team,
     ensure_contrast_with_background
 )
-from shared.styles import BG_COLOR, style_axis
+from shared.styles import BG_COLOR, style_axis, add_cbs_footer
 from shared.file_utils import get_file_path, get_output_folder
 
 
@@ -26,6 +26,16 @@ def expand_team_name(abbrev):
         return TEAM_ABBREV[abbrev]
     custom_abbrevs = load_custom_abbrevs()
     return custom_abbrevs.get(abbrev, abbrev)
+
+
+# Keywords in seasonName that indicate a women's competition
+_WOMENS_SEASON_KEYWORDS = ['wsl', 'nwsl', "women", 'w-league', 'liga f', 'frauen', 'd1 feminine', 'division 1 feminine']
+
+
+def _is_womens_competition(season_name):
+    """Check if a season name indicates a women's competition."""
+    s = season_name.lower()
+    return any(kw in s for kw in _WOMENS_SEASON_KEYWORDS)
 
 
 def parse_trumedia_csv(filepath, target_team=None, gui_mode=False):
@@ -85,6 +95,8 @@ def parse_match_summary_csv(filepath, target_team=None, season_filter=None, gui_
     ga_idx = get_idx('GA')
     home_idx = get_idx('Home')
     season_idx = get_idx('seasonName')
+    # Check league columns for women's competition detection
+    league_idx = next((idx for idx in [get_idx('leagueName'), get_idx('newestLeague'), get_idx('competitionName'), get_idx('League')] if idx is not None), None)
 
     # First pass: collect available seasons if we need to filter
     if season_filter is None and season_idx is not None:
@@ -154,6 +166,16 @@ def parse_match_summary_csv(filepath, target_team=None, season_filter=None, gui_
             else:
                 team_name = expand_team_name_with_prompt(team)
 
+            # Detect women's competition from season or league name
+            # and append " Women" for teams that share a name with a men's team
+            # (e.g., "ARS" -> "Arsenal" -> "Arsenal Women" in WSL)
+            league = row[league_idx] if league_idx and len(row) > league_idx else ''
+            competition_hint = league or season
+            if competition_hint and _is_womens_competition(competition_hint):
+                from shared.colors import WOMENS_ONLY_CLUBS
+                if team_name not in WOMENS_ONLY_CLUBS and not team_name.endswith(' Women'):
+                    team_name = team_name + ' Women'
+
         try:
             xg_for = float(row[xg_idx]) if xg_idx and row[xg_idx] else 0
             xg_against = float(row[xga_idx]) if xga_idx and row[xga_idx] else 0
@@ -175,6 +197,9 @@ def parse_match_summary_csv(filepath, target_team=None, season_filter=None, gui_
         })
 
     f.close()
+
+    if not matches:
+        raise ValueError("No match data found in CSV. Make sure the file is a match summary with Team, xG, and xGA columns.")
 
     # Sort by date (oldest first)
     matches.sort(key=lambda x: x['date'])
@@ -292,7 +317,9 @@ def parse_event_log_csv(filepath, target_team=None, gui_mode=False):
         team_list = sorted(all_teams)
         if gui_mode:
             # Auto-select first team in GUI mode
-            target_team = team_list[0] if team_list else None
+            if not team_list:
+                raise ValueError("No teams found in CSV. Make sure the file has homeTeam/awayTeam columns with valid data.")
+            target_team = team_list[0]
             print(f"[OK] Auto-selected team: {target_team}")
         else:
             print("\nTeams found in data:")
@@ -520,7 +547,7 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
              ha='center', fontsize=13, color='#8BA3B8', style='italic')
 
     # Footer
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
+    add_cbs_footer(fig)
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
@@ -587,7 +614,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig1.text(0.5, 0.95, f'{title_base} -- xG Difference Trend Line', ha='center', fontsize=20, fontweight='bold', color='white')
     fig1.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
-    fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
+    add_cbs_footer(fig1)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path1 = os.path.join(output_folder, "rolling_xg_difference.png")
@@ -612,7 +639,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig2.text(0.5, 0.95, f'{title_base} -- xG For & Against', ha='center', fontsize=20, fontweight='bold', color='white')
     fig2.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
-    fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
+    add_cbs_footer(fig2)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path2 = os.path.join(output_folder, "rolling_xg_for_against.png")
@@ -639,7 +666,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig3.text(0.5, 0.95, f'{title_base} -- Combined xG View', ha='center', fontsize=20, fontweight='bold', color='white')
     fig3.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
-    fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
+    add_cbs_footer(fig3)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path3 = os.path.join(output_folder, "rolling_xg_combined.png")
@@ -666,7 +693,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig4.text(0.5, 0.95, f'{title_base} -- Cumulative xG vs Goals', ha='center', fontsize=20, fontweight='bold', color='white')
     fig4.text(0.5, 0.90, f'{season_text}{len(matches)} Matches', ha='center', fontsize=12, color='#8BA3B8', style='italic')
-    fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color='#00325B')
+    add_cbs_footer(fig4)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path4 = os.path.join(output_folder, "rolling_xg_cumulative.png")

@@ -19,12 +19,49 @@ from mostly_finished_charts.shot_chart import (
     create_multi_match_shot_chart,
     SHOT_TYPES,
     GOAL_TYPES,
+    HIGHLIGHT_CATEGORIES,
     ensure_pitch_contrast
 )
 from shared.styles import BG_COLOR
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Shot Chart", page_icon="🎯", layout="wide")
+
+
+@st.cache_data
+def _read_csv_cached(file_content):
+    """Read and cache raw CSV from uploaded bytes."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return pd.read_csv(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
+@st.cache_data
+def _load_single_match(file_content, exclude_penalties):
+    """Cache single-match shot data loading."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return load_shot_data(tmp_path, exclude_penalties=exclude_penalties)
+    finally:
+        os.unlink(tmp_path)
+
+
+@st.cache_data
+def _load_multi_match(file_content, exclude_penalties):
+    """Cache multi-match shot data loading."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return load_multi_match_shot_data(tmp_path, exclude_penalties=exclude_penalties)
+    finally:
+        os.unlink(tmp_path)
 
 st.title("Shot Chart")
 st.markdown("Visualize shot locations for a single match or full season.")
@@ -45,6 +82,9 @@ exclude_penalties = st.sidebar.checkbox(
     help="Filter out penalty shots from the chart"
 )
 
+# Highlight mode will be set after CSV upload (needs column check)
+highlight_mode = 'All'
+
 # File upload
 uploaded_file = st.file_uploader(
     "Upload TruMedia Event Log CSV",
@@ -53,14 +93,23 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
-        # Read CSV once for mode detection
-        raw_df = pd.read_csv(tmp_path)
+        # Read CSV once (cached) for mode detection
+        raw_df = _read_csv_cached(file_content)
         detected_mode = detect_csv_mode(raw_df)
+
+        # Highlight mode radio - only show if ShotPlayStyle column exists
+        if 'ShotPlayStyle' in raw_df.columns:
+            highlight_mode = st.sidebar.radio(
+                "Highlight Shot Type",
+                options=["All", "Open Play", "Set Piece"],
+                index=0,
+                help="Highlight a specific shot type; other shots appear muted"
+            )
+        else:
+            highlight_mode = 'All'
 
         # Mode toggle
         mode = st.radio(
@@ -83,7 +132,7 @@ if uploaded_file is not None:
             )
 
             with st.spinner("Parsing match data..."):
-                shots_df, match_info, team_colors = load_shot_data(tmp_path, exclude_penalties=exclude_penalties)
+                shots_df, match_info, team_colors = _load_single_match(file_content, exclude_penalties)
 
             if shots_df.empty:
                 st.error("No shot data found in CSV.")
@@ -113,6 +162,31 @@ if uploaded_file is not None:
                 # Pre-check team colors
                 from pages.streamlit_utils import check_team_colors
                 check_team_colors([team1_name, team2_name], team_colors)
+
+                # Player filter for single-match mode
+                shooter_col = 'shooter' if 'shooter' in shots_df.columns else 'Player'
+                if shooter_col in shots_df.columns:
+                    team1_players = sorted(shots_df[shots_df['Team'] == team1_name][shooter_col].dropna().unique())
+                    team2_players = sorted(shots_df[shots_df['Team'] == team2_name][shooter_col].dropna().unique())
+
+                    if team1_players or team2_players:
+                        st.sidebar.header("Player Filter")
+                        team1_player = st.sidebar.selectbox(
+                            f"{team1_name} Player",
+                            ["All Players"] + team1_players,
+                            key="single_team1_player"
+                        )
+                        team2_player = st.sidebar.selectbox(
+                            f"{team2_name} Player",
+                            ["All Players"] + team2_players,
+                            key="single_team2_player"
+                        )
+                    else:
+                        team1_player = "All Players"
+                        team2_player = "All Players"
+                else:
+                    team1_player = "All Players"
+                    team2_player = "All Players"
 
                 if st.button("Generate Charts", type="primary"):
                     with st.spinner("Generating shot charts..."):
@@ -153,38 +227,59 @@ if uploaded_file is not None:
 
                         charts_generated = []
 
+                        # Apply player filters
+                        player1_name = None
+                        chart_team1_shots = team1_shots
+                        if team1_player != "All Players":
+                            chart_team1_shots = team1_shots[team1_shots[shooter_col] == team1_player]
+                            player1_name = team1_player
+
+                        player2_name = None
+                        chart_team2_shots = team2_shots
+                        if team2_player != "All Players":
+                            chart_team2_shots = team2_shots[team2_shots[shooter_col] == team2_player]
+                            player2_name = team2_player
+
                         with tempfile.TemporaryDirectory() as tmp_dir:
                             # Individual team charts
                             if "Individual Team Charts" in chart_options:
                                 # Team 1 chart
                                 fig1 = create_team_shot_chart(
-                                    team1_shots, team1_name, team1_color, match_info,
+                                    chart_team1_shots, team1_name, team1_color, match_info,
                                     team2_name, team_final_score=team1_final_score,
                                     opponent_goals=team2_final_score,
                                     own_goals_for=team1_own_goals,
                                     flip_coords=team1_flip, competition=competition,
-                                    exclude_penalties=exclude_penalties
+                                    exclude_penalties=exclude_penalties,
+                                    highlight_mode=highlight_mode,
+                                    player_name=player1_name
                                 )
-                                path1 = os.path.join(tmp_dir, f"shot_chart_{team1_name.replace(' ', '_')}.png")
+                                caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
+                                fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_')}.png"
+                                path1 = os.path.join(tmp_dir, fname1)
                                 fig1.savefig(path1, dpi=300, bbox_inches='tight',
                                             facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(fig1)
-                                charts_generated.append((path1, f"{team1_name} Shot Chart", f"shot_chart_{team1_name.replace(' ', '_')}.png"))
+                                charts_generated.append((path1, caption1, fname1))
 
                                 # Team 2 chart
                                 fig2 = create_team_shot_chart(
-                                    team2_shots, team2_name, team2_color, match_info,
+                                    chart_team2_shots, team2_name, team2_color, match_info,
                                     team1_name, team_final_score=team2_final_score,
                                     opponent_goals=team1_final_score,
                                     own_goals_for=team2_own_goals,
                                     flip_coords=team2_flip, competition=competition,
-                                    exclude_penalties=exclude_penalties
+                                    exclude_penalties=exclude_penalties,
+                                    highlight_mode=highlight_mode,
+                                    player_name=player2_name
                                 )
-                                path2 = os.path.join(tmp_dir, f"shot_chart_{team2_name.replace(' ', '_')}.png")
+                                caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
+                                fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_')}.png"
+                                path2 = os.path.join(tmp_dir, fname2)
                                 fig2.savefig(path2, dpi=300, bbox_inches='tight',
                                             facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(fig2)
-                                charts_generated.append((path2, f"{team2_name} Shot Chart", f"shot_chart_{team2_name.replace(' ', '_')}.png"))
+                                charts_generated.append((path2, caption2, fname2))
 
                             # Combined chart
                             if "Combined Chart" in chart_options:
@@ -192,7 +287,8 @@ if uploaded_file is not None:
                                     shots_df, team1_name, team1_color, team1_flip,
                                     team2_name, team2_color, team2_flip,
                                     match_info, competition=competition,
-                                    exclude_penalties=exclude_penalties
+                                    exclude_penalties=exclude_penalties,
+                                    highlight_mode=highlight_mode
                                 )
                                 path_combined = os.path.join(tmp_dir, f"shot_chart_combined.png")
                                 fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight',
@@ -218,7 +314,7 @@ if uploaded_file is not None:
         else:
             # ── MULTI-MATCH MODE ───────────────────────────────────────
             with st.spinner("Parsing season data..."):
-                shots_df, multi_match_info, team_color_raw = load_multi_match_shot_data(tmp_path, exclude_penalties=exclude_penalties)
+                shots_df, multi_match_info, team_color_raw = _load_multi_match(file_content, exclude_penalties)
 
             if shots_df.empty:
                 st.error("No shot data found in CSV.")
@@ -294,8 +390,8 @@ if uploaded_file is not None:
                 if st.button("Generate Shot Map", type="primary"):
                     with st.spinner("Generating shot map..."):
                         # Filter to player if needed (team CSV with player selected)
-                        chart_shots = shots_df.copy()
-                        chart_info = multi_match_info.copy()
+                        chart_shots = shots_df
+                        chart_info = dict(multi_match_info)
 
                         if selected_player and not is_player_csv:
                             shooter_col = 'shooter' if 'shooter' in chart_shots.columns else 'Player'
@@ -309,7 +405,8 @@ if uploaded_file is not None:
                                 fig = create_multi_match_shot_chart(
                                     chart_shots, team_name, team_color, chart_info,
                                     competition=competition, player_name=selected_player,
-                                    exclude_penalties=exclude_penalties
+                                    exclude_penalties=exclude_penalties,
+                                    highlight_mode=highlight_mode
                                 )
 
                                 name_part = team_name.replace(' ', '_')
@@ -338,10 +435,6 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
         import traceback
         st.code(traceback.format_exc())
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("Upload a TruMedia Event Log CSV for a single match or full season.")

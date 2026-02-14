@@ -89,6 +89,16 @@ class ChartGeneratorApp:
             'has_report_type': False,
             'has_team_chart_config': False,
             'has_player_bar_config': True,
+        },
+        'shot_chart': {
+            'name': 'Shot Chart',
+            'description': 'Shot locations on pitch (single match or season)',
+            'has_window': False,
+            'has_player_name': False,
+            'has_report_type': False,
+            'has_team_chart_config': False,
+            'has_player_bar_config': False,
+            'has_shot_chart_config': True,
         }
     }
 
@@ -116,6 +126,10 @@ class ChartGeneratorApp:
         self.competition = tk.StringVar(value='PREMIER LEAGUE')
         self.has_own_goals = tk.BooleanVar(value=False)
         self.own_goals_text = tk.StringVar()
+
+        # Shot chart specific variables
+        self.exclude_penalties = tk.BooleanVar(value=False)
+        self.highlight_mode = tk.StringVar(value='All')
 
         # Player comparison specific variables
         self.player_name = tk.StringVar()
@@ -833,6 +847,53 @@ class ChartGeneratorApp:
         self.player_bar_team_widgets = [self.pbar_team_label, pbar_team_frame]
         self.player_bar_players_widgets = [self.pbar_players_label, pbar_players_frame]
 
+        # Shot Chart config (rows 25-26)
+        self.shot_exclude_label = ttk.Label(section_frame, text="Options:")
+        self.shot_exclude_label.grid(row=25, column=0, sticky='w', pady=(10, 0))
+
+        shot_options_frame = ttk.Frame(section_frame)
+        shot_options_frame.grid(row=25, column=1, sticky='w', pady=(10, 0))
+
+        self.shot_exclude_check = ttk.Checkbutton(
+            shot_options_frame,
+            text="Exclude penalties",
+            variable=self.exclude_penalties
+        )
+        self.shot_exclude_check.grid(row=0, column=0, padx=(5, 5))
+
+        self.shot_exclude_hint = ttk.Label(
+            shot_options_frame,
+            text="(remove penalty kicks from chart)",
+            font=('Segoe UI', 8),
+            foreground='#888888'
+        )
+        self.shot_exclude_hint.grid(row=0, column=1, padx=(5, 0))
+
+        # Highlight shot type
+        self.shot_highlight_label = ttk.Label(section_frame, text="Highlight:")
+        self.shot_highlight_label.grid(row=26, column=0, sticky='w', pady=(5, 0))
+
+        shot_highlight_frame = ttk.Frame(section_frame)
+        shot_highlight_frame.grid(row=26, column=1, sticky='w', pady=(5, 0))
+
+        ttk.Radiobutton(
+            shot_highlight_frame, text="All (no highlight)", value='All',
+            variable=self.highlight_mode
+        ).grid(row=0, column=0, padx=(5, 10))
+
+        ttk.Radiobutton(
+            shot_highlight_frame, text="Open Play", value='Open Play',
+            variable=self.highlight_mode
+        ).grid(row=0, column=1, padx=(0, 10))
+
+        ttk.Radiobutton(
+            shot_highlight_frame, text="Set Piece", value='Set Piece',
+            variable=self.highlight_mode
+        ).grid(row=0, column=2, padx=(0, 10))
+
+        self.shot_chart_widgets = [self.shot_exclude_label, shot_options_frame,
+                                   self.shot_highlight_label, shot_highlight_frame]
+
         # Initially hide all but the first league/player fields
         self._init_dynamic_fields()
 
@@ -911,13 +972,23 @@ class ChartGeneratorApp:
                 if hasattr(widget, 'grid_remove'):
                     widget.grid_remove()
 
-        # Show/hide xG Race specific fields
+        # Show/hide xG Race specific fields (competition + own goals)
+        # Shot chart also uses the competition field
         if chart_key == 'xg_race':
             for widget in self.xg_race_widgets:
                 if hasattr(widget, 'grid'):
                     widget.grid()
             # Show own goals details only if checkbox is checked
             self._on_own_goals_toggle()
+        elif chart_key == 'shot_chart':
+            # Show competition field only (first 2 items), hide own goals (last 2)
+            self.xg_race_widgets[0].grid()  # competition_label
+            self.xg_race_widgets[1].grid()  # competition_frame
+            self.xg_race_widgets[2].grid_remove()  # own_goals_label
+            self.xg_race_widgets[3].grid_remove()  # own_goals_frame
+            for widget in self.own_goals_details_widgets:
+                if hasattr(widget, 'grid_remove'):
+                    widget.grid_remove()
         else:
             for widget in self.xg_race_widgets:
                 if hasattr(widget, 'grid_remove'):
@@ -981,6 +1052,16 @@ class ChartGeneratorApp:
                 if hasattr(widget, 'grid_remove'):
                     widget.grid_remove()
             for widget in self.player_bar_players_widgets:
+                if hasattr(widget, 'grid_remove'):
+                    widget.grid_remove()
+
+        # Show/hide shot chart config fields
+        if chart_info.get('has_shot_chart_config', False):
+            for widget in self.shot_chart_widgets:
+                if hasattr(widget, 'grid'):
+                    widget.grid()
+        else:
+            for widget in self.shot_chart_widgets:
                 if hasattr(widget, 'grid_remove'):
                     widget.grid_remove()
 
@@ -1295,6 +1376,11 @@ class ChartGeneratorApp:
                 config['players'] = players
 
             config['gui_mode'] = True
+        elif chart_key == 'shot_chart':
+            config['competition'] = self.competition.get().strip().upper() or ''
+            config['exclude_penalties'] = self.exclude_penalties.get()
+            config['highlight_mode'] = self.highlight_mode.get()
+            config['save'] = True
 
         # Start generation in thread
         self.is_generating = True
@@ -1340,6 +1426,9 @@ class ChartGeneratorApp:
         elif chart_key == 'player_bar':
             from mostly_finished_charts import run_player_bar
             return run_player_bar
+        elif chart_key == 'shot_chart':
+            from mostly_finished_charts import run_shot_chart
+            return run_shot_chart
         else:
             raise ValueError(f"Unknown chart type: {chart_key}")
 
@@ -1396,7 +1485,8 @@ class ChartGeneratorApp:
                 'player_comparison': 'player_comparison_',  # partial match
                 'setpiece_report': 'setpiece_',  # partial match
                 'team_chart': 'team_chart_',  # partial match
-                'player_bar': 'player_bar_'  # partial match
+                'player_bar': 'player_bar_',  # partial match
+                'shot_chart': 'shot_chart_'  # partial match
             }
 
             # Find the main chart to open

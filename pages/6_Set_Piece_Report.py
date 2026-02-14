@@ -15,6 +15,20 @@ from mostly_finished_charts.setpiece_report_chart import (
 
 st.set_page_config(page_title="Set Piece Report", page_icon="🎯", layout="wide")
 
+
+@st.cache_data
+def _load_setpiece_cached(file_content):
+    """Cache set piece data loading from uploaded bytes."""
+    import tempfile as _tempfile
+    with _tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        tmp_path = tmp.name
+    try:
+        return load_setpiece_data(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+
 st.title("Set Piece Report")
 st.markdown("Analyze attacking and defensive set piece performance.")
 
@@ -35,13 +49,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
         with st.spinner("Loading set piece data..."):
-            df = load_setpiece_data(tmp_path)
+            df = _load_setpiece_cached(file_content)
 
         st.success(f"Loaded set piece data ({len(df)} rows)")
 
@@ -68,10 +80,6 @@ if uploaded_file is not None:
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Set Piece Report CSV to get started")

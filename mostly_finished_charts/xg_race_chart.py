@@ -1099,7 +1099,7 @@ def create_xg_chart(shots, team_info):
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10,
             fontweight='bold', color='#00325B', fontfamily='sans-serif')
 
-    # Data source label based on input method (TruMedia = no label)
+    # Data source label based on input method
     data_source = team_info.get('data_source', 'fbref')
     if data_source == 'fbref':
         fig.text(0.98, 0.01, 'DATA: FBREF', fontsize=8,
@@ -1107,7 +1107,9 @@ def create_xg_chart(shots, team_info):
     elif data_source == 'manual':
         fig.text(0.98, 0.01, 'DATA: MANUAL', fontsize=8,
                 color='#999999', ha='right', fontfamily='sans-serif')
-    # TruMedia: no data source label displayed
+    else:
+        fig.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8,
+                color='#999999', ha='right', fontfamily='sans-serif')
     
     # CBS Sports spines - softer, more artistic
     ax.spines['top'].set_visible(False)

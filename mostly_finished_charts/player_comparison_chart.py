@@ -222,9 +222,9 @@ def load_player_data(csv_path):
     df = df[df['PositionCategory'].notna()].copy()
 
     # Calculate derived metrics
-    # xG/Shot
+    # xG/Shot (non-penalty xG per shot)
     df['xG/Shot'] = df.apply(
-        lambda row: row['ExpG'] / row['Shot'] if row['Shot'] > 0 else 0,
+        lambda row: row['NPxG'] / row['Shot'] if row['Shot'] > 0 else 0,
         axis=1
     )
 

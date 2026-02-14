@@ -14,6 +14,14 @@ from shared.stat_mappings import STAT_DISPLAY_NAMES
 
 st.set_page_config(page_title="Player Bar Chart", page_icon="📊", layout="wide")
 
+
+@st.cache_data
+def _load_csv_cached(file_content):
+    """Cache CSV loading from uploaded bytes."""
+    import io
+    return pd.read_csv(io.BytesIO(file_content))
+
+
 st.title("Player Bar Chart")
 st.markdown("Create leaderboards, team rosters, or individual player comparisons.")
 
@@ -25,13 +33,11 @@ uploaded_file = st.file_uploader(
 )
 
 if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-        tmp.write(uploaded_file.getvalue())
-        tmp_path = tmp.name
+    file_content = uploaded_file.getvalue()
 
     try:
-        # Read CSV to get column names and values
-        df = pd.read_csv(tmp_path)
+        # Read CSV (cached) to get column names and values
+        df = _load_csv_cached(file_content)
         st.success(f"Loaded {len(df)} players")
 
         # Pre-check team colors (get unique teams and their CSV colors)
@@ -40,11 +46,8 @@ if uploaded_file is not None:
             team_names = df['teamName'].dropna().unique().tolist()
             csv_colors = {}
             if 'newestTeamColor' in df.columns:
-                for _, row in df.drop_duplicates('teamName').iterrows():
-                    name = row.get('teamName')
-                    color = row.get('newestTeamColor')
-                    if name and pd.notna(color):
-                        csv_colors[name] = color
+                color_df = df.drop_duplicates('teamName')[['teamName', 'newestTeamColor']].dropna()
+                csv_colors = dict(zip(color_df['teamName'], color_df['newestTeamColor']))
             check_team_colors(team_names, csv_colors)
 
         # Get numeric columns for stat selection
@@ -145,9 +148,13 @@ if uploaded_file is not None:
 
         if can_generate and st.button("Generate Chart", type="primary"):
             with st.spinner("Generating chart..."):
+                # Write temp file for chart runner (only on generate click)
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+                    tmp.write(file_content)
+                    gen_tmp_path = tmp.name
                 with tempfile.TemporaryDirectory() as tmp_dir:
                     config = {
-                        'file_path': tmp_path,
+                        'file_path': gen_tmp_path,
                         'output_folder': tmp_dir,
                         'mode': mode,
                         'stat': stat,
@@ -184,14 +191,14 @@ if uploaded_file is not None:
                                 )
                             break
 
+                # Clean up generation temp file
+                if os.path.exists(gen_tmp_path):
+                    os.unlink(gen_tmp_path)
+
             st.success("Chart generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
 
 else:
     st.info("👆 Upload a TruMedia Player Stats CSV to get started")

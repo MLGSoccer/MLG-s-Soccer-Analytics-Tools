@@ -486,7 +486,7 @@ def create_progression_chart(df, team_name, output_path, full_df=None, league_df
              ha='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Add footer
-    add_cbs_footer(fig, 'TruMedia')
+    add_cbs_footer(fig)
 
     # Adjust layout
     plt.tight_layout(rect=[0, 0.02, 1, 0.92])

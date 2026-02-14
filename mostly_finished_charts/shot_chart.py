@@ -30,6 +30,15 @@ from shared.styles import BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_
 SHOT_TYPES = {'Miss', 'Goal', 'PenaltyGoal', 'AttemptSaved', 'Post'}
 GOAL_TYPES = {'Goal', 'PenaltyGoal'}
 
+# Highlight categories for shot type filtering
+HIGHLIGHT_CATEGORIES = {
+    'Open Play': {'Open play', 'Fastbreak/Counter'},
+    'Set Piece': {'Corner', 'Throw-in', 'Direct Free Kick', 'Free Kick Set Piece'},
+}
+MUTED_COLOR = '#555555'
+MUTED_ALPHA = 0.18
+MUTED_ZORDER = 5  # Below highlighted shots (zorder=10)
+
 # Pitch color for contrast checking
 PITCH_COLOR = '#1E5631'
 FALLBACK_COLOR = '#FFFFFF'  # White as fallback for low-contrast colors
@@ -82,6 +91,36 @@ def check_bg_contrast(color, min_distance=100):
     return color_distance(color, BG_COLOR) >= min_distance
 
 
+def classify_highlight(shots_df, highlight_mode):
+    """
+    Add '_highlighted' bool column to shots_df based on highlight mode.
+
+    If highlight_mode is 'All' or ShotPlayStyle column is missing, all shots
+    are marked as highlighted (preserving current behavior).
+    """
+    if highlight_mode == 'All' or 'ShotPlayStyle' not in shots_df.columns:
+        shots_df['_highlighted'] = True
+    else:
+        target_styles = HIGHLIGHT_CATEGORIES.get(highlight_mode, set())
+        shots_df['_highlighted'] = shots_df['ShotPlayStyle'].isin(target_styles)
+    return shots_df
+
+
+def compute_highlight_stats(shots_df, highlight_mode):
+    """
+    Return stats dict {shots, xg, goals} for highlighted shots only.
+    Returns None when highlight_mode is 'All' (no extra stats needed).
+    """
+    if highlight_mode == 'All':
+        return None
+    highlighted = shots_df[shots_df['_highlighted']]
+    return {
+        'shots': len(highlighted),
+        'xg': highlighted['xG'].sum(),
+        'goals': len(highlighted[highlighted['playType'].isin(GOAL_TYPES)]),
+    }
+
+
 def detect_csv_mode(df):
     """
     Auto-detect single-match vs multi-match CSV.
@@ -113,7 +152,9 @@ def _use_decimal_coords(df):
     """Use decimal coordinate columns when available, overwriting integer ones."""
     if 'EventXDecimal' in df.columns:
         df['EventX'] = df['EventXDecimal']
-    if 'EventYDecimal1' in df.columns:
+    if 'EventYDecimal' in df.columns:
+        df['EventY'] = df['EventYDecimal']
+    elif 'EventYDecimal1' in df.columns:
         df['EventY'] = df['EventYDecimal1']
     return df
 
@@ -148,8 +189,8 @@ def load_shot_data(file_path, exclude_penalties=False):
     # Extract match info
     first_row = df.iloc[0]
     match_info = {
-        'home_team': normalize_team_name(first_row.get('homeTeam', 'Home')),
-        'away_team': normalize_team_name(first_row.get('awayTeam', 'Away')),
+        'home_team': normalize_team_name(first_row.get('homeTeam') if pd.notna(first_row.get('homeTeam')) else 'Home'),
+        'away_team': normalize_team_name(first_row.get('awayTeam') if pd.notna(first_row.get('awayTeam')) else 'Away'),
         'date': first_row.get('Date', ''),
         'home_score': int(first_row.get('homeFinalScore')) if pd.notna(first_row.get('homeFinalScore')) else int(df['homeCurrentScore'].max()) if 'homeCurrentScore' in df.columns else 0,
         'away_score': int(first_row.get('awayFinalScore')) if pd.notna(first_row.get('awayFinalScore')) else int(df['awayCurrentScore'].max()) if 'awayCurrentScore' in df.columns else 0,
@@ -290,7 +331,7 @@ def load_multi_match_shot_data(file_path, exclude_penalties=False):
 
 
 def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
-                        marker_style='single'):
+                        marker_style='single', highlight_mode='All'):
     """
     Plot shots on vertical half-pitch (goal at top).
 
@@ -300,9 +341,17 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
     marker_style:
         'single' - circles for non-goals, stars for goals, all in team_color
         'multi'  - all circles; black fill for non-goals, team_color fill for goals
+
+    highlight_mode:
+        'All' - normal rendering for all shots
+        'Open Play' / 'Set Piece' - matching shots in team color, others muted
     """
     if shots_df.empty:
         return
+
+    # Classify highlight if not already done
+    if '_highlighted' not in shots_df.columns:
+        shots_df = classify_highlight(shots_df.copy(), highlight_mode)
 
     has_per_row_flip = '_needs_flip' in shots_df.columns
 
@@ -311,6 +360,7 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
         y = shot['EventY']  # Width (sideline to sideline)
         xg = shot['xG']
         is_goal = shot['playType'] in GOAL_TYPES
+        is_highlighted = shot.get('_highlighted', True)
 
         # Per-row flip (multi-match) takes priority; otherwise use flip_coords param
         if has_per_row_flip:
@@ -318,9 +368,11 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
         else:
             should_flip = flip_coords
 
+        # TruMedia EventY runs opposite to mplsoccer opta Y on vertical pitch
+        y = 100 - y
+
         if should_flip:
             x = 100 - x
-            y = 100 - y
 
         # Scale marker size by xG
         base_size = 50
@@ -337,11 +389,20 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
             fill_color = team_color
             edge_width = 2 if is_goal else 1.5
 
+        # Apply muted styling for non-highlighted shots
+        if not is_highlighted:
+            fill_color = MUTED_COLOR
+            alpha = MUTED_ALPHA
+            zorder = MUTED_ZORDER
+        else:
+            alpha = 0.85
+            zorder = 10
+
         # Use pitch.scatter for proper coordinate handling
         pitch.scatter(
             x, y, s=size, c=fill_color, marker=marker,
             edgecolors='white', linewidths=edge_width,
-            alpha=0.85, zorder=10, ax=ax
+            alpha=alpha, zorder=zorder, ax=ax
         )
 
 
@@ -349,7 +410,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                            opponent_name, team_final_score=0, opponent_goals=0,
                            own_goals_for=0, own_goals_against=0,
                            flip_coords=False, competition='',
-                           exclude_penalties=False):
+                           exclude_penalties=False, highlight_mode='All',
+                           player_name=None):
     """
     Create a single team's shot chart using mplsoccer VerticalPitch.
     """
@@ -384,21 +446,35 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     ax.set_xlim(-1, 101)  # Minimal margin for sidelines
     ax.set_ylim(50, 103)  # Start at halfway line, room for goal at top
 
+    # Classify shots for highlighting
+    shots_df = classify_highlight(shots_df.copy(), highlight_mode)
+
     # Plot shots
-    plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=flip_coords)
+    plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=flip_coords,
+                        highlight_mode=highlight_mode)
 
     # Calculate stats
     total_shots = len(shots_df)
     total_xg = shots_df['xG'].sum()
     goals = len(shots_df[shots_df['playType'].isin(GOAL_TYPES)])
+    highlight_stats = compute_highlight_stats(shots_df, highlight_mode)
 
     # Title with score
-    fig.suptitle(f"{team_name.upper()} {team_final_score}-{opponent_goals} {opponent_name.upper()}",
-                 fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    if player_name:
+        fig.suptitle(f"{player_name.upper()} ({team_name.upper()}) vs {opponent_name.upper()}",
+                     fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    else:
+        fig.suptitle(f"{team_name.upper()} {team_final_score}-{opponent_goals} {opponent_name.upper()}",
+                     fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
     shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
-    subtitle_parts = [f"{team_name.upper()} {shot_map_label}"]
+    if player_name:
+        subtitle_parts = [f"{player_name.upper()} {shot_map_label}"]
+    else:
+        subtitle_parts = [f"{team_name.upper()} {shot_map_label}"]
+    if highlight_mode != 'All':
+        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
     if competition:
         subtitle_parts.append(competition.upper())
     if match_info.get('date_formatted'):
@@ -419,7 +495,7 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     marker_width = 0.025  # Space for marker + small gap
     gap = 0.03  # Gap between items
 
-    # Calculate total legend width: "● Shot  ★ Goal"
+    # Calculate total legend width
     shot_text = "Shot"
     goal_text = "Goal"
     total_width = (marker_width + len(shot_text) * char_width +
@@ -447,6 +523,9 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         goals_text += f" + {own_goals_for} OG"
 
     stats_text = f"Shots: {total_shots}  |  xG: {total_xg:.2f}  |  Goals: {goals_text}"
+    if highlight_stats:
+        stats_text += (f"\n{highlight_mode}: {highlight_stats['shots']} shots, "
+                       f"{highlight_stats['xg']:.2f} xG, {highlight_stats['goals']} goals")
     fig.text(0.5, 0.08, stats_text,
              ha='center', va='center', fontsize=16, fontweight='bold',
              color=TEXT_PRIMARY,
@@ -456,14 +535,14 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.84])
 
     # Add CBS Sports and TruMedia branding
-    add_cbs_footer(fig, data_source='Opta/STATS Perform')
+    add_cbs_footer(fig)
 
     return fig
 
 
 def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_info,
                                    competition='', player_name=None,
-                                   exclude_penalties=False):
+                                   exclude_penalties=False, highlight_mode='All'):
     """
     Create a multi-match shot chart for one team on a vertical half-pitch.
 
@@ -499,8 +578,12 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     ax.set_xlim(-1, 101)
     ax.set_ylim(50, 103)
 
+    # Classify shots for highlighting
+    shots_df = classify_highlight(shots_df.copy(), highlight_mode)
+
     # Plot shots with multi-match marker style (per-row flipping via _needs_flip)
-    plot_shots_vertical(ax, pitch, shots_df, team_color, marker_style='multi')
+    plot_shots_vertical(ax, pitch, shots_df, team_color, marker_style='multi',
+                        highlight_mode=highlight_mode)
 
     # Calculate stats
     total_shots = len(shots_df)
@@ -508,6 +591,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     goals = len(shots_df[shots_df['playType'].isin(GOAL_TYPES)])
     total_matches = multi_match_info.get('total_matches', 0)
     shots_per_game = total_shots / total_matches if total_matches > 0 else 0
+    highlight_stats = compute_highlight_stats(shots_df, highlight_mode)
 
     # Derive season string from date range (e.g. "2025-26")
     season_str = ''
@@ -547,9 +631,11 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         edgecolor=bar_edge, linewidth=bar_lw, zorder=10
     ))
 
-    # Add competition and date range (or non-penalty label) to subtitle
+    # Add competition, highlight label, and date range to subtitle
     if competition:
         subtitle_parts.append(competition.upper())
+    if highlight_mode != 'All':
+        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
     if exclude_penalties:
         subtitle_parts.append('Non-Penalty Shots')
     elif date_range:
@@ -591,6 +677,9 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     # Stats box
     stats_text = (f"Shots: {total_shots}  |  xG: {total_xg:.1f}  |  Goals: {goals}"
                   f"  |  {total_matches} Matches  |  {shots_per_game:.1f} Shots/Game")
+    if highlight_stats:
+        stats_text += (f"\n{highlight_mode}: {highlight_stats['shots']} shots, "
+                       f"{highlight_stats['xg']:.1f} xG, {highlight_stats['goals']} goals")
     fig.text(0.5, 0.08, stats_text,
              ha='center', va='center', fontsize=14, fontweight='bold',
              color=TEXT_PRIMARY,
@@ -599,23 +688,33 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.84])
 
-    add_cbs_footer(fig, data_source='Opta/STATS Perform')
+    add_cbs_footer(fig)
 
     return fig
 
 
-def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False):
+def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False,
+                          highlight_mode='All'):
     """
     Plot shots on horizontal full pitch.
+
+    highlight_mode:
+        'All' - normal rendering for all shots
+        'Open Play' / 'Set Piece' - matching shots in team color, others muted
     """
     if shots_df.empty:
         return
+
+    # Classify highlight if not already done
+    if '_highlighted' not in shots_df.columns:
+        shots_df = classify_highlight(shots_df.copy(), highlight_mode)
 
     for _, shot in shots_df.iterrows():
         x = shot['EventX']
         y = shot['EventY']
         xg = shot['xG']
         is_goal = shot['playType'] in GOAL_TYPES
+        is_highlighted = shot.get('_highlighted', True)
 
         if flip_x:
             x = 100 - x  # Mirror to opposite end
@@ -625,18 +724,28 @@ def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False):
         marker = '*' if is_goal else 'o'
         edge_width = 2 if is_goal else 1.5
 
+        # Apply muted styling for non-highlighted shots
+        if not is_highlighted:
+            fill_color = MUTED_COLOR
+            alpha = MUTED_ALPHA
+            zorder = MUTED_ZORDER
+        else:
+            fill_color = team_color
+            alpha = 0.85
+            zorder = 10
+
         # Use pitch.scatter for proper coordinate handling
         pitch.scatter(
-            x, y, s=size, c=team_color, marker=marker,
+            x, y, s=size, c=fill_color, marker=marker,
             edgecolors='white', linewidths=edge_width,
-            alpha=0.85, zorder=10, ax=ax
+            alpha=alpha, zorder=zorder, ax=ax
         )
 
 
 def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                                 team2_name, team2_color, team2_flip,
                                 match_info, competition='',
-                                exclude_penalties=False):
+                                exclude_penalties=False, highlight_mode='All'):
     """
     Create a combined shot chart showing both teams on a full horizontal pitch.
 
@@ -668,9 +777,9 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     # Draw pitch lines
     pitch.draw(ax=ax)
 
-    # Filter shots by team
-    team1_shots = shots_df[shots_df['Team'] == team1_name]
-    team2_shots = shots_df[shots_df['Team'] == team2_name]
+    # Filter shots by team and classify for highlighting
+    team1_shots = classify_highlight(shots_df[shots_df['Team'] == team1_name].copy(), highlight_mode)
+    team2_shots = classify_highlight(shots_df[shots_df['Team'] == team2_name].copy(), highlight_mode)
 
     # For combined chart: home attacks LEFT, away attacks RIGHT
     team1_avg_x = team1_shots['EventX'].mean() if not team1_shots.empty else 50
@@ -681,8 +790,10 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     # Team2 (away) attacks right: flip only if their shots are on left (avg < 50)
     team2_combined_flip = team2_avg_x < 50
 
-    plot_shots_horizontal(ax, pitch, team1_shots, team1_color, flip_x=team1_combined_flip)
-    plot_shots_horizontal(ax, pitch, team2_shots, team2_color, flip_x=team2_combined_flip)
+    plot_shots_horizontal(ax, pitch, team1_shots, team1_color, flip_x=team1_combined_flip,
+                          highlight_mode=highlight_mode)
+    plot_shots_horizontal(ax, pitch, team2_shots, team2_color, flip_x=team2_combined_flip,
+                          highlight_mode=highlight_mode)
 
     # Calculate stats
     team1_total_shots = len(team1_shots)
@@ -701,9 +812,15 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     fig.suptitle(f"{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}",
                  fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
+    # Compute per-team highlight stats
+    team1_hl_stats = compute_highlight_stats(team1_shots, highlight_mode)
+    team2_hl_stats = compute_highlight_stats(team2_shots, highlight_mode)
+
     # Subtitle
     shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
     subtitle_parts = [shot_map_label]
+    if highlight_mode != 'All':
+        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
     if competition:
         subtitle_parts.append(competition.upper())
     if match_info.get('date_formatted'):
@@ -766,6 +883,9 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
 
     stats_text = (f"{team1_name}: {team1_total_shots} shots, {team1_xg:.2f} xG, {team1_goals_text}   |   "
                   f"{team2_name}: {team2_total_shots} shots, {team2_xg:.2f} xG, {team2_goals_text}")
+    if team1_hl_stats and team2_hl_stats:
+        stats_text += (f"\n{highlight_mode}: {team1_name} {team1_hl_stats['shots']}sh/{team1_hl_stats['xg']:.2f}xG/{team1_hl_stats['goals']}g"
+                       f"   |   {team2_name} {team2_hl_stats['shots']}sh/{team2_hl_stats['xg']:.2f}xG/{team2_hl_stats['goals']}g")
     fig.text(0.5, 0.06, stats_text,
              ha='center', va='center', fontsize=14, fontweight='bold',
              color=TEXT_PRIMARY,
@@ -775,12 +895,13 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     plt.tight_layout(rect=[0.02, 0.03, 0.98, 0.84])
 
     # Add CBS Sports and TruMedia branding
-    add_cbs_footer(fig, data_source='Opta/STATS Perform')
+    add_cbs_footer(fig)
 
     return fig
 
 
-def create_shot_charts(file_path, output_folder=None, competition='', save=True):
+def create_shot_charts(file_path, output_folder=None, competition='', save=True,
+                       exclude_penalties=False, highlight_mode='All'):
     """
     Main function to create shot charts for both teams in a match.
 
@@ -789,12 +910,14 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True)
         output_folder: where to save charts (defaults to same as input)
         competition: competition name
         save: whether to save the charts
+        exclude_penalties: whether to exclude penalty shots
+        highlight_mode: 'All', 'Open Play', or 'Set Piece'
 
     Returns:
         list of (fig, filename) tuples
     """
     # Load data
-    shots_df, match_info, team_colors = load_shot_data(file_path)
+    shots_df, match_info, team_colors = load_shot_data(file_path, exclude_penalties=exclude_penalties)
 
     if shots_df.empty:
         print("No shots found in data!")
@@ -871,7 +994,8 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True)
         team1_shots, team1_name, team1_color, match_info,
         team2_name, team_final_score=team1_final_score, opponent_goals=team2_final_score,
         own_goals_for=team1_own_goals, own_goals_against=team2_own_goals,
-        flip_coords=team1_flip, competition=competition
+        flip_coords=team1_flip, competition=competition,
+        exclude_penalties=exclude_penalties, highlight_mode=highlight_mode
     )
     filename1 = f"shot_chart_{team1_name.replace(' ', '_')}_vs_{team2_name.replace(' ', '_')}.png"
     results.append((fig1, filename1))
@@ -882,7 +1006,8 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True)
         team2_shots, team2_name, team2_color, match_info,
         team1_name, team_final_score=team2_final_score, opponent_goals=team1_final_score,
         own_goals_for=team2_own_goals, own_goals_against=team1_own_goals,
-        flip_coords=team2_flip, competition=competition
+        flip_coords=team2_flip, competition=competition,
+        exclude_penalties=exclude_penalties, highlight_mode=highlight_mode
     )
     filename2 = f"shot_chart_{team2_name.replace(' ', '_')}_vs_{team1_name.replace(' ', '_')}.png"
     results.append((fig2, filename2))
@@ -892,7 +1017,8 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True)
     fig_combined = create_combined_shot_chart(
         shots_df, team1_name, team1_color, team1_flip,
         team2_name, team2_color, team2_flip,
-        match_info, competition=competition
+        match_info, competition=competition,
+        exclude_penalties=exclude_penalties, highlight_mode=highlight_mode
     )
     filename_combined = f"shot_chart_combined_{team1_name.replace(' ', '_')}_vs_{team2_name.replace(' ', '_')}.png"
     results.append((fig_combined, filename_combined))
@@ -910,7 +1036,8 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True)
 
 
 def create_multi_match_charts(file_path, output_folder=None, competition='',
-                               player_name=None, save=True):
+                               player_name=None, save=True, exclude_penalties=False,
+                               highlight_mode='All'):
     """
     Main function to create multi-match shot charts for a single team.
 
@@ -920,12 +1047,15 @@ def create_multi_match_charts(file_path, output_folder=None, competition='',
         competition: competition name
         player_name: optional player filter (None = all players)
         save: whether to save the charts
+        exclude_penalties: whether to exclude penalty shots
+        highlight_mode: 'All', 'Open Play', or 'Set Piece'
 
     Returns:
         list of (fig, filename) tuples
     """
     # Load data
-    shots_df, multi_match_info, team_color_raw = load_multi_match_shot_data(file_path)
+    shots_df, multi_match_info, team_color_raw = load_multi_match_shot_data(
+        file_path, exclude_penalties=exclude_penalties)
 
     if shots_df.empty:
         print("No shots found in data!")
@@ -961,7 +1091,8 @@ def create_multi_match_charts(file_path, output_folder=None, competition='',
     # Create multi-match chart
     fig = create_multi_match_shot_chart(
         shots_df, team_name, team_color, multi_match_info,
-        competition=competition, player_name=player_name
+        competition=competition, player_name=player_name,
+        exclude_penalties=exclude_penalties, highlight_mode=highlight_mode
     )
 
     # Build filename
@@ -985,23 +1116,47 @@ def create_multi_match_charts(file_path, output_folder=None, competition='',
 
 def run(config):
     """
-    Entry point for launcher integration.
+    Entry point for launcher/GUI integration.
+    Auto-detects single vs multi-match mode using detect_csv_mode().
     """
     file_path = config.get('file_path')
     output_folder = config.get('output_folder', os.path.dirname(file_path))
     competition = config.get('competition', '')
+    exclude_penalties = config.get('exclude_penalties', False)
+    highlight_mode = config.get('highlight_mode', 'All')
     save = config.get('save', True)
 
-    results = create_shot_charts(file_path, output_folder, competition, save)
+    # Auto-detect single vs multi-match
+    df = pd.read_csv(file_path)
+    mode = detect_csv_mode(df)
+    print(f"Detected CSV mode: {mode}")
+
+    if mode == 'multi':
+        results = create_multi_match_charts(
+            file_path, output_folder, competition,
+            save=save, exclude_penalties=exclude_penalties,
+            highlight_mode=highlight_mode
+        )
+    else:
+        results = create_shot_charts(
+            file_path, output_folder, competition,
+            save=save, exclude_penalties=exclude_penalties,
+            highlight_mode=highlight_mode
+        )
 
     if not save:
         for fig, _ in results:
             plt.show()
 
-    for fig, _ in results:
+    # Return list of saved file paths for GUI auto-open
+    saved_paths = []
+    for fig, fn in results:
+        if save and output_folder:
+            saved_paths.append(os.path.join(output_folder, fn))
         plt.close(fig)
 
     print("\nDone!")
+    return saved_paths
 
 
 def main():
