@@ -63,6 +63,144 @@ def _load_multi_match(file_content, exclude_penalties):
     finally:
         os.unlink(tmp_path)
 
+
+def _generate_single_match_charts(shots_df, match_info, team_colors, chart_options,
+                                   team1_name, team2_name, team1_player, team2_player,
+                                   competition, exclude_penalties, highlight_mode):
+    """Generate single-match shot charts and return image bytes dict."""
+    from shared.colors import TEAM_COLORS, fuzzy_match_team
+
+    def resolve_color(team_name, team_colors_dict):
+        if team_name in team_colors_dict:
+            return team_colors_dict[team_name]
+        for csv_team, color in team_colors_dict.items():
+            if team_name.lower() in csv_team.lower() or csv_team.lower() in team_name.lower():
+                return color
+        color, _, _ = fuzzy_match_team(team_name, TEAM_COLORS)
+        return color if color else '#888888'
+
+    team1_color = ensure_pitch_contrast(resolve_color(team1_name, team_colors))
+    team2_color = ensure_pitch_contrast(resolve_color(team2_name, team_colors))
+
+    team1_shots = shots_df[shots_df['Team'] == team1_name]
+    team2_shots = shots_df[shots_df['Team'] == team2_name]
+
+    team1_avg_x = team1_shots['EventX'].mean() if not team1_shots.empty else 50
+    team2_avg_x = team2_shots['EventX'].mean() if not team2_shots.empty else 50
+    team1_flip = team1_avg_x < 50
+    team2_flip = team2_avg_x < 50
+
+    team1_final_score = match_info.get('home_score', 0)
+    team2_final_score = match_info.get('away_score', 0)
+
+    team1_shot_goals = len(team1_shots[team1_shots['playType'].isin(GOAL_TYPES)])
+    team2_shot_goals = len(team2_shots[team2_shots['playType'].isin(GOAL_TYPES)])
+    team1_own_goals = max(0, team1_final_score - team1_shot_goals)
+    team2_own_goals = max(0, team2_final_score - team2_shot_goals)
+
+    # Apply player filters
+    shooter_col = 'shooter' if 'shooter' in shots_df.columns else 'Player'
+    player1_name = None
+    chart_team1_shots = team1_shots
+    if team1_player != "All Players":
+        chart_team1_shots = team1_shots[team1_shots[shooter_col] == team1_player]
+        player1_name = team1_player
+
+    player2_name = None
+    chart_team2_shots = team2_shots
+    if team2_player != "All Players":
+        chart_team2_shots = team2_shots[team2_shots[shooter_col] == team2_player]
+        player2_name = team2_player
+
+    charts = {}
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        if "Individual Team Charts" in chart_options:
+            fig1 = create_team_shot_chart(
+                chart_team1_shots, team1_name, team1_color, match_info,
+                team2_name, team_final_score=team1_final_score,
+                opponent_goals=team2_final_score,
+                own_goals_for=team1_own_goals,
+                flip_coords=team1_flip, competition=competition,
+                exclude_penalties=exclude_penalties,
+                highlight_mode=highlight_mode,
+                player_name=player1_name
+            )
+            caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
+            fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_')}.png"
+            path1 = os.path.join(tmp_dir, fname1)
+            fig1.savefig(path1, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            plt.close(fig1)
+            with open(path1, "rb") as f:
+                charts[fname1] = (caption1, f.read())
+
+            fig2 = create_team_shot_chart(
+                chart_team2_shots, team2_name, team2_color, match_info,
+                team1_name, team_final_score=team2_final_score,
+                opponent_goals=team1_final_score,
+                own_goals_for=team2_own_goals,
+                flip_coords=team2_flip, competition=competition,
+                exclude_penalties=exclude_penalties,
+                highlight_mode=highlight_mode,
+                player_name=player2_name
+            )
+            caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
+            fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_')}.png"
+            path2 = os.path.join(tmp_dir, fname2)
+            fig2.savefig(path2, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            plt.close(fig2)
+            with open(path2, "rb") as f:
+                charts[fname2] = (caption2, f.read())
+
+        if "Combined Chart" in chart_options:
+            fig_combined = create_combined_shot_chart(
+                shots_df, team1_name, team1_color, team1_flip,
+                team2_name, team2_color, team2_flip,
+                match_info, competition=competition,
+                exclude_penalties=exclude_penalties,
+                highlight_mode=highlight_mode
+            )
+            fname_combined = f"shot_chart_{team1_name.replace(' ', '_')}_vs_{team2_name.replace(' ', '_')}.png"
+            path_combined = os.path.join(tmp_dir, "shot_chart_combined.png")
+            fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            plt.close(fig_combined)
+            with open(path_combined, "rb") as f:
+                charts[fname_combined] = ("Combined Shot Chart", f.read())
+
+    return charts
+
+
+def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
+                                 competition, selected_player, exclude_penalties,
+                                 highlight_mode, shots_against=False):
+    """Generate multi-match shot chart and return image bytes."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        fig = create_multi_match_shot_chart(
+            chart_shots, team_name, team_color, chart_info,
+            competition=competition, player_name=selected_player,
+            exclude_penalties=exclude_penalties,
+            highlight_mode=highlight_mode,
+            shots_against=shots_against
+        )
+
+        name_part = team_name.replace(' ', '_')
+        if selected_player:
+            name_part = f"{selected_player.replace(' ', '_')}_{name_part}"
+        suffix = "_against" if shots_against else ""
+        filename = f"shot_map_{name_part}{suffix}_season.png"
+
+        path = os.path.join(tmp_dir, filename)
+        fig.savefig(path, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+        plt.close(fig)
+
+        if shots_against:
+            caption = f"{selected_player} Shots Against {team_name}" if selected_player else f"{team_name} Shots Against Map"
+        else:
+            caption = f"{selected_player} Shot Map" if selected_player else f"{team_name} Shot Map"
+        with open(path, "rb") as f:
+            return f.read(), filename, caption
+
+
 st.title("Shot Chart")
 st.markdown("Visualize shot locations for a single match or full season.")
 
@@ -81,6 +219,14 @@ exclude_penalties = st.sidebar.checkbox(
     value=False,
     help="Filter out penalty shots from the chart"
 )
+
+shot_direction = st.sidebar.radio(
+    "Shot Direction",
+    options=["Shots For", "Shots Against"],
+    index=0,
+    help="'Shots For' shows the team's own shots. 'Shots Against' is for CSVs containing opponent shots conceded by the team. (Multi-match mode only)"
+)
+shots_against = shot_direction == "Shots Against"
 
 # Highlight mode will be set after CSV upload (needs column check)
 highlight_mode = 'All'
@@ -189,127 +335,30 @@ if uploaded_file is not None:
                     team2_player = "All Players"
 
                 if st.button("Generate Charts", type="primary"):
+                    st.session_state["shot_charts"] = None
                     with st.spinner("Generating shot charts..."):
-                        # Resolve colors
-                        from shared.colors import TEAM_COLORS, fuzzy_match_team
+                        charts = _generate_single_match_charts(
+                            shots_df, match_info, team_colors, chart_options,
+                            team1_name, team2_name, team1_player, team2_player,
+                            competition, exclude_penalties, highlight_mode
+                        )
+                        st.session_state["shot_charts"] = charts
 
-                        def resolve_color(team_name, team_colors_dict):
-                            if team_name in team_colors_dict:
-                                return team_colors_dict[team_name]
-                            for csv_team, color in team_colors_dict.items():
-                                if team_name.lower() in csv_team.lower() or csv_team.lower() in team_name.lower():
-                                    return color
-                            color, _, _ = fuzzy_match_team(team_name, TEAM_COLORS)
-                            return color if color else '#888888'
+                # Display from session state
+                if st.session_state.get("shot_charts"):
+                    charts = st.session_state["shot_charts"]
+                    for filename, (caption, img_bytes) in charts.items():
+                        st.image(img_bytes, caption=caption)
+                        st.download_button(
+                            label=f"Download {caption}",
+                            data=img_bytes,
+                            file_name=filename,
+                            mime="image/png",
+                            key=filename
+                        )
+                        st.markdown("---")
 
-                        team1_color = ensure_pitch_contrast(resolve_color(team1_name, team_colors))
-                        team2_color = ensure_pitch_contrast(resolve_color(team2_name, team_colors))
-
-                        # Get team shots
-                        team1_shots = shots_df[shots_df['Team'] == team1_name]
-                        team2_shots = shots_df[shots_df['Team'] == team2_name]
-
-                        # Determine flip based on shot positions
-                        team1_avg_x = team1_shots['EventX'].mean() if not team1_shots.empty else 50
-                        team2_avg_x = team2_shots['EventX'].mean() if not team2_shots.empty else 50
-                        team1_flip = team1_avg_x < 50
-                        team2_flip = team2_avg_x < 50
-
-                        # Get scores
-                        team1_final_score = match_info.get('home_score', 0)
-                        team2_final_score = match_info.get('away_score', 0)
-
-                        # Calculate own goals
-                        team1_shot_goals = len(team1_shots[team1_shots['playType'].isin(GOAL_TYPES)])
-                        team2_shot_goals = len(team2_shots[team2_shots['playType'].isin(GOAL_TYPES)])
-                        team1_own_goals = max(0, team1_final_score - team1_shot_goals)
-                        team2_own_goals = max(0, team2_final_score - team2_shot_goals)
-
-                        charts_generated = []
-
-                        # Apply player filters
-                        player1_name = None
-                        chart_team1_shots = team1_shots
-                        if team1_player != "All Players":
-                            chart_team1_shots = team1_shots[team1_shots[shooter_col] == team1_player]
-                            player1_name = team1_player
-
-                        player2_name = None
-                        chart_team2_shots = team2_shots
-                        if team2_player != "All Players":
-                            chart_team2_shots = team2_shots[team2_shots[shooter_col] == team2_player]
-                            player2_name = team2_player
-
-                        with tempfile.TemporaryDirectory() as tmp_dir:
-                            # Individual team charts
-                            if "Individual Team Charts" in chart_options:
-                                # Team 1 chart
-                                fig1 = create_team_shot_chart(
-                                    chart_team1_shots, team1_name, team1_color, match_info,
-                                    team2_name, team_final_score=team1_final_score,
-                                    opponent_goals=team2_final_score,
-                                    own_goals_for=team1_own_goals,
-                                    flip_coords=team1_flip, competition=competition,
-                                    exclude_penalties=exclude_penalties,
-                                    highlight_mode=highlight_mode,
-                                    player_name=player1_name
-                                )
-                                caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
-                                fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_')}.png"
-                                path1 = os.path.join(tmp_dir, fname1)
-                                fig1.savefig(path1, dpi=300, bbox_inches='tight',
-                                            facecolor=BG_COLOR, edgecolor='none')
-                                plt.close(fig1)
-                                charts_generated.append((path1, caption1, fname1))
-
-                                # Team 2 chart
-                                fig2 = create_team_shot_chart(
-                                    chart_team2_shots, team2_name, team2_color, match_info,
-                                    team1_name, team_final_score=team2_final_score,
-                                    opponent_goals=team1_final_score,
-                                    own_goals_for=team2_own_goals,
-                                    flip_coords=team2_flip, competition=competition,
-                                    exclude_penalties=exclude_penalties,
-                                    highlight_mode=highlight_mode,
-                                    player_name=player2_name
-                                )
-                                caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
-                                fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_')}.png"
-                                path2 = os.path.join(tmp_dir, fname2)
-                                fig2.savefig(path2, dpi=300, bbox_inches='tight',
-                                            facecolor=BG_COLOR, edgecolor='none')
-                                plt.close(fig2)
-                                charts_generated.append((path2, caption2, fname2))
-
-                            # Combined chart
-                            if "Combined Chart" in chart_options:
-                                fig_combined = create_combined_shot_chart(
-                                    shots_df, team1_name, team1_color, team1_flip,
-                                    team2_name, team2_color, team2_flip,
-                                    match_info, competition=competition,
-                                    exclude_penalties=exclude_penalties,
-                                    highlight_mode=highlight_mode
-                                )
-                                path_combined = os.path.join(tmp_dir, f"shot_chart_combined.png")
-                                fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight',
-                                                    facecolor=BG_COLOR, edgecolor='none')
-                                plt.close(fig_combined)
-                                charts_generated.append((path_combined, "Combined Shot Chart", f"shot_chart_{team1_name.replace(' ', '_')}_vs_{team2_name.replace(' ', '_')}.png"))
-
-                            # Display charts
-                            for path, caption, filename in charts_generated:
-                                st.image(path, caption=caption)
-                                with open(path, "rb") as f:
-                                    st.download_button(
-                                        label=f"Download {caption}",
-                                        data=f.read(),
-                                        file_name=filename,
-                                        mime="image/png",
-                                        key=filename
-                                    )
-                                st.markdown("---")
-
-                        st.success(f"Generated {len(charts_generated)} chart(s)!")
+                    st.success(f"Generated {len(charts)} chart(s)!")
 
         else:
             # ── MULTI-MATCH MODE ───────────────────────────────────────
@@ -365,11 +414,12 @@ if uploaded_file is not None:
                 if is_player_csv:
                     selected_player = auto_player
                 else:
+                    player_label = "Filter by Opponent Player" if shots_against else "Filter by Player"
                     player_filter = st.selectbox(
-                        "Filter by Player",
+                        player_label,
                         options=["All Players"] + player_list,
                         index=0,
-                        help="Select a specific player or view all shots"
+                        help="Select a specific opponent player or view all shots" if shots_against else "Select a specific player or view all shots"
                     )
                     selected_player = None if player_filter == "All Players" else player_filter
 
@@ -388,6 +438,7 @@ if uploaded_file is not None:
                         pcol4.metric("Goals", p_goals)
 
                 if st.button("Generate Shot Map", type="primary"):
+                    st.session_state["multi_shot_chart"] = None
                     with st.spinner("Generating shot map..."):
                         # Filter to player if needed (team CSV with player selected)
                         chart_shots = shots_df
@@ -401,35 +452,28 @@ if uploaded_file is not None:
                         if chart_shots.empty:
                             st.error(f"No shots found for {selected_player}")
                         else:
-                            with tempfile.TemporaryDirectory() as tmp_dir:
-                                fig = create_multi_match_shot_chart(
-                                    chart_shots, team_name, team_color, chart_info,
-                                    competition=competition, player_name=selected_player,
-                                    exclude_penalties=exclude_penalties,
-                                    highlight_mode=highlight_mode
-                                )
+                            img_bytes, filename, caption = _generate_multi_match_chart(
+                                chart_shots, team_name, team_color, chart_info,
+                                competition, selected_player, exclude_penalties,
+                                highlight_mode, shots_against=shots_against
+                            )
+                            st.session_state["multi_shot_chart"] = {
+                                "img": img_bytes,
+                                "filename": filename,
+                                "caption": caption,
+                            }
 
-                                name_part = team_name.replace(' ', '_')
-                                if selected_player:
-                                    name_part = f"{selected_player.replace(' ', '_')}_{name_part}"
-                                filename = f"shot_map_{name_part}_season.png"
-
-                                path = os.path.join(tmp_dir, filename)
-                                fig.savefig(path, dpi=300, bbox_inches='tight',
-                                           facecolor=BG_COLOR, edgecolor='none')
-                                plt.close(fig)
-
-                                caption = f"{selected_player} Shot Map" if selected_player else f"{team_name} Shot Map"
-                                st.image(path, caption=caption)
-                                with open(path, "rb") as f:
-                                    st.download_button(
-                                        label="Download Shot Map",
-                                        data=f.read(),
-                                        file_name=filename,
-                                        mime="image/png"
-                                    )
-
-                            st.success("Shot map generated!")
+                # Display from session state
+                if st.session_state.get("multi_shot_chart"):
+                    chart = st.session_state["multi_shot_chart"]
+                    st.image(chart["img"], caption=chart["caption"])
+                    st.download_button(
+                        label="Download Shot Map",
+                        data=chart["img"],
+                        file_name=chart["filename"],
+                        mime="image/png"
+                    )
+                    st.success("Shot map generated!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")

@@ -30,6 +30,39 @@ def _parse_player_csv_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_player_charts(file_content, player_name, team_name, team_color, season, window_size, player_info):
+    """Generate all charts and return image bytes, cached to survive reruns."""
+    matches, _, _, _, _, _ = _parse_player_csv_cached(file_content)
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        safe_name = player_name.replace(' ', '_').replace('.', '')
+        output_path = os.path.join(tmp_dir, f"{safe_name}_rolling_analysis.png")
+
+        create_rolling_charts(matches, player_name, team_name, team_color,
+                             season, output_path, window_size, player_info)
+        with open(output_path, "rb") as f:
+            charts["combined"] = f.read()
+
+        create_individual_charts(matches, player_name, team_name, team_color,
+                                season, tmp_dir, window_size, player_info)
+
+        individual_charts = [
+            ("player_goals_vs_xg_rolling.png", "Goals vs xG Rolling"),
+            ("player_xg_per90_trend.png", "xG per 90 Trend"),
+            ("player_shot_volume_quality.png", "Shot Volume & Quality"),
+            ("player_last10_vs_avg.png", "Last 10 vs Season Avg"),
+        ]
+        for filename, title in individual_charts:
+            filepath = os.path.join(tmp_dir, filename)
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    charts[filename] = (title, f.read())
+
+    return charts
+
+
 st.title("Player Rolling xG Analysis")
 st.markdown("Analyze individual player xG, goals, and shots over time with rolling averages.")
 
@@ -80,61 +113,53 @@ if uploaded_file is not None:
             st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
 
         if st.button("Generate Charts", type="primary"):
+            st.session_state["player_rolling_xg_charts"] = None
             with st.spinner("Generating charts..."):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    safe_name = player_name.replace(' ', '_').replace('.', '')
-                    output_path = os.path.join(tmp_dir, f"{safe_name}_rolling_analysis.png")
+                charts = _generate_player_charts(file_content, player_name, team_name,
+                                                 team_color, season, window_size, player_info)
+                st.session_state["player_rolling_xg_charts"] = charts
+                st.session_state["player_rolling_xg_name"] = player_name
 
-                    create_rolling_charts(matches, player_name, team_name, team_color,
-                                         season, output_path, window_size, player_info)
+        # Display charts from session state (persists across reruns)
+        if st.session_state.get("player_rolling_xg_charts"):
+            charts = st.session_state["player_rolling_xg_charts"]
+            stored_name = st.session_state.get("player_rolling_xg_name", "")
+            safe_name = stored_name.replace(' ', '_').replace('.', '')
 
-                    st.image(output_path, caption=f"{player_name} - Rolling xG Analysis")
+            st.image(charts["combined"], caption=f"{stored_name} - Rolling xG Analysis")
+            st.download_button(
+                label="Download Combined Chart",
+                data=charts["combined"],
+                file_name=f"{safe_name}_rolling_xg.png",
+                mime="image/png"
+            )
 
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="Download Combined Chart",
-                            data=f.read(),
-                            file_name=f"{safe_name}_rolling_xg.png",
-                            mime="image/png"
-                        )
+            st.markdown("---")
+            st.subheader("Individual Charts")
 
-                    # Generate individual charts
-                    st.markdown("---")
-                    st.subheader("Individual Charts")
+            col1, col2 = st.columns(2)
+            individual_keys = [k for k in charts if k != "combined"]
 
-                    create_individual_charts(matches, player_name, team_name, team_color,
-                                            season, tmp_dir, window_size, player_info)
+            for i, key in enumerate(individual_keys):
+                title, img_bytes = charts[key]
+                col = col1 if i % 2 == 0 else col2
+                with col:
+                    st.image(img_bytes, caption=title)
+                    st.download_button(
+                        label=f"Download {title}",
+                        data=img_bytes,
+                        file_name=f"{safe_name}_{key}",
+                        mime="image/png",
+                        key=f"download_{key}"
+                    )
 
-                    col1, col2 = st.columns(2)
-                    chart_files = [
-                        ("player_goals_vs_xg_rolling.png", "Goals vs xG Rolling"),
-                        ("player_xg_per90_trend.png", "xG per 90 Trend"),
-                        ("player_shot_volume_quality.png", "Shot Volume & Quality"),
-                        ("player_last10_vs_avg.png", "Last 10 vs Season Avg")
-                    ]
-
-                    for i, (filename, title) in enumerate(chart_files):
-                        filepath = os.path.join(tmp_dir, filename)
-                        if os.path.exists(filepath):
-                            col = col1 if i % 2 == 0 else col2
-                            with col:
-                                st.image(filepath, caption=title)
-                                with open(filepath, "rb") as f:
-                                    st.download_button(
-                                        label=f"Download {title}",
-                                        data=f.read(),
-                                        file_name=f"{safe_name}_{filename}",
-                                        mime="image/png",
-                                        key=f"download_{filename}"
-                                    )
-
-                st.success("Charts generated successfully!")
+            st.success("Charts generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Upload a TruMedia Player Summary CSV to get started")
+    st.info("Upload a TruMedia Player Summary CSV to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

@@ -22,6 +22,33 @@ def _load_csv_cached(file_content):
     return pd.read_csv(io.BytesIO(file_content))
 
 
+@st.cache_data
+def _generate_bar_chart(file_content, config):
+    """Generate bar chart and return image bytes."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
+        tmp.write(file_content)
+        gen_tmp_path = tmp.name
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = dict(config)
+            config['file_path'] = gen_tmp_path
+            config['output_folder'] = tmp_dir
+
+            run_player_bar(config)
+
+            for f in os.listdir(tmp_dir):
+                if f.endswith('.png'):
+                    filepath = os.path.join(tmp_dir, f)
+                    with open(filepath, "rb") as img:
+                        return img.read(), f
+    finally:
+        if os.path.exists(gen_tmp_path):
+            os.unlink(gen_tmp_path)
+
+    return None, None
+
+
 st.title("Player Bar Chart")
 st.markdown("Create leaderboards, team rosters, or individual player comparisons.")
 
@@ -147,61 +174,51 @@ if uploaded_file is not None:
             st.warning("Please select at least one player")
 
         if can_generate and st.button("Generate Chart", type="primary"):
+            st.session_state["bar_chart"] = None
             with st.spinner("Generating chart..."):
-                # Write temp file for chart runner (only on generate click)
-                with tempfile.NamedTemporaryFile(delete=False, suffix='.csv', mode='wb') as tmp:
-                    tmp.write(file_content)
-                    gen_tmp_path = tmp.name
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    config = {
-                        'file_path': gen_tmp_path,
-                        'output_folder': tmp_dir,
-                        'mode': mode,
-                        'stat': stat,
-                        'min_minutes': min_minutes,
-                        'max_players': max_players,
-                        'position': position,
-                        'sort_ascending': sort_ascending,
-                        'data_format': data_format,
-                        'display_as': display_as,
-                        'gui_mode': True
+                config = {
+                    'mode': mode,
+                    'stat': stat,
+                    'min_minutes': min_minutes,
+                    'max_players': max_players,
+                    'position': position,
+                    'sort_ascending': sort_ascending,
+                    'data_format': data_format,
+                    'display_as': display_as,
+                    'gui_mode': True
+                }
+
+                if mode == "team":
+                    config['team'] = team
+                if mode == "individual":
+                    config['players'] = selected_players
+                if custom_title:
+                    config['title'] = custom_title
+
+                img_bytes, filename = _generate_bar_chart(file_content, config)
+                if img_bytes:
+                    st.session_state["bar_chart"] = {
+                        "img": img_bytes,
+                        "filename": filename,
                     }
 
-                    if mode == "team":
-                        config['team'] = team
-                    if mode == "individual":
-                        config['players'] = selected_players
-                    if custom_title:
-                        config['title'] = custom_title
-
-                    result = run_player_bar(config)
-
-                    # Find generated file
-                    for f in os.listdir(tmp_dir):
-                        if f.endswith('.png'):
-                            filepath = os.path.join(tmp_dir, f)
-                            st.image(filepath, caption="Player Bar Chart")
-
-                            with open(filepath, "rb") as img:
-                                st.download_button(
-                                    label="Download Chart",
-                                    data=img.read(),
-                                    file_name=f,
-                                    mime="image/png"
-                                )
-                            break
-
-                # Clean up generation temp file
-                if os.path.exists(gen_tmp_path):
-                    os.unlink(gen_tmp_path)
-
+        # Display from session state
+        if st.session_state.get("bar_chart"):
+            chart = st.session_state["bar_chart"]
+            st.image(chart["img"], caption="Player Bar Chart")
+            st.download_button(
+                label="Download Chart",
+                data=chart["img"],
+                file_name=chart["filename"],
+                mime="image/png"
+            )
             st.success("Chart generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Upload a TruMedia Player Stats CSV to get started")
+    st.info("Upload a TruMedia Player Stats CSV to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

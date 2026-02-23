@@ -60,35 +60,45 @@ def _direction_color(direction):
     return LATERAL_COLOR
 
 
-def _forward_pct_color(fwd_pct):
-    """Map forward percentage (0-1) to green-yellow-red color.
+def _direction_blend_color(fwd_pct, lat_pct, bwd_pct):
+    """Blend green/yellow/red based on all three direction percentages.
 
-    1.0 = fully forward = green
-    0.5 = balanced = yellow
-    0.0 = fully backward = red
+    Uses weighted RGB mix of the three direction colors so the dominant
+    direction is clearly visible rather than everything collapsing to olive.
     """
-    if fwd_pct >= 0.5:
-        t = (fwd_pct - 0.5) * 2  # 0..1
-        r = int(241 + (46 - 241) * t)
-        g = int(196 + (204 - 196) * t)
-        b = int(15 + (113 - 15) * t)
-    else:
-        t = fwd_pct * 2  # 0..1
-        r = int(231 + (241 - 231) * t)
-        g = int(76 + (196 - 76) * t)
-        b = int(60 + (15 - 60) * t)
+    # RGB values for each direction
+    fwd_rgb = (46, 204, 113)   # FORWARD_COLOR green
+    lat_rgb = (241, 196, 15)   # LATERAL_COLOR yellow
+    bwd_rgb = (231, 76, 60)    # BACKWARD_COLOR red
+
+    # Exaggerate differences: raise to power > 1 to push dominant direction
+    exp = 2.0
+    fw = fwd_pct ** exp
+    lw = lat_pct ** exp
+    bw = bwd_pct ** exp
+    total = fw + lw + bw
+    if total == 0:
+        return LATERAL_COLOR
+    fw /= total
+    lw /= total
+    bw /= total
+
+    r = int(fwd_rgb[0] * fw + lat_rgb[0] * lw + bwd_rgb[0] * bw)
+    g = int(fwd_rgb[1] * fw + lat_rgb[1] * lw + bwd_rgb[1] * bw)
+    b = int(fwd_rgb[2] * fw + lat_rgb[2] * lw + bwd_rgb[2] * bw)
     return f'#{r:02x}{g:02x}{b:02x}'
 
 
 # -- Data Pipeline ------------------------------------------------------------
 
-def load_zone_passes(df, team_name, player_name=None):
+def load_zone_passes(df, team_name, player_name=None, exclude_corners=False):
     """Extract pass events for a team and classify into zones.
 
     Args:
         df: Raw DataFrame from TruMedia CSV
         team_name: Team name to filter for
         player_name: Optional player name to further filter
+        exclude_corners: If True, remove corner kicks (passes from corner arc coords)
 
     Returns:
         DataFrame with columns: source_x, source_y, dest_x, dest_y,
@@ -150,6 +160,15 @@ def load_zone_passes(df, team_name, player_name=None):
     passes = passes.dropna(subset=['src_x', 'src_y', 'dst_x', 'dst_y'])
     if passes.empty:
         return pd.DataFrame()
+
+    # Exclude corner kicks: passes originating from corner arc coordinates
+    if exclude_corners:
+        corner_mask = (passes['src_x'] >= 99) & (
+            (passes['src_y'] <= 1) | (passes['src_y'] >= 99)
+        )
+        passes = passes[~corner_mask]
+        if passes.empty:
+            return pd.DataFrame()
 
     # Coordinate flipping if team attacks left-to-right
     mean_x = passes['src_x'].mean()
@@ -509,7 +528,9 @@ def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
         radius = min(radius, max_rx, max_ry_as_rx)
 
         # Fill color based on forward tendency
-        fill_color = _forward_pct_color(stats['forward_pct'])
+        fill_color = _direction_blend_color(
+            stats['forward_pct'], stats['lateral_pct'], stats['backward_pct']
+        )
 
         _draw_partial_fill_circle(ax, cx, cy, radius, comp_pct, fill_color,
                                    aspect_corr=ac)

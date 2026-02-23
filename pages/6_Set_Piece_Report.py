@@ -29,6 +29,25 @@ def _load_setpiece_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_setpiece_charts(file_content, report_type):
+    """Generate set piece report and return image bytes."""
+    df = _load_setpiece_cached(file_content)
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        saved_files = create_setpiece_report(df, tmp_dir, report_type=report_type)
+
+        for filepath in saved_files:
+            if os.path.exists(filepath):
+                filename = os.path.basename(filepath)
+                title = filename.replace('_', ' ').replace('.png', '').title()
+                with open(filepath, "rb") as f:
+                    charts[filename] = (title, f.read())
+
+    return charts
+
+
 st.title("Set Piece Report")
 st.markdown("Analyze attacking and defensive set piece performance.")
 
@@ -58,23 +77,24 @@ if uploaded_file is not None:
         st.success(f"Loaded set piece data ({len(df)} rows)")
 
         if st.button("Generate Report", type="primary"):
+            st.session_state["setpiece_charts"] = None
             with st.spinner("Generating set piece report..."):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    saved_files = create_setpiece_report(df, tmp_dir, report_type=report_type)
+                charts = _generate_setpiece_charts(file_content, report_type)
+                st.session_state["setpiece_charts"] = charts
 
-                    for filepath in saved_files:
-                        if os.path.exists(filepath):
-                            filename = os.path.basename(filepath)
-                            st.image(filepath, caption=filename.replace('_', ' ').replace('.png', '').title())
+        # Display from session state
+        if st.session_state.get("setpiece_charts"):
+            charts = st.session_state["setpiece_charts"]
 
-                            with open(filepath, "rb") as f:
-                                st.download_button(
-                                    label=f"Download {filename}",
-                                    data=f.read(),
-                                    file_name=filename,
-                                    mime="image/png",
-                                    key=f"download_{filename}"
-                                )
+            for filename, (title, img_bytes) in charts.items():
+                st.image(img_bytes, caption=title)
+                st.download_button(
+                    label=f"Download {filename}",
+                    data=img_bytes,
+                    file_name=filename,
+                    mime="image/png",
+                    key=f"download_{filename}"
+                )
 
             st.success("Report generated successfully!")
 
@@ -82,7 +102,7 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Upload a TruMedia Set Piece Report CSV to get started")
+    st.info("Upload a TruMedia Set Piece Report CSV to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

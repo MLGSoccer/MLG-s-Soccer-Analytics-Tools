@@ -36,6 +36,70 @@ def _load_player_data_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position):
+    """Generate single-player comparison charts and return image bytes."""
+    df = _load_player_data_cached(file_content)
+    results, player_row, peer_count, final_position = get_player_percentiles(
+        df, player_name, min_minutes, compare_position
+    )
+    if results is None:
+        return None, None, None
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        safe_name = player_name.replace(' ', '_').replace('.', '').replace("'", '')
+
+        output_path = os.path.join(tmp_dir, "player_comparison.png")
+        create_comparison_chart(results, player_row, peer_count, output_path, final_position)
+        with open(output_path, "rb") as f:
+            charts["combined"] = f.read()
+
+        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+        for category in categories:
+            if category in results:
+                cat_slug = category.lower().replace(' ', '_')
+                cat_path = os.path.join(tmp_dir, f"{cat_slug}.png")
+                create_category_chart(category, results[category], player_row, peer_count, cat_path, final_position)
+                with open(cat_path, "rb") as f:
+                    charts[f"{cat_slug}.png"] = (category.title(), f.read())
+
+    return charts, peer_count, final_position
+
+
+@st.cache_data
+def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position):
+    """Generate multi-player comparison charts and return image bytes."""
+    df = _load_player_data_cached(file_content)
+    results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
+        df, selected_players, min_minutes, compare_position
+    )
+    if results_by_player is None:
+        return None, None, None
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        safe_names = '_vs_'.join([
+            p.replace(' ', '_').replace('.', '').replace("'", '')[:15]
+            for p in selected_players
+        ])
+
+        output_path = os.path.join(tmp_dir, "multi_player_comparison.png")
+        create_multi_player_comparison_chart(results_by_player, player_rows, peer_count, final_position, output_path)
+        with open(output_path, "rb") as f:
+            charts["combined"] = f.read()
+
+        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+        for category in categories:
+            cat_slug = category.lower().replace(' ', '_')
+            cat_path = os.path.join(tmp_dir, f"multi_{cat_slug}.png")
+            create_multi_player_category_chart(category, results_by_player, player_rows, peer_count, final_position, cat_path)
+            with open(cat_path, "rb") as f:
+                charts[f"multi_{cat_slug}.png"] = (category.title(), f.read())
+
+    return charts, peer_count, final_position
+
+
 st.title("Player Comparison Chart")
 st.markdown("Compare player stats to position peers using percentile rankings.")
 
@@ -140,142 +204,123 @@ if uploaded_file is not None:
 
         if can_generate:
             if st.button("Generate Charts", type="primary"):
+                st.session_state["player_comparison_charts"] = None
                 with st.spinner(f"Analyzing {'players' if len(selected_players) > 1 else selected_players[0]}..."):
 
                     if comparison_mode == "Single Player":
-                        # Single player mode
                         player_name = selected_players[0]
-                        results, player_row, peer_count, final_position = get_player_percentiles(
-                            df, player_name, min_minutes, compare_position
+                        result = _generate_single_player_charts(
+                            file_content, player_name, min_minutes, compare_position
                         )
-
-                        if results is None:
+                        charts, peer_count, final_position = result
+                        if charts is None:
                             st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
                         else:
-                            st.info(f"Comparing against {peer_count} {final_position}s with {min_minutes}+ minutes")
-
-                            with tempfile.TemporaryDirectory() as tmp_dir:
-                                safe_name = player_name.replace(' ', '_').replace('.', '').replace("'", '')
-
-                                # Main combined chart
-                                output_path = os.path.join(tmp_dir, "player_comparison.png")
-                                create_comparison_chart(
-                                    results, player_row, peer_count,
-                                    output_path, final_position
-                                )
-
-                                st.image(output_path, caption=f"{player_name} - Percentile Rankings")
-
-                                with open(output_path, "rb") as f:
-                                    st.download_button(
-                                        label="Download Combined Chart",
-                                        data=f.read(),
-                                        file_name=f"{safe_name}_comparison.png",
-                                        mime="image/png"
-                                    )
-
-                                # Individual category charts
-                                st.markdown("---")
-                                st.subheader("Individual Category Charts")
-
-                                categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
-
-                                col1, col2 = st.columns(2)
-                                for i, category in enumerate(categories):
-                                    if category in results:
-                                        cat_slug = category.lower().replace(' ', '_')
-                                        cat_path = os.path.join(tmp_dir, f"{cat_slug}.png")
-
-                                        create_category_chart(
-                                            category, results[category], player_row,
-                                            peer_count, cat_path, final_position
-                                        )
-
-                                        col = col1 if i % 2 == 0 else col2
-                                        with col:
-                                            st.image(cat_path, caption=category.title())
-                                            with open(cat_path, "rb") as f:
-                                                st.download_button(
-                                                    label=f"Download {category.title()}",
-                                                    data=f.read(),
-                                                    file_name=f"{safe_name}_{cat_slug}.png",
-                                                    mime="image/png",
-                                                    key=f"download_{cat_slug}"
-                                                )
-
-                            st.success("Charts generated successfully!")
-
+                            st.session_state["player_comparison_charts"] = charts
+                            st.session_state["player_comparison_meta"] = {
+                                "mode": "single",
+                                "player_name": player_name,
+                                "peer_count": peer_count,
+                                "final_position": final_position,
+                                "min_minutes": min_minutes,
+                            }
                     else:
-                        # Multi-player mode
-                        results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
-                            df, selected_players, min_minutes, compare_position
+                        result = _generate_multi_player_charts(
+                            file_content, selected_players, min_minutes, compare_position
                         )
-
-                        if results_by_player is None:
+                        charts, peer_count, final_position = result
+                        if charts is None:
                             st.error("One or more players not found or don't meet minimum minutes.")
                         else:
-                            player_names_str = ', '.join(selected_players)
-                            st.info(f"Comparing {player_names_str} against {peer_count} {final_position}s with {min_minutes}+ minutes")
+                            st.session_state["player_comparison_charts"] = charts
+                            st.session_state["player_comparison_meta"] = {
+                                "mode": "multi",
+                                "selected_players": selected_players,
+                                "peer_count": peer_count,
+                                "final_position": final_position,
+                                "min_minutes": min_minutes,
+                            }
 
-                            with tempfile.TemporaryDirectory() as tmp_dir:
-                                # Generate safe filename
-                                safe_names = '_vs_'.join([
-                                    p.replace(' ', '_').replace('.', '').replace("'", '')[:15]
-                                    for p in selected_players
-                                ])
+            # Display from session state
+            if st.session_state.get("player_comparison_charts"):
+                charts = st.session_state["player_comparison_charts"]
+                meta = st.session_state.get("player_comparison_meta", {})
 
-                                # Main combined chart
-                                output_path = os.path.join(tmp_dir, "multi_player_comparison.png")
-                                create_multi_player_comparison_chart(
-                                    results_by_player, player_rows, peer_count,
-                                    final_position, output_path
-                                )
+                if meta.get("mode") == "single":
+                    player_name = meta["player_name"]
+                    safe_name = player_name.replace(' ', '_').replace('.', '').replace("'", '')
+                    st.info(f"Comparing against {meta['peer_count']} {meta['final_position']}s with {meta['min_minutes']}+ minutes")
 
-                                st.image(output_path, caption=f"Multi-Player Comparison - {player_names_str}")
+                    st.image(charts["combined"], caption=f"{player_name} - Percentile Rankings")
+                    st.download_button(
+                        label="Download Combined Chart",
+                        data=charts["combined"],
+                        file_name=f"{safe_name}_comparison.png",
+                        mime="image/png"
+                    )
 
-                                with open(output_path, "rb") as f:
-                                    st.download_button(
-                                        label="Download Combined Chart",
-                                        data=f.read(),
-                                        file_name=f"multi_comparison_{safe_names}.png",
-                                        mime="image/png"
-                                    )
+                    st.markdown("---")
+                    st.subheader("Individual Category Charts")
+                    col1, col2 = st.columns(2)
+                    individual_keys = [k for k in charts if k != "combined"]
+                    for i, key in enumerate(individual_keys):
+                        title, img_bytes = charts[key]
+                        col = col1 if i % 2 == 0 else col2
+                        cat_slug = key.replace('.png', '')
+                        with col:
+                            st.image(img_bytes, caption=title)
+                            st.download_button(
+                                label=f"Download {title}",
+                                data=img_bytes,
+                                file_name=f"{safe_name}_{cat_slug}.png",
+                                mime="image/png",
+                                key=f"download_{cat_slug}"
+                            )
 
-                                # Individual category charts
-                                st.markdown("---")
-                                st.subheader("Individual Category Charts")
+                    st.success("Charts generated successfully!")
 
-                                categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+                elif meta.get("mode") == "multi":
+                    players = meta["selected_players"]
+                    player_names_str = ', '.join(players)
+                    safe_names = '_vs_'.join([
+                        p.replace(' ', '_').replace('.', '').replace("'", '')[:15]
+                        for p in players
+                    ])
+                    st.info(f"Comparing {player_names_str} against {meta['peer_count']} {meta['final_position']}s with {meta['min_minutes']}+ minutes")
 
-                                col1, col2 = st.columns(2)
-                                for i, category in enumerate(categories):
-                                    cat_slug = category.lower().replace(' ', '_')
-                                    cat_path = os.path.join(tmp_dir, f"multi_{cat_slug}.png")
+                    st.image(charts["combined"], caption=f"Multi-Player Comparison - {player_names_str}")
+                    st.download_button(
+                        label="Download Combined Chart",
+                        data=charts["combined"],
+                        file_name=f"multi_comparison_{safe_names}.png",
+                        mime="image/png"
+                    )
 
-                                    create_multi_player_category_chart(
-                                        category, results_by_player, player_rows,
-                                        peer_count, final_position, cat_path
-                                    )
+                    st.markdown("---")
+                    st.subheader("Individual Category Charts")
+                    col1, col2 = st.columns(2)
+                    individual_keys = [k for k in charts if k != "combined"]
+                    for i, key in enumerate(individual_keys):
+                        title, img_bytes = charts[key]
+                        col = col1 if i % 2 == 0 else col2
+                        cat_slug = key.replace('.png', '')
+                        with col:
+                            st.image(img_bytes, caption=title)
+                            st.download_button(
+                                label=f"Download {title}",
+                                data=img_bytes,
+                                file_name=f"multi_{safe_names}_{cat_slug}.png",
+                                mime="image/png",
+                                key=f"download_multi_{cat_slug}"
+                            )
 
-                                    col = col1 if i % 2 == 0 else col2
-                                    with col:
-                                        st.image(cat_path, caption=category.title())
-                                        with open(cat_path, "rb") as f:
-                                            st.download_button(
-                                                label=f"Download {category.title()}",
-                                                data=f.read(),
-                                                file_name=f"multi_{safe_names}_{cat_slug}.png",
-                                                mime="image/png",
-                                                key=f"download_multi_{cat_slug}"
-                                            )
-
-                            st.success("Multi-player charts generated successfully!")
+                    st.success("Multi-player charts generated successfully!")
 
         else:
             if comparison_mode == "Single Player":
-                st.info("👈 Select a player from the sidebar to analyze")
+                st.info("Select a player from the sidebar to analyze")
             else:
-                st.info("👈 Select 2-3 players from the sidebar to compare")
+                st.info("Select 2-3 players from the sidebar to compare")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
@@ -283,7 +328,7 @@ if uploaded_file is not None:
         st.code(traceback.format_exc())
 
 else:
-    st.info("👆 Upload a TruMedia Player Stats CSV to get started")
+    st.info("Upload a TruMedia Player Stats CSV to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

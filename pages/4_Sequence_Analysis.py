@@ -36,6 +36,52 @@ def _load_sequences_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_sequence_charts(file_content, teams, csv_team_colors):
+    """Generate all charts and return image bytes."""
+    sequences, _, length_data, team_data, shot_sequences, team_length_data, match_info = _load_sequences_cached(file_content)
+
+    team_colors = {}
+    for team in teams:
+        if csv_team_colors and team in csv_team_colors:
+            team_colors[team] = csv_team_colors[team]
+        else:
+            team_colors[team] = get_team_color(team, prompt_if_missing=False)
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = os.path.join(tmp_dir, "sequence_analysis.png")
+        create_sequence_analysis_chart(
+            length_data, team_data, shot_sequences,
+            match_info, output_path,
+            team_colors=team_colors,
+            team_length_data=team_length_data
+        )
+        with open(output_path, "rb") as f:
+            charts["combined"] = f.read()
+
+        create_individual_charts(
+            length_data, team_data, shot_sequences,
+            match_info, tmp_dir,
+            team_colors=team_colors,
+            team_length_data=team_length_data
+        )
+
+        individual_charts = [
+            ("seq_shot_quality_by_length.png", "Shot Quality by Length"),
+            ("seq_team_profiles.png", "Team Profiles"),
+            ("seq_shots_scatter.png", "Shots Scatter"),
+            ("seq_xg_distribution.png", "xG Distribution"),
+        ]
+        for filename, title in individual_charts:
+            filepath = os.path.join(tmp_dir, filename)
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    charts[filename] = (title, f.read())
+
+    return charts
+
+
 st.title("Sequence Analysis Chart")
 st.markdown("Analyze how possessions build toward shots - sequence length, shot quality, and team comparisons.")
 
@@ -67,70 +113,43 @@ if uploaded_file is not None:
         check_team_colors(teams, csv_team_colors)
 
         if st.button("Generate Charts", type="primary"):
+            st.session_state["sequence_charts"] = None
             with st.spinner("Generating charts..."):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    # Resolve team colors
-                    team_colors = {}
-                    for team in teams:
-                        if csv_team_colors and team in csv_team_colors:
-                            team_colors[team] = csv_team_colors[team]
-                        else:
-                            team_colors[team] = get_team_color(team, prompt_if_missing=False)
+                charts = _generate_sequence_charts(file_content, teams, csv_team_colors)
+                st.session_state["sequence_charts"] = charts
 
-                    output_path = os.path.join(tmp_dir, "sequence_analysis.png")
+        # Display from session state
+        if st.session_state.get("sequence_charts"):
+            charts = st.session_state["sequence_charts"]
 
-                    create_sequence_analysis_chart(
-                        length_data, team_data, shot_sequences,
-                        match_info, output_path,
-                        team_colors=team_colors,
-                        team_length_data=team_length_data
+            st.image(charts["combined"], caption="Sequence Analysis - Combined")
+            st.download_button(
+                label="Download Combined Chart",
+                data=charts["combined"],
+                file_name="sequence_analysis.png",
+                mime="image/png"
+            )
+
+            st.markdown("---")
+            st.subheader("Individual Charts")
+
+            col1, col2 = st.columns(2)
+            individual_keys = [k for k in charts if k != "combined"]
+
+            for i, key in enumerate(individual_keys):
+                title, img_bytes = charts[key]
+                col = col1 if i % 2 == 0 else col2
+                with col:
+                    st.image(img_bytes, caption=title)
+                    st.download_button(
+                        label=f"Download {title}",
+                        data=img_bytes,
+                        file_name=key,
+                        mime="image/png",
+                        key=f"download_{key}"
                     )
 
-                    st.image(output_path, caption="Sequence Analysis - Combined")
-
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="Download Combined Chart",
-                            data=f.read(),
-                            file_name="sequence_analysis.png",
-                            mime="image/png"
-                        )
-
-                    # Generate individual charts
-                    st.markdown("---")
-                    st.subheader("Individual Charts")
-
-                    create_individual_charts(
-                        length_data, team_data, shot_sequences,
-                        match_info, tmp_dir,
-                        team_colors=team_colors,
-                        team_length_data=team_length_data
-                    )
-
-                    col1, col2 = st.columns(2)
-                    chart_files = [
-                        ("seq_shot_quality_by_length.png", "Shot Quality by Length"),
-                        ("seq_team_profiles.png", "Team Profiles"),
-                        ("seq_shots_scatter.png", "Shots Scatter"),
-                        ("seq_xg_distribution.png", "xG Distribution")
-                    ]
-
-                    for i, (filename, title) in enumerate(chart_files):
-                        filepath = os.path.join(tmp_dir, filename)
-                        if os.path.exists(filepath):
-                            col = col1 if i % 2 == 0 else col2
-                            with col:
-                                st.image(filepath, caption=title)
-                                with open(filepath, "rb") as f:
-                                    st.download_button(
-                                        label=f"Download {title}",
-                                        data=f.read(),
-                                        file_name=filename,
-                                        mime="image/png",
-                                        key=f"download_{filename}"
-                                    )
-
-                st.success("Charts generated successfully!")
+            st.success("Charts generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
@@ -138,7 +157,7 @@ if uploaded_file is not None:
         st.code(traceback.format_exc())
 
 else:
-    st.info("👆 Upload a TruMedia Event Log CSV to get started")
+    st.info("Upload a TruMedia Event Log CSV to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

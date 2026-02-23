@@ -13,6 +13,7 @@ from mostly_finished_charts.xg_race_chart import (
     get_team_info,
     create_xg_chart
 )
+from shared.styles import BG_COLOR
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="xG Race Chart", page_icon="🏁", layout="wide")
@@ -29,6 +30,37 @@ def _parse_xg_race_cached(file_content):
         return parse_trumedia_csv(tmp_path)
     finally:
         os.unlink(tmp_path)
+
+
+@st.cache_data
+def _generate_xg_race_chart(file_content, competition, own_goals):
+    """Generate xG race chart and return image bytes."""
+    shots, match_info, team_colors = _parse_xg_race_cached(file_content)
+
+    config = {
+        'competition': competition if competition else None,
+        'own_goals': own_goals
+    }
+    team_info = get_team_info(shots, match_info, team_colors, config)
+    team_info['data_source'] = 'trumedia'
+
+    fig = create_xg_chart(shots, team_info)
+    if fig is None:
+        return None, None, None
+
+    team1 = team_info['team1']['name'].replace(' ', '_')
+    team2 = team_info['team2']['name'].replace(' ', '_')
+    filename = f"xg_race_{team1}_vs_{team2}.png"
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        output_path = os.path.join(tmp_dir, filename)
+        fig.savefig(output_path, dpi=300, bbox_inches='tight',
+                   facecolor=BG_COLOR, edgecolor='none')
+        plt.close(fig)
+        with open(output_path, "rb") as f:
+            img_bytes = f.read()
+
+    return img_bytes, filename, f"{team_info['team1']['name']} vs {team_info['team2']['name']}"
 
 
 st.title("xG Race Chart")
@@ -114,44 +146,33 @@ if uploaded_file is not None:
                 st.sidebar.caption(f"Goal credited to {credited_team}")
 
             if st.button("Generate Chart", type="primary"):
+                st.session_state["xg_race_chart"] = None
                 with st.spinner("Generating xG race chart..."):
-                    # Build config for get_team_info
-                    config = {
-                        'competition': competition if competition else None,
-                        'own_goals': own_goals
-                    }
-
-                    # Get team info (this resolves colors, names, etc.)
-                    team_info = get_team_info(shots, match_info, team_colors, config)
-                    team_info['data_source'] = 'trumedia'
-
-                    # Create the chart
-                    fig = create_xg_chart(shots, team_info)
-
-                    if fig is None:
+                    # Convert own_goals list to tuple of tuples for caching
+                    own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
+                    img_bytes, filename, caption = _generate_xg_race_chart(
+                        file_content, competition, own_goals_hashable
+                    )
+                    if img_bytes is None:
                         st.error("Chart generation failed. Please check team names.")
                     else:
-                        with tempfile.TemporaryDirectory() as tmp_dir:
-                            # Save the figure
-                            team1 = team_info['team1']['name'].replace(' ', '_')
-                            team2 = team_info['team2']['name'].replace(' ', '_')
-                            output_path = os.path.join(tmp_dir, f"xg_race_{team1}_vs_{team2}.png")
+                        st.session_state["xg_race_chart"] = {
+                            "img": img_bytes,
+                            "filename": filename,
+                            "caption": caption,
+                        }
 
-                            fig.savefig(output_path, dpi=300, bbox_inches='tight',
-                                       facecolor='#1A2332', edgecolor='none')
-                            plt.close(fig)
-
-                            st.image(output_path, caption="xG Race Chart")
-
-                            with open(output_path, "rb") as f:
-                                st.download_button(
-                                    label="Download Chart",
-                                    data=f.read(),
-                                    file_name=f"xg_race_{team1}_vs_{team2}.png",
-                                    mime="image/png"
-                                )
-
-                        st.success("Chart generated successfully!")
+            # Display from session state
+            if st.session_state.get("xg_race_chart"):
+                chart = st.session_state["xg_race_chart"]
+                st.image(chart["img"], caption="xG Race Chart")
+                st.download_button(
+                    label="Download Chart",
+                    data=chart["img"],
+                    file_name=chart["filename"],
+                    mime="image/png"
+                )
+                st.success("Chart generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
@@ -159,7 +180,7 @@ if uploaded_file is not None:
         st.code(traceback.format_exc())
 
 else:
-    st.info("👆 Upload a TruMedia Event Log CSV for a single match")
+    st.info("Upload a TruMedia Event Log CSV for a single match")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

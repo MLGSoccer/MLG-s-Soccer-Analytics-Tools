@@ -542,7 +542,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
 
 def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_info,
                                    competition='', player_name=None,
-                                   exclude_penalties=False, highlight_mode='All'):
+                                   exclude_penalties=False, highlight_mode='All',
+                                   shots_against=False):
     """
     Create a multi-match shot chart for one team on a vertical half-pitch.
 
@@ -607,11 +608,16 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                 season_str = f"{min_year}-{str(max_year)[-2:]}"
 
     # Title and subtitle
+    map_label = "SHOTS AGAINST MAP" if shots_against else "SHOT MAP"
     if player_name:
-        title_text = f"{player_name.upper()} {season_str} SHOT MAP".strip()
-        subtitle_parts = [team_name.upper()]
+        if shots_against:
+            title_text = f"{player_name.upper()} SHOTS AGAINST {team_name.upper()} {season_str}".strip()
+            subtitle_parts = []
+        else:
+            title_text = f"{player_name.upper()} {season_str} SHOT MAP".strip()
+            subtitle_parts = [team_name.upper()]
     else:
-        title_text = f"{team_name.upper()} {season_str} SHOT MAP".strip()
+        title_text = f"{team_name.upper()} {season_str} {map_label}".strip()
         subtitle_parts = []
 
     title_obj = fig.suptitle(title_text, fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)

@@ -66,15 +66,16 @@ def _read_csv_cached(file_content):
         os.unlink(tmp_path)
 
 
-_CACHE_VERSION = 6  # bump to invalidate cached results after logic changes
+_CACHE_VERSION = 7  # bump to invalidate cached results after logic changes
 
 
 @st.cache_data
 def _load_and_aggregate(file_content, team_name, player_name=None,
-                        _version=_CACHE_VERSION):
+                        exclude_corners=False, _version=_CACHE_VERSION):
     """Cache pass loading and aggregation."""
     df = _read_csv_cached(file_content)
-    pass_df = load_zone_passes(df, team_name, player_name=player_name)
+    pass_df = load_zone_passes(df, team_name, player_name=player_name,
+                               exclude_corners=exclude_corners)
     if pass_df.empty:
         return pass_df, pd.DataFrame()
     zone_agg_df = aggregate_zone_passes(pass_df)
@@ -129,6 +130,12 @@ min_per_game = st.sidebar.slider(
     "Min passes/game for detail arrows",
     min_value=0.0, max_value=5.0, value=0.5, step=0.5,
     help="Hide arrows below this threshold in zone detail view"
+)
+
+exclude_corners = st.sidebar.checkbox(
+    "Exclude corner kicks",
+    value=False,
+    help="Remove passes originating from corner arc coordinates"
 )
 
 # File upload
@@ -213,7 +220,8 @@ if uploaded_file is not None:
             if st.button("Generate Zone Passing Charts", type="primary"):
                 with st.spinner("Loading pass data..."):
                     pass_df, zone_agg_df = _load_and_aggregate(
-                        file_content, selected_team, player_name=player_name)
+                        file_content, selected_team, player_name=player_name,
+                        exclude_corners=exclude_corners)
 
                 if pass_df.empty:
                     st.error("No pass data found. Ensure the CSV has playType, Team, EventX/Y, PassEndX/Y columns.")
@@ -237,7 +245,8 @@ if uploaded_file is not None:
 
                 stored_num_matches = st.session_state.get('zp_num_matches', 1)
                 pass_df, zone_agg_df = _load_and_aggregate(
-                    file_content, selected_team, player_name=player_name)
+                    file_content, selected_team, player_name=player_name,
+                    exclude_corners=exclude_corners)
                 stored_match_info = st.session_state.zp_match_info
                 stored_color = st.session_state.zp_team_color
                 stored_player = st.session_state.get('zp_player_name')

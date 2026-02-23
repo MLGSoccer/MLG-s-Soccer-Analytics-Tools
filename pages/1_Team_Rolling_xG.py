@@ -30,6 +30,38 @@ def _parse_csv_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_charts(file_content, team_name, team_color, window_size):
+    """Generate all charts and return image bytes, cached to survive reruns."""
+    # Re-parse (cached separately) to get matches
+    matches, _, _ = _parse_csv_cached(file_content)
+
+    charts = {}
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # Combined chart
+        combined_path = os.path.join(tmp_dir, "combined.png")
+        create_rolling_charts(matches, team_name, team_color, combined_path, window_size)
+        with open(combined_path, "rb") as f:
+            charts["combined"] = f.read()
+
+        # Individual charts
+        create_individual_charts(matches, team_name, team_color, tmp_dir, window_size)
+
+        individual_charts = [
+            ("rolling_xg_difference.png", "xG Difference"),
+            ("rolling_xg_for_against.png", "xG For & Against"),
+            ("rolling_xg_combined.png", "Combined View"),
+            ("rolling_xg_cumulative.png", "Cumulative xG vs Goals"),
+        ]
+        for filename, title in individual_charts:
+            filepath = os.path.join(tmp_dir, filename)
+            if os.path.exists(filepath):
+                with open(filepath, "rb") as f:
+                    charts[filename] = (title, f.read())
+
+    return charts
+
+
 st.title("Team Rolling xG Analysis")
 st.markdown("Analyze team xG performance over a season with rolling averages.")
 
@@ -70,61 +102,53 @@ if uploaded_file is not None:
 
         # Generate button
         if st.button("Generate Charts", type="primary"):
+            st.session_state["team_rolling_xg_charts"] = None  # clear stale charts
             with st.spinner("Generating charts..."):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    output_path = os.path.join(tmp_dir, "combined.png")
-                    create_rolling_charts(matches, team_name, team_color, output_path, window_size)
+                charts = _generate_charts(file_content, team_name, team_color, window_size)
+                st.session_state["team_rolling_xg_charts"] = charts
+                st.session_state["team_rolling_xg_team"] = team_name
 
-                    # Display the chart
-                    st.image(output_path, caption=f"{team_name} - Rolling xG Analysis")
+        # Display charts from session state (persists across reruns)
+        if st.session_state.get("team_rolling_xg_charts"):
+            charts = st.session_state["team_rolling_xg_charts"]
+            stored_team = st.session_state.get("team_rolling_xg_team", "")
 
-                    # Download button
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="Download Combined Chart",
-                            data=f.read(),
-                            file_name=f"{team_name.replace(' ', '_')}_rolling_xg.png",
-                            mime="image/png"
-                        )
+            # Combined chart
+            st.image(charts["combined"], caption=f"{stored_team} - Rolling xG Analysis")
+            st.download_button(
+                label="Download Combined Chart",
+                data=charts["combined"],
+                file_name=f"{stored_team.replace(' ', '_')}_rolling_xg.png",
+                mime="image/png"
+            )
 
-                    # Generate individual charts
-                    st.markdown("---")
-                    st.subheader("Individual Charts")
+            # Individual charts
+            st.markdown("---")
+            st.subheader("Individual Charts")
 
-                    create_individual_charts(matches, team_name, team_color, tmp_dir, window_size)
+            col1, col2 = st.columns(2)
+            individual_keys = [k for k in charts if k != "combined"]
 
-                    # Display individual charts in 2x2 grid
-                    col1, col2 = st.columns(2)
+            for i, key in enumerate(individual_keys):
+                title, img_bytes = charts[key]
+                col = col1 if i % 2 == 0 else col2
+                with col:
+                    st.image(img_bytes, caption=title)
+                    st.download_button(
+                        label=f"Download {title}",
+                        data=img_bytes,
+                        file_name=f"{stored_team.replace(' ', '_')}_{key}",
+                        mime="image/png",
+                        key=f"download_{key}"
+                    )
 
-                    chart_files = [
-                        ("rolling_xg_difference.png", "xG Difference"),
-                        ("rolling_xg_for_against.png", "xG For & Against"),
-                        ("rolling_xg_combined.png", "Combined View"),
-                        ("rolling_xg_cumulative.png", "Cumulative xG vs Goals")
-                    ]
-
-                    for i, (filename, title) in enumerate(chart_files):
-                        filepath = os.path.join(tmp_dir, filename)
-                        if os.path.exists(filepath):
-                            col = col1 if i % 2 == 0 else col2
-                            with col:
-                                st.image(filepath, caption=title)
-                                with open(filepath, "rb") as f:
-                                    st.download_button(
-                                        label=f"Download {title}",
-                                        data=f.read(),
-                                        file_name=f"{team_name.replace(' ', '_')}_{filename}",
-                                        mime="image/png",
-                                        key=f"download_{filename}"
-                                    )
-
-                st.success("Charts generated successfully!")
+            st.success("Charts generated successfully!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Upload a TruMedia CSV file to get started")
+    st.info("Upload a TruMedia CSV file to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""

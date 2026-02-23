@@ -119,6 +119,7 @@ if uploaded_file is not None:
             team_color = db_color or '#6CABDD'
 
             if st.button("Generate Progressive Flow", type="primary"):
+                st.session_state["progressive_flow"] = None
                 with st.spinner("Analyzing ball progression..."):
                     pass_df = load_passing_data(raw_df, selected_team)
 
@@ -137,55 +138,71 @@ if uploaded_file is not None:
                         if chart_df.empty:
                             st.warning("No movements found with current filters. Try unchecking 'Forward Only'.")
                         else:
-                            # Stats display
-                            pos = stats.get('position', {})
-                            dirn = stats.get('direction', {})
-
-                            st.markdown("**Position (by destination)**")
-                            c1, c2, c3 = st.columns(3)
-                            c1.metric("Left", pos.get('left', 0))
-                            c2.metric("Center", pos.get('center', 0))
-                            c3.metric("Right", pos.get('right', 0))
-
-                            st.markdown("**Direction**")
-                            d1, d2, d3 = st.columns(3)
-                            d1.metric("Forward", dirn.get('forward', 0))
-                            d2.metric("Sideways", dirn.get('sideways', 0))
-                            d3.metric("Backward", dirn.get('backward', 0))
-
-                            # Create and display chart
                             fig = create_passing_flow_chart(
                                 chart_df, selected_team, team_color, match_info,
                                 stats, competition=competition,
                             )
 
-                            st.pyplot(fig)
-
-                            # Download PNG
+                            # Save to bytes
                             with tempfile.TemporaryDirectory() as tmp_dir:
                                 safe_name = selected_team.replace(' ', '_')
                                 filename = f"progressive_flow_{safe_name}.png"
                                 filepath = os.path.join(tmp_dir, filename)
-
                                 fig.savefig(filepath, dpi=300, bbox_inches='tight',
                                             facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(fig)
-
                                 with open(filepath, "rb") as f:
-                                    st.download_button(
-                                        label="Download PNG",
-                                        data=f.read(),
-                                        file_name=filename,
-                                        mime="image/png"
-                                    )
+                                    img_bytes = f.read()
 
-                            # Zone reference diagram
-                            with st.expander("Zone Reference Diagram"):
-                                ref_fig = create_zone_reference_figure(team_color)
-                                st.pyplot(ref_fig)
+                            # Zone reference
+                            ref_fig = create_zone_reference_figure(team_color)
+                            with tempfile.TemporaryDirectory() as tmp_dir:
+                                ref_path = os.path.join(tmp_dir, "zone_ref.png")
+                                ref_fig.savefig(ref_path, dpi=300, bbox_inches='tight',
+                                                facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(ref_fig)
+                                with open(ref_path, "rb") as f:
+                                    ref_bytes = f.read()
 
-                            st.success("Progressive flow chart generated!")
+                            st.session_state["progressive_flow"] = {
+                                "img": img_bytes,
+                                "filename": filename,
+                                "stats": stats,
+                                "ref_img": ref_bytes,
+                            }
+
+            # Display from session state
+            if st.session_state.get("progressive_flow"):
+                flow = st.session_state["progressive_flow"]
+                stats = flow["stats"]
+
+                pos = stats.get('position', {})
+                dirn = stats.get('direction', {})
+
+                st.markdown("**Position (by destination)**")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Left", pos.get('left', 0))
+                c2.metric("Center", pos.get('center', 0))
+                c3.metric("Right", pos.get('right', 0))
+
+                st.markdown("**Direction**")
+                d1, d2, d3 = st.columns(3)
+                d1.metric("Forward", dirn.get('forward', 0))
+                d2.metric("Sideways", dirn.get('sideways', 0))
+                d3.metric("Backward", dirn.get('backward', 0))
+
+                st.image(flow["img"])
+                st.download_button(
+                    label="Download PNG",
+                    data=flow["img"],
+                    file_name=flow["filename"],
+                    mime="image/png"
+                )
+
+                with st.expander("Zone Reference Diagram"):
+                    st.image(flow["ref_img"])
+
+                st.success("Progressive flow chart generated!")
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")

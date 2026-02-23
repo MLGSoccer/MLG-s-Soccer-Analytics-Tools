@@ -110,9 +110,9 @@ def parse_match_summary_csv(filepath, target_team=None, season_filter=None, gui_
         if len(seasons) > 1:
             season_list = sorted(seasons, reverse=True)
             if gui_mode:
-                # Auto-select most recent season in GUI mode
-                season_filter = season_list[0]
-                print(f"[OK] Auto-selected season: {season_filter}")
+                # Include all seasons by default in GUI mode
+                season_filter = None
+                print(f"[OK] Including all seasons ({len(season_list)} found)")
             else:
                 print("\nSeasons available:")
                 for i, s in enumerate(season_list, 1):

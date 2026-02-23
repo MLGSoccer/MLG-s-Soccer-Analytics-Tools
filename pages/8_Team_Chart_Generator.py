@@ -32,6 +32,26 @@ def _load_team_data_cached(file_content):
         os.unlink(tmp_path)
 
 
+@st.cache_data
+def _generate_team_chart(file_content, chart_type, x_col, y_col, value_col, title, x_label, y_label):
+    """Generate team chart and return image bytes."""
+    df, team_info = _load_team_data_cached(file_content)
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        safe_title = title.replace(' ', '_').replace(':', '').replace('/', '-')[:50]
+        output_path = os.path.join(tmp_dir, f"team_chart_{safe_title}.png")
+
+        if chart_type == "scatter":
+            create_scatter_chart(df, team_info, x_col, y_col, title, x_label, y_label, output_path)
+        elif chart_type == "horizontal_bar":
+            create_horizontal_bar_chart(df, team_info, value_col, title, x_label, output_path)
+        else:
+            create_vertical_bar_chart(df, team_info, value_col, title, y_label, output_path)
+
+        with open(output_path, "rb") as f:
+            return f.read(), f"{safe_title}.png"
+
+
 st.title("Team Chart Generator")
 st.markdown("Create custom scatter or bar charts from any team data.")
 
@@ -95,28 +115,27 @@ if uploaded_file is not None:
 
         # Generate button
         if st.button("Generate Chart", type="primary"):
+            st.session_state["team_chart"] = None
             with st.spinner("Generating chart..."):
-                with tempfile.TemporaryDirectory() as tmp_dir:
-                    safe_title = title.replace(' ', '_').replace(':', '').replace('/', '-')[:50]
-                    output_path = os.path.join(tmp_dir, f"team_chart_{safe_title}.png")
+                img_bytes, filename = _generate_team_chart(
+                    file_content, chart_type, x_col, y_col, value_col, title, x_label, y_label
+                )
+                st.session_state["team_chart"] = {
+                    "img": img_bytes,
+                    "filename": filename,
+                    "title": title,
+                }
 
-                    if chart_type == "scatter":
-                        create_scatter_chart(df, team_info, x_col, y_col, title, x_label, y_label, output_path)
-                    elif chart_type == "horizontal_bar":
-                        create_horizontal_bar_chart(df, team_info, value_col, title, x_label, output_path)
-                    else:
-                        create_vertical_bar_chart(df, team_info, value_col, title, y_label, output_path)
-
-                    st.image(output_path, caption=title)
-
-                    with open(output_path, "rb") as f:
-                        st.download_button(
-                            label="Download Chart",
-                            data=f.read(),
-                            file_name=f"{safe_title}.png",
-                            mime="image/png"
-                        )
-
+        # Display from session state
+        if st.session_state.get("team_chart"):
+            chart = st.session_state["team_chart"]
+            st.image(chart["img"], caption=chart["title"])
+            st.download_button(
+                label="Download Chart",
+                data=chart["img"],
+                file_name=chart["filename"],
+                mime="image/png"
+            )
             st.success("Chart generated successfully!")
 
         # Preview data
@@ -127,7 +146,7 @@ if uploaded_file is not None:
         st.error(f"Error processing file: {str(e)}")
 
 else:
-    st.info("👆 Upload a CSV with team data to get started")
+    st.info("Upload a CSV with team data to get started")
 
     with st.expander("Expected CSV Format"):
         st.markdown("""
