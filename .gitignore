@@ -26,3 +26,6 @@ Thumbs.db
 # Saved custom colors (user-specific)
 team_colors.json
 team_abbrevs.json
+
+# Streamlit secrets (credentials)
+.streamlit/secrets.toml

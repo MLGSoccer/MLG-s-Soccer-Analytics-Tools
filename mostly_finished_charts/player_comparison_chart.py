@@ -221,6 +221,17 @@ def load_player_data(csv_path):
     # Filter out players without a mapped position (e.g., goalkeepers)
     df = df[df['PositionCategory'].notna()].copy()
 
+    # Convert all stat columns to numeric (TruMedia CSVs use "-" for missing values)
+    stat_cols = [
+        'Min', 'Shot', 'NPxG', 'GoalExPn', 'xA', 'Goal', 'ExpG',
+        'Chance', 'Ast', 'ProgPass', 'ProgCarry', 'TakeOn', 'PsAtt',
+        'PsIntoA3rd', 'ShtBlk', 'Int', 'TcklAtt', 'Duels', 'Aerials',
+        'GM', 'Age', 'Weight', 'Height',
+    ]
+    for col in stat_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
     # Calculate derived metrics
     # xG/Shot (non-penalty xG per shot)
     df['xG/Shot'] = df.apply(
@@ -280,24 +291,32 @@ def get_player_percentiles(df, player_name, min_minutes=900, compare_position=No
         compare_position: Optional position override for comparison (from POSITION_CATEGORIES)
     """
     # Find the player - check multiple name columns
-    player_mask = df['Player'] == player_name
+    name_col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
+    player_mask = df[name_col] == player_name
 
-    # Try full name column (exact match)
-    if not player_mask.any() and 'playerFullName' in df.columns:
-        player_mask = df['playerFullName'] == player_name
-
-    # Try partial match on abbreviated name (accent-insensitive)
+    # Try the other name column (exact match)
     if not player_mask.any():
-        player_mask = accent_insensitive_contains(df['Player'], player_name)
+        alt_col = 'Player' if name_col == 'playerFullName' else 'playerFullName'
+        if alt_col in df.columns:
+            player_mask = df[alt_col] == player_name
 
     # Try partial match on full name (accent-insensitive)
     if not player_mask.any() and 'playerFullName' in df.columns:
         player_mask = accent_insensitive_contains(df['playerFullName'], player_name)
 
+    # Try partial match on abbreviated name (accent-insensitive)
+    if not player_mask.any() and 'Player' in df.columns:
+        player_mask = accent_insensitive_contains(df['Player'], player_name)
+
     if not player_mask.any():
         return None, None, None, None
 
-    player_row = df[player_mask].iloc[0]
+    # If multiple rows match (mid-season transfer or combined pool),
+    # take the row with the most recent game date so team info reflects current club
+    matched = df[player_mask]
+    if len(matched) > 1 and 'lastGameDate' in matched.columns:
+        matched = matched.sort_values('lastGameDate', ascending=False)
+    player_row = matched.iloc[0]
     player_position = player_row['PositionCategory']
 
     # Use override position if provided, otherwise use player's natural position
@@ -359,7 +378,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     """Create an individual category chart with percentile bars."""
 
     # Player info
-    player_name = player_row.get('playerFullName', player_row['Player'])
+    player_name = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
     natural_position = player_row['PositionCategory']
     position = comparison_position if comparison_position else natural_position
     team = player_row.get('newestTeam', player_row.get('teamName', ''))
@@ -558,7 +577,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     """Create the player comparison chart"""
 
     # Use full name if available, otherwise abbreviated
-    player_name = player_row.get('playerFullName', player_row['Player'])
+    player_name = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
     natural_position = player_row['PositionCategory']
     position = comparison_position if comparison_position else natural_position
     team = player_row.get('newestTeam', player_row.get('teamName', ''))
@@ -1041,7 +1060,7 @@ def draw_player_header_cards(ax, player_rows, player_colors, y_position, card_he
         ax.add_patch(swatch)
 
         # Player name (centered in card)
-        player_name = player_row.get('playerFullName', player_row['Player'])
+        player_name = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
         if len(player_name) > max_name_len:
             player_name = player_name[:max_name_len - 2] + '..'
 
@@ -1282,7 +1301,7 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
         strip_x = start_x + i * (strip_width + gap)
         strip_center = strip_x + strip_width / 2
 
-        pname = player_row.get('playerFullName', player_row['Player'])
+        pname = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
         team = player_row.get('newestTeam', player_row.get('teamName', ''))
         team_abbrev = get_team_abbrev(team)
 
@@ -1395,7 +1414,7 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     # Player legend row
     for i, (pname, color) in enumerate(reversed(list(zip(player_names, player_colors)))):
         idx = num_players - 1 - i
-        display_name = player_rows[idx].get('playerFullName', player_rows[idx]['Player'])
+        display_name = player_rows[idx]['playerFullName'] if 'playerFullName' in player_rows[idx].index else player_rows[idx].get('Player', '')
         if len(display_name) > 18:
             display_name = display_name[:16] + '..'
         # Position from right
@@ -1624,7 +1643,7 @@ def run(config):
     print(f"  Comparing against {peer_count} peers")
 
     # Generate charts
-    full_name = player_row.get('playerFullName', player_row['Player'])
+    full_name = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
     safe_name = full_name.replace(' ', '_').replace('.', '').replace("'", '')
 
     saved_files = []
@@ -1738,7 +1757,7 @@ def main():
     output_folder = get_output_folder()
 
     # Generate charts - use full name for filename
-    full_name = player_row.get('playerFullName', player_row['Player'])
+    full_name = player_row['playerFullName'] if 'playerFullName' in player_row.index else player_row.get('Player', '')
     safe_name = full_name.replace(' ', '_').replace('.', '').replace("'", '')
 
     # Main combined chart

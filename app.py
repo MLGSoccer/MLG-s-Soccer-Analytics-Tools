@@ -10,41 +10,22 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Soccer Charts")
-st.markdown("**CBS Sports styled soccer analytics charts**")
+pg = st.navigation({
+    "": [
+        st.Page("pages/5_Player_Comparison.py", title="Player Comparison"),
+        st.Page("pages/3_xG_Race.py", title="xG Race"),
+        st.Page("pages/1_Team_Rolling_xG.py", title="Team Rolling xG"),
+        st.Page("pages/2_Player_Rolling_xG.py", title="Player Rolling xG"),
+    ],
+    "Other Charts": [
+        st.Page("pages/9_Shot_Chart.py", title="Shot Chart"),
+        st.Page("pages/10_Progressive_Flow.py", title="Progressive Flow"),
+        st.Page("pages/11_Zone_Passing.py", title="Zone Passing"),
+        st.Page("pages/4_Sequence_Analysis.py", title="Sequence Analysis"),
+        st.Page("pages/6_Set_Piece_Report.py", title="Set Piece Report"),
+        st.Page("pages/7_Player_Bar_Chart.py", title="Player Bar Chart"),
+        st.Page("pages/8_Team_Chart_Generator.py", title="Team Chart Generator"),
+    ],
+})
 
-st.markdown("---")
-
-st.markdown("""
-### Available Charts
-
-Use the sidebar to navigate between chart types.
-
-| Chart | Description |
-|-------|-------------|
-| **Team Rolling xG** | Rolling average xG analysis for teams over a season (4-panel chart) |
-| **Player Rolling xG** | Rolling average xG/goals/shots for individual players |
-| **xG Race** | Single-match xG timeline chart |
-| **Sequence Analysis** | How possessions build toward shots |
-| **Player Comparison** | Compare player stats to position peers |
-| **Set Piece Report** | Attacking/defensive set piece analysis |
-| **Player Bar Chart** | Leaderboard or team roster stats |
-| **Team Chart Generator** | Custom scatter/bar charts from any data |
-| **Shot Chart** | Shot locations on pitch for a single match |
-| **Passing Flow** | Sankey diagram of pass progression through pitch zones |
-
-### Data Format
-
-All charts use **TruMedia CSV** files. Upload your CSV and the app will auto-detect the format.
-
-### Getting Started
-
-1. Select a chart type from the sidebar
-2. Upload your TruMedia CSV file
-3. Adjust parameters as needed
-4. Click Generate to create your chart
-5. Download the result
-""")
-
-st.markdown("---")
-st.caption("CBS SPORTS | Data: Opta/Stats Perform")
+pg.run()
