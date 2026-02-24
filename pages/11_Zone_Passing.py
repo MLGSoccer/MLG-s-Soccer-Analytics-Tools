@@ -266,7 +266,7 @@ if uploaded_file is not None:
                     player_name=stored_player, competition=competition,
                 )
 
-                safe_name = (stored_player or selected_team).replace(' ', '_')
+                safe_name = (stored_player or selected_team).replace(' ', '_').replace('/', '-')
                 _render_chart_with_download(
                     overview_fig,
                     f"zone_passing_overview_{safe_name}.png"
@@ -309,7 +309,7 @@ if uploaded_file is not None:
                     )
 
                     zone_safe = sel_zone.replace(' ', '_')
-                    detail_safe = (stored_player or selected_team).replace(' ', '_')
+                    detail_safe = (stored_player or selected_team).replace(' ', '_').replace('/', '-')
                     _render_chart_with_download(
                         detail_fig,
                         f"zone_passing_{zone_safe}_{detail_safe}.png"

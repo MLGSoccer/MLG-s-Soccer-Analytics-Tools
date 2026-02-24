@@ -48,8 +48,8 @@ def _generate_xg_race_chart(file_content, competition, own_goals):
     if fig is None:
         return None, None, None
 
-    team1 = team_info['team1']['name'].replace(' ', '_')
-    team2 = team_info['team2']['name'].replace(' ', '_')
+    team1 = team_info['team1']['name'].replace(' ', '_').replace('/', '-')
+    team2 = team_info['team2']['name'].replace(' ', '_').replace('/', '-')
     filename = f"xg_race_{team1}_vs_{team2}.png"
 
     with tempfile.TemporaryDirectory() as tmp_dir:

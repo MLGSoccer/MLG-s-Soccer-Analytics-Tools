@@ -118,7 +118,7 @@ if uploaded_file is not None:
             st.download_button(
                 label="Download Combined Chart",
                 data=charts["combined"],
-                file_name=f"{stored_team.replace(' ', '_')}_rolling_xg.png",
+                file_name=f"{stored_team.replace(' ', '_').replace('/', '-')}_rolling_xg.png",
                 mime="image/png"
             )
 
@@ -137,7 +137,7 @@ if uploaded_file is not None:
                     st.download_button(
                         label=f"Download {title}",
                         data=img_bytes,
-                        file_name=f"{stored_team.replace(' ', '_')}_{key}",
+                        file_name=f"{stored_team.replace(' ', '_').replace('/', '-')}_{key}",
                         mime="image/png",
                         key=f"download_{key}"
                     )

@@ -145,7 +145,7 @@ if uploaded_file is not None:
 
                             # Save to bytes
                             with tempfile.TemporaryDirectory() as tmp_dir:
-                                safe_name = selected_team.replace(' ', '_')
+                                safe_name = selected_team.replace(' ', '_').replace('/', '-')
                                 filename = f"progressive_flow_{safe_name}.png"
                                 filepath = os.path.join(tmp_dir, filename)
                                 fig.savefig(filepath, dpi=300, bbox_inches='tight',

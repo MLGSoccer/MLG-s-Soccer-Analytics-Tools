@@ -696,8 +696,8 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
     print(f"✓ Date: {match_date}")
 
     # Get competition from config or prompt
-    if 'competition' in config and config['competition']:
-        competition = config['competition']
+    if 'competition' in config:
+        competition = config['competition'] or ''
         print(f"✓ Competition: {competition}")
     else:
         competition = input("\nCompetition (e.g., PREMIER LEAGUE): ").strip().upper() or "PREMIER LEAGUE"

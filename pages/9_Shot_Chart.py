@@ -127,7 +127,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 player_name=player1_name
             )
             caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
-            fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_')}.png"
+            fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_').replace('/', '-')}.png"
             path1 = os.path.join(tmp_dir, fname1)
             fig1.savefig(path1, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig1)
@@ -145,7 +145,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 player_name=player2_name
             )
             caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
-            fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_')}.png"
+            fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_').replace('/', '-')}.png"
             path2 = os.path.join(tmp_dir, fname2)
             fig2.savefig(path2, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig2)
@@ -160,7 +160,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode
             )
-            fname_combined = f"shot_chart_{team1_name.replace(' ', '_')}_vs_{team2_name.replace(' ', '_')}.png"
+            fname_combined = f"shot_chart_{team1_name.replace(' ', '_').replace('/', '-')}_vs_{team2_name.replace(' ', '_').replace('/', '-')}.png"
             path_combined = os.path.join(tmp_dir, "shot_chart_combined.png")
             fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig_combined)
@@ -183,9 +183,9 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
             shots_against=shots_against
         )
 
-        name_part = team_name.replace(' ', '_')
+        name_part = team_name.replace(' ', '_').replace('/', '-')
         if selected_player:
-            name_part = f"{selected_player.replace(' ', '_')}_{name_part}"
+            name_part = f"{selected_player.replace(' ', '_').replace('/', '-')}_{name_part}"
         suffix = "_against" if shots_against else ""
         filename = f"shot_map_{name_part}{suffix}_season.png"
 
