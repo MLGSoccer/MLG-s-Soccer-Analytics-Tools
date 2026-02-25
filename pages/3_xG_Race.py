@@ -38,6 +38,7 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
     config = {
         'competition': competition if competition else None,
         'own_goals': [{'minute': m, 'team': t} for m, t in own_goals_hashable],
+        'gui_mode': True,
     }
     team_info = get_team_info(shots, match_info, team_colors, config)
     team_info['data_source'] = 'trumedia'
