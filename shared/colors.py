@@ -3,6 +3,7 @@ Shared team colors and color utilities for soccer chart builders.
 """
 import os
 import json
+import unicodedata
 
 
 # Team abbreviation to full name mapping
@@ -583,17 +584,22 @@ def normalize_team_name(team_name, color_dict=None):
     return team_name
 
 
+def _normalize(s):
+    """Lowercase and strip accents for accent-insensitive comparison."""
+    return unicodedata.normalize('NFD', s.lower()).encode('ascii', 'ignore').decode('ascii')
+
+
 def fuzzy_match_team(team_name, color_dict):
     """Try to find a fuzzy match for team name in color dictionary.
     Returns (color, matched_name, ambiguous_candidates) where ambiguous_candidates
     is a list of close matches if the result is ambiguous, or None if clear."""
     if not team_name or not isinstance(team_name, str):
         return None, None, None
-    team_lower = team_name.lower().strip()
+    team_lower = _normalize(team_name.strip())
     candidates = []
 
     for db_team, color in color_dict.items():
-        db_lower = db_team.lower()
+        db_lower = _normalize(db_team)
         db_words = db_lower.split()
 
         # Exact match - highest priority

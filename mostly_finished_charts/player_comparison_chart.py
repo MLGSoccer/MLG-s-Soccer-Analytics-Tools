@@ -48,19 +48,22 @@ def accent_insensitive_contains(series, search_term):
 # =============================================================================
 # COLOR UTILITIES
 # =============================================================================
+_HEX_COLOR_RE = __import__('re').compile(r'^#[0-9A-Fa-f]{6}$')
+
+
 def get_validated_team_color(team_name, csv_color=None):
     """Get team color, preferring shared color library over CSV.
 
     Falls back to CSV color if team not found in library,
-    then to default blue if no CSV color.
+    then to default blue if no CSV color or color is invalid.
     """
     # Check shared color library first (using fuzzy matching)
     color, matched_name, _ = fuzzy_match_team(team_name, TEAM_COLORS)
     if color:
         return color
 
-    # Fall back to CSV color if available
-    if csv_color:
+    # Fall back to CSV color only if it's a valid hex color
+    if csv_color and isinstance(csv_color, str) and _HEX_COLOR_RE.match(csv_color):
         return csv_color
 
     # Default fallback

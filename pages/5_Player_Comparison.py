@@ -13,6 +13,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from shared.motherduck import get_player_current_team
+from shared.colors import fuzzy_match_team, TEAM_COLORS
 from mostly_finished_charts.player_comparison_chart import (
     load_player_data,
     get_player_percentiles,
@@ -70,7 +72,7 @@ def _load_player_data_cached(file_content):
 
 
 @st.cache_data(show_spinner=False)
-def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position):
+def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=()):
     """Generate single-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results, player_row, peer_count, final_position = get_player_percentiles(
@@ -78,6 +80,17 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
     )
     if results is None:
         return None, None, None
+
+    # Apply current team name and color from MotherDuck if available
+    overrides = {name: (team, color) for name, team, color in color_overrides}
+    if player_name in overrides:
+        team_name, color = overrides[player_name]
+        player_row = player_row.copy()
+        if team_name:
+            player_row['newestTeam'] = team_name
+            player_row['teamName'] = team_name
+        if color:
+            player_row['newestTeamColor'] = color
 
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -99,7 +112,7 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
 
 
 @st.cache_data(show_spinner=False)
-def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position):
+def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position, color_overrides=()):
     """Generate multi-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
@@ -107,6 +120,17 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
     )
     if results_by_player is None:
         return None, None, None
+
+    # Apply current team name and color from MotherDuck if available
+    overrides = {name: (team, color) for name, team, color in color_overrides}
+    for pname, (team_name, color) in overrides.items():
+        if pname in player_rows:
+            player_rows[pname] = player_rows[pname].copy()
+            if team_name:
+                player_rows[pname]['newestTeam'] = team_name
+                player_rows[pname]['teamName'] = team_name
+            if color:
+                player_rows[pname]['newestTeamColor'] = color
 
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
@@ -201,14 +225,51 @@ def _display_charts():
         st.success("Multi-player charts generated successfully!")
 
 
-def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position):
+def _get_team_overrides(selected_players, df):
+    """Look up current team name and color from MotherDuck for selected players.
+
+    Returns a tuple of (player_name, team_name, color) triples for use as a cache key.
+    Falls back gracefully if a player isn't found in MotherDuck.
+    """
+    id_col = 'playerId' if 'playerId' in df.columns else None
+    if id_col is None:
+        return ()
+
+    name_col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
+    overrides = []
+
+    for player_name in selected_players:
+        mask = df[name_col] == player_name
+        if not mask.any():
+            continue
+        player_id = df[mask].iloc[0].get(id_col)
+        if not player_id:
+            continue
+        try:
+            result = get_player_current_team(str(player_id))
+            if result and result.get('team_name'):
+                _, clean_name, _ = fuzzy_match_team(result['team_name'], TEAM_COLORS)
+                team_name = clean_name if clean_name else result['team_name']
+                color = result.get('color', '')
+                overrides.append((player_name, team_name, color))
+        except Exception:
+            pass
+
+    return tuple(overrides)
+
+
+def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None):
     """Run chart generation and store results in session state."""
     st.session_state["player_comparison_charts"] = None
+
+    # Look up current team name and color from MotherDuck
+    color_overrides = _get_team_overrides(selected_players, df) if df is not None else ()
+
     with st.spinner(f"Analyzing {'players' if len(selected_players) > 1 else selected_players[0]}..."):
         if comparison_mode == "Single Player":
             player_name = selected_players[0]
             charts, peer_count, final_position = _generate_single_player_charts(
-                file_content, player_name, min_minutes, compare_position
+                file_content, player_name, min_minutes, compare_position, color_overrides
             )
             if charts is None:
                 st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
@@ -223,7 +284,7 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             }
         else:
             charts, peer_count, final_position = _generate_multi_player_charts(
-                file_content, tuple(selected_players), min_minutes, compare_position
+                file_content, tuple(selected_players), min_minutes, compare_position, color_overrides
             )
             if charts is None:
                 st.error("One or more players not found or don't meet minimum minutes.")
@@ -397,7 +458,16 @@ if not use_manual:
 
     if can_generate and file_content is not None:
         if st.button("Generate Charts", type="primary"):
-            _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position)
+            # Determine which df to use for player ID lookup
+            _df = None
+            if selected_players:
+                pool_keys = set()
+                for p in selected_players:
+                    for pk in player_to_pools.get(p, []):
+                        pool_keys.add(pk)
+                if pool_keys:
+                    _df = pools[next(iter(pool_keys))]["df"]
+            _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df)
     elif not selected_players:
         if comparison_mode == "Single Player":
             st.info("Select a player from the sidebar to analyze")

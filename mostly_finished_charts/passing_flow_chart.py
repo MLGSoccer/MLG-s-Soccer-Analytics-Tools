@@ -122,6 +122,17 @@ def load_passing_data(df, team_name):
         DataFrame with columns: source_x, source_y, dest_x, dest_y,
         move_type ('pass' or 'carry'), source_zone, dest_zone, source_col, dest_col
     """
+    # Prefer decimal coordinate columns if available
+    df = df.copy()
+    if 'EventXDecimal' in df.columns:
+        df['EventX'] = df['EventXDecimal']
+    if 'EventYDecimal' in df.columns:
+        df['EventY'] = df['EventYDecimal']
+    if 'PassEndXDecimal' in df.columns:
+        df['PassEndX'] = df['PassEndXDecimal']
+    if 'PassEndYDecimal' in df.columns:
+        df['PassEndY'] = df['PassEndYDecimal']
+
     required = ['playType', 'Team', 'EventX', 'EventY', 'sequenceId', 'gameEventIndex']
     if not all(c in df.columns for c in required):
         return pd.DataFrame()

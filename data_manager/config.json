@@ -1,0 +1,3111 @@
+{
+  "player_pools": {
+    "europe": {
+      "seasons": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "def",
+        "2bchmrj23l9u42d68ntcekob8",
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "dbxs75cag7zyip5re0ppsanmc",
+        "9n12waklv005j8r32sfjj2eqc",
+        "b25u56idqlgo8s1rahhltqd5g",
+        "73zebisnu1109jix9yoc09yc4",
+        "4x7uzww3jur4re7sgt3mslyj8",
+        "a7htj8rtzib7a2xx7b3xs04d0"
+      ]
+    },
+    "north_america": {
+      "seasons": [
+        "2p9ipxt6ftkdphe5afitgd0",
+        "aegyls91smdw9kipjgbsu8tn8",
+        "dlxyh3nrdtg02p9ohd5gn6bdg",
+        "8v84l9nq3d5t0j4gb781i3llg",
+        "3l4bzc8syz1ea2dnv453kp89g",
+        "752zalnunu0zkdfbbm915kys4",
+        "9pqtmpr3w8jm73y0eb8hmum8k"
+      ]
+    },
+    "womens": {
+      "seasons": [
+        "3ducfa94ga849pfvx8bjjgt1w",
+        "1j63n4epyfznm99tlb7rlz8d0",
+        "221phckhkd7y6rg3uyava3ifo",
+        "2bqrpllc5x3it55paifyfa044",
+        "2ni0pv13lzdwq6y9lm5dzyl1w",
+        "5m1ro12vlz3uh9xhy46ygsvf8",
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    }
+  },
+  "teams": [
+    {
+      "name": "Barcelona",
+      "abbrev": "BAR",
+      "team_id": "agh9ifb2mw3ivjusgedj7c3fe",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Manchester City",
+      "abbrev": "MCI",
+      "team_id": "a3nyxabgsqlnqfkeg41m6tnpp",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Paris Saint-Germain",
+      "abbrev": "PSG",
+      "team_id": "2b3mar72yy8d6uvat1ka6tn3r",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Bayern München",
+      "abbrev": "FCB",
+      "team_id": "apoawtpvac4zqlancmvw4nk4o",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Liverpool",
+      "abbrev": "LIV",
+      "team_id": "c8h9bw1l82s06h77xxrelzhur",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Toluca",
+      "abbrev": "TOL",
+      "team_id": "3390h9hdgoxzzofnrpyktanuz",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Chelsea",
+      "abbrev": "CHE",
+      "team_id": "9q0arba2kbnywth8bkxlhgmdr",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Tigres UANL",
+      "abbrev": "TIG",
+      "team_id": "6hmo9mrlz73nwxkshwuu5vsfm",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Real Madrid",
+      "abbrev": "RMA",
+      "team_id": "3kq9cckrnlogidldtdie2fkbl",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "San Diego Wave Women",
+      "abbrev": "SD",
+      "team_id": "esvbnzqbyvxp2k570ez7h1a1g",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Monterrey",
+      "abbrev": "MTY",
+      "team_id": "233335xtoe3e3phg3hp91xguq",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Internazionale",
+      "abbrev": "INT",
+      "team_id": "3vo5mpj7catp66nrwwqiuhuup",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Arsenal",
+      "abbrev": "ARS",
+      "team_id": "4dsgumo7d4zupm2ugsvm4zm4d",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Como",
+      "abbrev": "COM",
+      "team_id": "6uzfw7ahyxg4wrrfxo5u7qt0n",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Juventus",
+      "abbrev": "JUV",
+      "team_id": "bqbbqm98ud8obe45ds9ohgyrd",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Napoli",
+      "abbrev": "NAP",
+      "team_id": "gi0l1habji5hpgar77dl5jqe",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Washington Spirit Women",
+      "abbrev": "WAS",
+      "team_id": "f1ks82wpiewyqs6h3oz9v4hzj",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Brighton & Hove Albion",
+      "abbrev": "BHA",
+      "team_id": "e5p0ehyguld7egzhiedpdnc3w",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Fulham",
+      "abbrev": "FUL",
+      "team_id": "hzqh7z0mdl3v7gwete66syxp",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Manchester United",
+      "abbrev": "MUN",
+      "team_id": "6eqit8ye8aomdsrrq0hk3v7gh",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Roma",
+      "abbrev": "ROM",
+      "team_id": "2tk2l9sgktwc9jhzqdd4mpdtb",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Bayer Leverkusen",
+      "abbrev": "LEV",
+      "team_id": "7ad69ngbpjuyzv96drf8d9sn2",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Atlético de Madrid",
+      "abbrev": "ATM",
+      "team_id": "4ku8o6uf87yd8iecdalipo6wd",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Newcastle United",
+      "abbrev": "NEW",
+      "team_id": "7vn2i2kd35zuetw6b38gw9jsz",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Elche",
+      "abbrev": "ELC",
+      "team_id": "4yg9ttzw0m51048doksv8uq5r",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Gotham FC Women",
+      "abbrev": "GFC",
+      "team_id": "bgkfdckqfqnfbmecbtz03n76d",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Milan",
+      "abbrev": "MIL",
+      "team_id": "9dntj5dioj5ex52yrgwzxrq9l",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Atalanta",
+      "abbrev": "ATA",
+      "team_id": "e75syeuawg3ql8nwpi3vr2btz",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Cruz Azul",
+      "abbrev": "CAZ",
+      "team_id": "1aw67co8uut64yckd3wbhy9t2",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Aston Villa",
+      "abbrev": "AVL",
+      "team_id": "b496gs285it6bheuikox6z9mj",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Guadalajara",
+      "abbrev": "GDL",
+      "team_id": "e603sojy77s4u0ypqds2v2a1g",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Lazio",
+      "abbrev": "LAZ",
+      "team_id": "btcy9nra9ak4m22ovr2ia6m5v",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Olympique Marseille",
+      "abbrev": "OM",
+      "team_id": "27xvwccz8kpmqsefjv2b2sc0o",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Tottenham Hotspur",
+      "abbrev": "TOT",
+      "team_id": "22doj4sgsocqpxw45h607udje",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Celta de Vigo",
+      "abbrev": "CEL",
+      "team_id": "6f27yvbqcngegwsg2ozxxdj4",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Orlando Pride Women",
+      "abbrev": "ORLW",
+      "team_id": "966pdxhsoxaib9qt5083h8uus",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Nottingham Forest",
+      "abbrev": "NFO",
+      "team_id": "1qtaiy11gswx327s0vkibf70n",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Club América",
+      "abbrev": "CFA",
+      "team_id": "eu8c408f59yx7egaqossbv25e",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "RB Leipzig",
+      "abbrev": "RBL",
+      "team_id": "9gefq4dz9b2hl8rqrxwrlrzmp",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "AFC Bournemouth",
+      "abbrev": "BOU",
+      "team_id": "1pse9ta7a45pi2w2grjim70ge",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "North Carolina Courage Women",
+      "abbrev": "NC",
+      "team_id": "b4fbmos00gxtk8qnaqsm392p5",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Portland Thorns Women",
+      "abbrev": "PTHW",
+      "team_id": "446mp88j1vpk9iwui9fiifrp8",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Stuttgart",
+      "abbrev": "VFB",
+      "team_id": "3dwlvz6cl4lcavvrg0y2dycrt",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Real Betis",
+      "abbrev": "BET",
+      "team_id": "ah8dala7suqqkj04n2l8xz4zd",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Bologna",
+      "abbrev": "BOL",
+      "team_id": "ej5er0oyngdw138yuumwqbyqt",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Wolverhampton Wanderers",
+      "abbrev": "WOL",
+      "team_id": "b9si1jn1lfxfund69e9ogcu2n",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Leeds United",
+      "abbrev": "LEE",
+      "team_id": "48gk2hpqtsl6p9sx9kjhaydq4",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Alavés",
+      "abbrev": "ALA",
+      "team_id": "4dtdjgnpdq9uw4sdutti0vaar",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Girona",
+      "abbrev": "GIR",
+      "team_id": "7h7eg7q7dbwvzww78h9d5eh0h",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Fiorentina",
+      "abbrev": "FIO",
+      "team_id": "4raiad4l2j5lkfaz92pk4osb",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Borussia Dortmund",
+      "abbrev": "BVB",
+      "team_id": "dt4pinj0vw0t0cvz7za6mhmzy",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Kansas City Current Women",
+      "abbrev": "KC",
+      "team_id": "agxipc0vk4rtg09amjxv10nx0",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Strasbourg",
+      "abbrev": "STR",
+      "team_id": "71ajatxnuhc5cnm3xvgdky49w",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Crystal Palace",
+      "abbrev": "CRY",
+      "team_id": "1c8m2ko0wxq1asfkuykurdr0y",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Everton",
+      "abbrev": "EVE",
+      "team_id": "ehd2iemqmschhj2ec0vayztzz",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Pachuca",
+      "abbrev": "PAC",
+      "team_id": "cynfvfb31rml7xrlsnejf8r6j",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Brentford",
+      "abbrev": "BRE",
+      "team_id": "7yx5dqhhphyvfisohikodajhv",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Houston Dash Women",
+      "abbrev": "HDAW",
+      "team_id": "c3v2ohfuzoqmc8ljm65hi80sj",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Bay Women",
+      "abbrev": "BAY",
+      "team_id": "eka22bj7co8bw5qxa6qlbinf8",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Paris FC",
+      "abbrev": "PFC",
+      "team_id": "8v00fx2zwhiwm05tqqkt122p5",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Real Sociedad",
+      "abbrev": "RSO",
+      "team_id": "63f5h8t5e9qm1fqmvfkb23ghh",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Werder Bremen",
+      "abbrev": "SVW",
+      "team_id": "cu0eztmjcsbydyp53aleznorw",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Eintracht Frankfurt",
+      "abbrev": "SGE",
+      "team_id": "c5hderjlkcoaze51e5wgvptk",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Athletic Club",
+      "abbrev": "ATH",
+      "team_id": "3czravw89omgc9o4s0w3l1bg5",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Juárez",
+      "abbrev": "FCJ",
+      "team_id": "ecphe4bqgmin2tzsohf50egvd",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Sevilla",
+      "abbrev": "SEV",
+      "team_id": "10eyb18v5puw4ez03ocaug09m",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Lille",
+      "abbrev": "LIL",
+      "team_id": "be2k34rut1lz79jxenabttqlc",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "West Ham United",
+      "abbrev": "WHU",
+      "team_id": "4txjdaqveermfryvbfrr4taf7",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Hoffenheim",
+      "abbrev": "TSG",
+      "team_id": "4l9mrqzmajz5crzlz50mtbt6x",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Tijuana",
+      "abbrev": "CTJ",
+      "team_id": "c1wcescnsnfuyv06enhwaoqr6",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Seattle Reign Women",
+      "abbrev": "SREW",
+      "team_id": "bl53jk6zlfe5f583pil7xzwi5",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Burnley",
+      "abbrev": "BUR",
+      "team_id": "64bxxwu2mv2qqlv0monbkj1om",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Valencia",
+      "abbrev": "VAL",
+      "team_id": "ba5e91hjacvma2sjvixn00pjo",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Sunderland",
+      "abbrev": "SUN",
+      "team_id": "1r3545b2dzan8yqa80gtmcjch",
+      "season_ids": [
+        "51r6ph2woavlbbpk8f29nynf8"
+      ]
+    },
+    {
+      "name": "Rayo Vallecano",
+      "abbrev": "RAY",
+      "team_id": "3budh3j9xivsid3ptm8ptpy4k",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Monaco",
+      "abbrev": "ASM",
+      "team_id": "4t4hod56fsj7utpjdor8so5q6",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Pumas UNAM",
+      "abbrev": "PUM",
+      "team_id": "ayabrorjqa1bj7jk1fdqu1t57",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Cagliari",
+      "abbrev": "CAG",
+      "team_id": "5rwlg5cfv1hu7yf0ek1zxpzy3",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Genoa",
+      "abbrev": "GEN",
+      "team_id": "4kumqzwifv478caxed8zywlh3",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Sassuolo",
+      "abbrev": "SAS",
+      "team_id": "6tuibxq39fdryu8ou06wcm0q3",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Lens",
+      "abbrev": "RCL",
+      "team_id": "3xedluek08t2ka7oypwuullcn",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Angel City Women",
+      "abbrev": "LA",
+      "team_id": "6hbfgdczbi3yg4sdpqgtu6s",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Villarreal",
+      "abbrev": "VIL",
+      "team_id": "74mcjsm72vr3l9pw2i4qfjchj",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Olympique Lyonnais",
+      "abbrev": "OL",
+      "team_id": "121le8unjfzug3iu9pgkqa1c7",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Rennes",
+      "abbrev": "REN",
+      "team_id": "z1wbqtd0fz5t5eezjvrbld3h",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Bayern München Women",
+      "abbrev": "FCBW",
+      "team_id": "bpx4ib85d65u9oyhglkt36k1b",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "León",
+      "abbrev": "LEO",
+      "team_id": "2ei66pjfsrr6uxqp1bywq31lo",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Borussia M'gladbach",
+      "abbrev": "BMG",
+      "team_id": "go76xxm0xyfgqt1h6tcrtimm",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Cremonese",
+      "abbrev": "CRE",
+      "team_id": "af91jdcs6x0bqkmdb78rokod2",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Utah Royals Women",
+      "abbrev": "UTA",
+      "team_id": "bn7w86uw8j61dga3xr5s0yiju",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Torino",
+      "abbrev": "TOR",
+      "team_id": "7gnly6999wao1xarwct4p8fe9",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "St. Pauli",
+      "abbrev": "STP",
+      "team_id": "85jtaw5dcxxx1yp8te6axh3p8",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Udinese",
+      "abbrev": "UDI",
+      "team_id": "dxq76zcvnokq07cszdx0i6kve",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Metz",
+      "abbrev": "MET",
+      "team_id": "2khen2a38l2hkx33s73pehl6o",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Chicago Stars Women",
+      "abbrev": "CSFW",
+      "team_id": "dzxypx8djih58p668surbi4qm",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Augsburg",
+      "abbrev": "FCA",
+      "team_id": "ex3psl8e3ajeypwjy4xfltpx6",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Nice",
+      "abbrev": "NIC",
+      "team_id": "bx0cdmzr2gwr70ez72dorx82p",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc",
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Parma",
+      "abbrev": "PRM",
+      "team_id": "5aosfavi55p40c65lkriqnqnl",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Mallorca",
+      "abbrev": "MLL",
+      "team_id": "50x1m4u58lffhq6v6ga1hbxmy",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Osasuna",
+      "abbrev": "OSA",
+      "team_id": "2l0ldgiwsgb8d6y3z0sfgjzyj",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Wolfsburg",
+      "abbrev": "WOB",
+      "team_id": "a8l3w3n0j99qjlsxj3jnmgkz1",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Lorient",
+      "abbrev": "FCL",
+      "team_id": "70nn27vgkt6l48lvv5e66q7ww",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Lecce",
+      "abbrev": "LEC",
+      "team_id": "bi1fxjrncd0ram0oi7ja1jyuo",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Angers SCO",
+      "abbrev": "SCO",
+      "team_id": "75qj99fhg5c0ztj2tva5u4uii",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Espanyol",
+      "abbrev": "ESP",
+      "team_id": "c8llrezkm3b3op4afrou6b487",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Freiburg",
+      "abbrev": "SCF",
+      "team_id": "6k5zscdm9ufw0tguvzyjlp5hq",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Köln",
+      "abbrev": "KOE",
+      "team_id": "8q1ul09cygzswb7tb456bmifv",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Hellas Verona",
+      "abbrev": "VER",
+      "team_id": "ap6blbxhq9elm62vw6tutzlwg",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Levante",
+      "abbrev": "LVT",
+      "team_id": "4grc9qgcvusllap8h5j6gc5h5",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Real Oviedo",
+      "abbrev": "OVI",
+      "team_id": "clo928vcczjp0mczavs5o7p5k",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Necaxa",
+      "abbrev": "NCX",
+      "team_id": "b7hn6knkuxbpj1i8rmzapns7b",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Puebla",
+      "abbrev": "PUE",
+      "team_id": "4kw25nmgmacpbvo24ttr994k5",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Mainz 05",
+      "abbrev": "M05",
+      "team_id": "1c7qokc1j5z50cjj4tcu32haa",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Hamburger SV",
+      "abbrev": "HSV",
+      "team_id": "75xi6hloabmnjn2kzgj1g8h1s",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Le Havre",
+      "abbrev": "HAC",
+      "team_id": "23pqcgxu1tip265hbe01kszbt",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Atlético San Luis",
+      "abbrev": "ASL",
+      "team_id": "54ph1k82y99hhjsf7m2usns8u",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Pisa",
+      "abbrev": "PIS",
+      "team_id": "bfztlrr6176xsdt2bmp0u1d2d",
+      "season_ids": [
+        "emdmtfr1v8rey2qru3xzfwges"
+      ]
+    },
+    {
+      "name": "Racing Louisville Women",
+      "abbrev": "LOU",
+      "team_id": "dtucewmt49th1p4selfutmnmc",
+      "season_ids": [
+        "3ducfa94ga849pfvx8bjjgt1w"
+      ]
+    },
+    {
+      "name": "Auxerre",
+      "abbrev": "AJA",
+      "team_id": "9bxav814mkuhueiyivyive82d",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Nantes",
+      "abbrev": "NAN",
+      "team_id": "750ustvk4jfqmo8q4gnrcxy7z",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Heidenheim",
+      "abbrev": "HDH",
+      "team_id": "3xcg7xikgrn2x8oa65sopb2is",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Atlas",
+      "abbrev": "ATS",
+      "team_id": "8jjxbd5vr23vhu1v5r21rzkrn",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Brest",
+      "abbrev": "BST",
+      "team_id": "3adj8hkws0z1al232bg2h6tk0",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "OL Lyonnes Women",
+      "abbrev": "OLW",
+      "team_id": "e5hsx8fzufp57tv4oehbz0qht",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Toulouse",
+      "abbrev": "TLS",
+      "team_id": "4aghw9tyi8ba3ju1ne83gmf9w",
+      "season_ids": [
+        "dbxs75cag7zyip5re0ppsanmc"
+      ]
+    },
+    {
+      "name": "Getafe",
+      "abbrev": "GET",
+      "team_id": "1n1j0wsl763lq7ee1k0c11c02",
+      "season_ids": [
+        "80zg2v1cuqcfhphn56u4qpyqc"
+      ]
+    },
+    {
+      "name": "Wolfsburg Women",
+      "abbrev": "WOBW",
+      "team_id": "6bl19flj1eggw2gw7sya19bof",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Mazatlán",
+      "abbrev": "MZT",
+      "team_id": "dsm1dxw4j3f973w7kzhe2n816",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Eintracht Frankfurt Women",
+      "abbrev": "SGEW",
+      "team_id": "e8os1xpomlperuedy2f9a9ttu",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "RB Leipzig Women",
+      "abbrev": "RBLW",
+      "team_id": "3jv3r7dd46nx6cnmpqq9d4x9m",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Union Berlin",
+      "abbrev": "FCU",
+      "team_id": "a8d2gb2nag8fy0itbuxmcibh2",
+      "season_ids": [
+        "2bchmrj23l9u42d68ntcekob8"
+      ]
+    },
+    {
+      "name": "Hoffenheim Women",
+      "abbrev": "TSGW",
+      "team_id": "eyecbfb1ur2104bhhwazhvrf",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Freiburg Women",
+      "abbrev": "SCFW",
+      "team_id": "6yhza3xbfafj5c9897mbkbudn",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Santos Laguna",
+      "abbrev": "CSL",
+      "team_id": "8yn3l36qkq1fxbw4ufmwyfyt9",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Chelsea Women",
+      "abbrev": "CHEW",
+      "team_id": "spi3g782q7m4evjxn1sv6cfa",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Manchester City Women",
+      "abbrev": "MCIW",
+      "team_id": "36tr17foeaf9ejjmt2txuoy3y",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Manchester United Women",
+      "abbrev": "MNU",
+      "team_id": "axwnneoekq2f2yq6r1l704y96",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Querétaro",
+      "abbrev": "QRO",
+      "team_id": "ccye1b5fvtq8tzlz0gosyw10b",
+      "season_ids": [
+        "aegyls91smdw9kipjgbsu8tn8"
+      ]
+    },
+    {
+      "name": "Köln Women",
+      "abbrev": "KOLW",
+      "team_id": "4e5523it4v7s6kkakelbj9si5",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Union Berlin Women",
+      "abbrev": "UNIW",
+      "team_id": "5fmbvybscnaqvhkh6jkv3mhwi",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Bayer Leverkusen Women",
+      "abbrev": "LEVW",
+      "team_id": "dpp6fex0mdxsxhdct2qf66x5n",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Tottenham Hotspur Women",
+      "abbrev": "TOTW",
+      "team_id": "9ijyncrxsejz505dbadwr1dir",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Paris Saint-Germain Women",
+      "abbrev": "PSGW",
+      "team_id": "ad9ip2f3tijbv4nqaayyqqkee",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Paris FC Women",
+      "abbrev": "PFCW",
+      "team_id": "bdfjkux9o0vtsdig5zsbhtysq",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "SGS Essen Women",
+      "abbrev": "SGS",
+      "team_id": "2f7gua216miwsfd83rgjsn4ap",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Arsenal Women",
+      "abbrev": "ARSW",
+      "team_id": "5rurqie3qt1qav9ir5mkqinn",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo",
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Liverpool Women",
+      "abbrev": "LFC",
+      "team_id": "mjejb0x57ms54j9ry6s8njwh",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "London City Lionesses Women",
+      "abbrev": "LCL",
+      "team_id": "blzubaa449m1wjt46fasgdvse",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Strasbourg Women",
+      "abbrev": "STRW",
+      "team_id": "2hh1o3ebw92mh91j1oc8057u",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Werder Bremen Women",
+      "abbrev": "WBRW",
+      "team_id": "4moe0x01r1f5w30g38wshyftp",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Fleury 91 Women",
+      "abbrev": "FLE",
+      "team_id": "97jxqfbi28yoeedjbbw5xqhyi",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Brighton & Hove Albion Women",
+      "abbrev": "BHAW",
+      "team_id": "dcdnoyf6kzhj46iyfm7xq43fy",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Dijon Women",
+      "abbrev": "DIJ",
+      "team_id": "axvm5zg0mk4bp06wpec9vw27e",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Hamburger SV Women",
+      "abbrev": "HSVW",
+      "team_id": "uanw2buce7utkaubr3sz2nxm",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Aston Villa Women",
+      "abbrev": "AVLW",
+      "team_id": "8l30dsub3sutr6j3ruvk650xc",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Everton Women",
+      "abbrev": "EVEW",
+      "team_id": "7kt37xy93vjy6wac8vq6fqz3g",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Nantes Women",
+      "abbrev": "NANW",
+      "team_id": "5ub6bjk9787lqakrfxs55ljvt",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Carl Zeiss Jena Women",
+      "abbrev": "CZJ",
+      "team_id": "3ntc83qrgb2fawuk9iv62gwh6",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Midtjylland",
+      "abbrev": "FCM",
+      "team_id": "59as3grjvj19voay31j3yfgni",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Club Brugge",
+      "abbrev": "CLU",
+      "team_id": "1oyb7oym5nwzny8vxf03szd2h",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "West Ham United Women",
+      "abbrev": "WHUW",
+      "team_id": "cz26xwowfjp8ei14n9z2ac135",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "AZ",
+      "abbrev": "AZ",
+      "team_id": "3kfktv64h7kg7zryax1wktr5r",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Olympique Marseille Women",
+      "abbrev": "OMW",
+      "team_id": "exjjpodsty2trp6j404tx09jw",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Montpellier Women",
+      "abbrev": "MON",
+      "team_id": "2w4xxgpg4t4h5b3yl74egastz",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "PAOK",
+      "abbrev": "PKT",
+      "team_id": "deazflnflqmejndo05gviznzd",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "København",
+      "abbrev": "FCK",
+      "team_id": "b3r6d8ydtmtjckam6pku9y400",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Lens Women",
+      "abbrev": "RCLW",
+      "team_id": "24v47cwezmde5zra867ulqzca",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Panathinaikos",
+      "abbrev": "PAO",
+      "team_id": "4ws3k9155net1ydbvr8c940dy",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Lausanne-Sport",
+      "abbrev": "LS",
+      "team_id": "96jxcq0onij7zd9rwwkal8q1l",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Benfica",
+      "abbrev": "SLB",
+      "team_id": "9ldqu49smv1xg2va0n2cy28zl",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Utrecht",
+      "abbrev": "UTR",
+      "team_id": "ccpscwdcm65czscrun048ecn5",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Le Havre Women",
+      "abbrev": "LEH",
+      "team_id": "2gmv49xieg3zee2hx0lhcp17u",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Nürnberg Women",
+      "abbrev": "NUR",
+      "team_id": "386dbojwjaomm71a2akdmxkag",
+      "season_ids": [
+        "br2imckbqwr0wvucakfvdp05w"
+      ]
+    },
+    {
+      "name": "Saint-Étienne Women",
+      "abbrev": "SET",
+      "team_id": "8w1kb52vyqy1wbrrhvtglsgnq",
+      "season_ids": [
+        "2bqrpllc5x3it55paifyfa044"
+      ]
+    },
+    {
+      "name": "Leicester City Women",
+      "abbrev": "LEI",
+      "team_id": "28u3q82ip96ahymkup01vfxli",
+      "season_ids": [
+        "221phckhkd7y6rg3uyava3ifo"
+      ]
+    },
+    {
+      "name": "Rapid",
+      "abbrev": "RAP",
+      "team_id": "eljjik2vvlpy6d649mgwwivam",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Bodø / Glimt",
+      "abbrev": "BOD",
+      "team_id": "ctvzi2jbl1q6xzq0s3sexj73g",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Genk",
+      "abbrev": "GNK",
+      "team_id": "89xivtxk59uzvhdsd6miao6tm",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Shakhtar Donetsk",
+      "abbrev": "SHK",
+      "team_id": "cf8plcmeniaen0fc5emyb5j93",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "FCSB",
+      "abbrev": "FCS",
+      "team_id": "bpk1d09f7zqtmcp7cis2c1b7i",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Qarabag",
+      "abbrev": "QAR",
+      "team_id": "dz0fc3304a30bzm9lht0bhpqt",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Kairat",
+      "abbrev": "KAI",
+      "team_id": "6j2gnvqgprscy600ex68i5ynf",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Ludogorets Razgrad",
+      "abbrev": "LUD",
+      "team_id": "6uhzci0mwrzly1e4trka6k4ea",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Sporting Braga",
+      "abbrev": "BRA",
+      "team_id": "26t6lvlpql4w5wu1ih73qpy36",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Fenerbahçe",
+      "abbrev": "FB",
+      "team_id": "8lroq0cbhdxj8124qtxwrhvmm",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Brann",
+      "abbrev": "BRN",
+      "team_id": "6oxoag5c6zbnn09wx08vz4iak",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Rakow Czestochowa",
+      "abbrev": "RCZ",
+      "team_id": "1sxaf8l7fknmucd72fdretogm",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Celtic",
+      "abbrev": "CLT",
+      "team_id": "dvnjvad3p09dugr79gktlrtll",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Dinamo Zagreb",
+      "abbrev": "DIN",
+      "team_id": "7vyubxg6fnmwwyo2nnyhp6j5d",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Jagiellonia Bialystok",
+      "abbrev": "JAG",
+      "team_id": "8jw3s68b9lil5xcgjvbcmrgc2",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Galatasaray",
+      "abbrev": "GS",
+      "team_id": "esa748l653sss1wurz5ps3228",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Young Boys",
+      "abbrev": "YB",
+      "team_id": "5fd9f9bti2cdgb6r1lf8l2bc7",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Omonia Nicosia",
+      "abbrev": "OMO",
+      "team_id": "1pf6zmsueuc9tr64ql67gynqc",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Crvena zvezda",
+      "abbrev": "CZV",
+      "team_id": "81lpho34qr3dad0xzalq0abja",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Celje",
+      "abbrev": "CLJ",
+      "team_id": "a75rj6mt43qjbvvabry5qg162",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Universitatea Craiova",
+      "abbrev": "UCR",
+      "team_id": "83rbv17lblttd5vcb3emcyzms",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Ajax",
+      "abbrev": "AJX",
+      "team_id": "d0zdg647gvgc95xdtk1vpbkys",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Ferencváros",
+      "abbrev": "FTC",
+      "team_id": "b3o0wckz4w3fusytybpgxftgm",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Barcelona Women",
+      "abbrev": "BARW",
+      "team_id": "bop6aslxmwvzsapdxsw3xbvfg",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Porto",
+      "abbrev": "POR",
+      "team_id": "66bsnl0zjb7l5akwo00h0y5me",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "PSV",
+      "abbrev": "PSV",
+      "team_id": "24fvcruwqrqvqa3aonf8c3zuy",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Real Madrid Women",
+      "abbrev": "RMAW",
+      "team_id": "vaikl8nl7hdr4y9jj4jyb9ey",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Sporting CP",
+      "abbrev": "SCP",
+      "team_id": "7catg5lpivcmpf4xhggh6d8rk",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "AEK Athens",
+      "abbrev": "AEK",
+      "team_id": "7ruua9q5rtswwi5d6xtquuto5",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Pafos",
+      "abbrev": "PAF",
+      "team_id": "d6e2elufz1jf4h68k21uahq7d",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Malmö FF",
+      "abbrev": "MFF",
+      "team_id": "93ohqui2qgqm8408viwmm1ken",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Atlético Madrid Women",
+      "abbrev": "ATMW",
+      "team_id": "8zt8rrm6v5nccv01v6pef0r1o",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Basel",
+      "abbrev": "BAS",
+      "team_id": "5u18kvqiqhup2vd345dci1069",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Olympiakos Piraeus",
+      "abbrev": "OLY",
+      "team_id": "9ghx7vbghs3628n5chm9r8ig3",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Häcken",
+      "abbrev": "BKH",
+      "team_id": "9zqn9ugvg64it0lr5z8cq4g9v",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "KuPS",
+      "abbrev": "KUP",
+      "team_id": "1c7dv8ays675v9kp6a04sd8pq",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Salzburg",
+      "abbrev": "RBS",
+      "team_id": "bonj6qc7po4anunhydmjmi6g5",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Legia Warszawa",
+      "abbrev": "LEG",
+      "team_id": "d7udukc1t631drge83p7ucqws",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Feyenoord",
+      "abbrev": "FEY",
+      "team_id": "20vymiy7bo8wkyxai3ew494fz",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Go Ahead Eagles",
+      "abbrev": "GAE",
+      "team_id": "b79uipsy57y1jqpy07h4i5ovk",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Rangers",
+      "abbrev": "RAN",
+      "team_id": "cnnku8uihko7u4th0fms4pvg6",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Viktoria Plzen",
+      "abbrev": "PLZ",
+      "team_id": "c6fx1460nlkawjgh67sp7a1hd",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Lech Poznan",
+      "abbrev": "LPO",
+      "team_id": "duvz7klp081jpg8fx5nze7ks7",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Samsunspor",
+      "abbrev": "SAM",
+      "team_id": "dpsnqu7pd2b0shfzjyn5j1znf",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Noah",
+      "abbrev": "NOA",
+      "team_id": "e9x62jymlef5ugsrijq19ur8q",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Sturm Graz",
+      "abbrev": "STU",
+      "team_id": "4lauow63npvttmvxgh2koqb0r",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Juventus Women",
+      "abbrev": "JUVW",
+      "team_id": "7w2y7s7q5r1h1flz9y4sj6xka",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Slavia Praha",
+      "abbrev": "SLA",
+      "team_id": "8kpapuorr6hf0vosnovbreqqd",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "River Plate",
+      "abbrev": "RIV",
+      "team_id": "115foion8jwrvp2e7xif675kx",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Sparta Praha",
+      "abbrev": "ACS",
+      "team_id": "5ocdn3a6s75u0d0dy0rbou0xc",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Union Saint-Gilloise",
+      "abbrev": "STG",
+      "team_id": "ecj1gmc7pqcjo4sc9hvghj5u3",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Maccabi Tel Aviv",
+      "abbrev": "MTA",
+      "team_id": "ealjallt13942jb2q2hk4buxa",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "OH Leuven Women",
+      "abbrev": "OHL",
+      "team_id": "6zfse72nsyagztut2xgaqi3b3",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Brøndby",
+      "abbrev": "BIF",
+      "team_id": "9qsmopgutr7ut5g6workk8w4i",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Dynamo Kyiv",
+      "abbrev": "DYN",
+      "team_id": "7lgvcey3svf6k22vg5svdztmg",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Boca Juniors",
+      "abbrev": "BOC",
+      "team_id": "ciqt22ivoc48zj62detdyh1mm",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "AEK Larnaca",
+      "abbrev": "AEKL",
+      "team_id": "q4y48hs70h74p3waaxxjtdu5",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Rijeka",
+      "abbrev": "RIJ",
+      "team_id": "1ej3fkeq5d7359enihddsxzae",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Gyori ETO",
+      "abbrev": "GYO",
+      "team_id": "3jvgab7r5m1rqtyxvxrgyuwhd",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Slovan Bratislava",
+      "abbrev": "SLO",
+      "team_id": "cmj1019uptq8i042n5y16itbd",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "2mr0u0l78k2gdsm79q56tb2fo"
+      ]
+    },
+    {
+      "name": "Shkendija",
+      "abbrev": "SHKJ",
+      "team_id": "3wd9j6ytmipbqczenvqqmtikn",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Talleres de Córdoba",
+      "abbrev": "TAL",
+      "team_id": "ajeh0pq7dtphe0btz4wc4xb0g",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Zrinjski",
+      "abbrev": "ZRI",
+      "team_id": "39r69xdnw8usnndtetv3un9z3",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Sigma Olomouc",
+      "abbrev": "OLO",
+      "team_id": "dchxm00ei80l8ljbcfpdill8k",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Roma Women",
+      "abbrev": "ROMW",
+      "team_id": "5snsl2d1lu2oclbriztdy61d6",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Twente Women",
+      "abbrev": "TWE",
+      "team_id": "40wdzees80p0in5b2ajn4qlp1",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Racing Club",
+      "abbrev": "RAC",
+      "team_id": "39acfbxikh52o6y9opfb0q0nb",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Rosario Central",
+      "abbrev": "ROS",
+      "team_id": "e8ma1lonj51sqmwy00mwnw1ke",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Belgrano",
+      "abbrev": "BEL",
+      "team_id": "2biw4all5ru5xiorgyqbevwr1",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Vélez Sarsfield",
+      "abbrev": "VEL",
+      "team_id": "a3kgi895b7b3ecfzmoyxbw2pl",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Unión",
+      "abbrev": "UNIN",
+      "team_id": "5o5wtxn03ktvxcdrpxht5aqdp",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Drita",
+      "abbrev": "DRI",
+      "team_id": "41h9qlpbu053buypjhxtbuhxs",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "2mr0u0l78k2gdsm79q56tb2fo",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Vaduz",
+      "abbrev": "VAD",
+      "team_id": "9kxht4usspzkeyosl567vjrs2",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Silkeborg",
+      "abbrev": "SIF",
+      "team_id": "ahnt9ejgwj58ul8auzdvi3czf",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Argentinos Juniors",
+      "abbrev": "ARG",
+      "team_id": "7tev5pifn8hdy4vlts0coha1b",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Hamrun Spartans",
+      "abbrev": "HAM",
+      "team_id": "acdg6tq939mzvm80c0z90uxbi",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Platense",
+      "abbrev": "PLA",
+      "team_id": "d08q2rnrt7mss1axbuu595tyu",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Central Córdoba SdE",
+      "abbrev": "CCS",
+      "team_id": "1x5i9dl7uyrh5o2th8ore61e6",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Estudiantes",
+      "abbrev": "EST",
+      "team_id": "91j32z6ga16tjj140ss2i24mt",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Lincoln Red Imps",
+      "abbrev": "RDI",
+      "team_id": "c6xkfm5pm0pd220olqc6x8hlj",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Aldosivi",
+      "abbrev": "ALD",
+      "team_id": "daclh04s6dduu6f9yw7fm8w6r",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Instituto",
+      "abbrev": "INS",
+      "team_id": "2zjoq67ogz8lmaoesxkubxhp6",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Gimnasia Mendoza",
+      "abbrev": "GMD",
+      "team_id": "9vph9w7uflam4cks28dfp98h4",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Breidablik",
+      "abbrev": "BRD",
+      "team_id": "c6hu27u143y4z4te8b4036bae",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "San Lorenzo",
+      "abbrev": "SLOR",
+      "team_id": "2sciofe2reang4qdncm1bihgr",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Defensa y Justicia",
+      "abbrev": "DYJ",
+      "team_id": "1n4ioqcbh1hemy9ezzu6v86n7",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Huracán",
+      "abbrev": "HUR",
+      "team_id": "3rw8ouixzsh3x8dgy8ifev925",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Istanbul Basaksehir",
+      "abbrev": "IBA",
+      "team_id": "47njg6cmlx5q3fvdsupd2n6qu",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Independiente",
+      "abbrev": "CAI",
+      "team_id": "ag3u5yhvyaxwtebl9xp5e2vaa",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Besiktas",
+      "abbrev": "BJK",
+      "team_id": "2ez9cvam9lp9jyhng3eh3znb4",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Gimnasia La Plata",
+      "abbrev": "GLP",
+      "team_id": "1rio0xlpk4s2ttmchsqjs6eik",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Sarmiento",
+      "abbrev": "SAR",
+      "team_id": "1tsjuhn8qeikaj837w2ybx77n",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Shamrock Rovers",
+      "abbrev": "SHA",
+      "team_id": "51xekmm31jztuvdliya7idg5d",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Vålerenga Women",
+      "abbrev": "VIF",
+      "team_id": "lao5g8tb1kuuau10kns6c4cr",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Atlético Tucumán",
+      "abbrev": "TUC",
+      "team_id": "6u0o1i04y2mnw2avru97sn970",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "SL Benfica Women",
+      "abbrev": "SLBW",
+      "team_id": "5sq62vnxxejuxxxy4z8beydey",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "St. Pölten Women",
+      "abbrev": "SPS",
+      "team_id": "981faz5zvbt4a69cyfacp5f0c",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Lanús",
+      "abbrev": "LAN",
+      "team_id": "19ij50t7wklqr3w2bye5r7tp4",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Aberdeen",
+      "abbrev": "ABE",
+      "team_id": "841zp0njrq63yv4fvw6lgf60q",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Estudiantes Río Cuarto",
+      "abbrev": "ERC",
+      "team_id": "40t5qm271m6s8i8r6hdlqdzv5",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Tigre",
+      "abbrev": "TGR",
+      "team_id": "cs3122cdx3g2nviltzfilmz5c",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Barracas Central",
+      "abbrev": "BAC",
+      "team_id": "8bh6iyg42ta2y8mgkkgd2hy6o",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Banfield",
+      "abbrev": "BAN",
+      "team_id": "3lbqswe4h5wyrayjt580zmujx",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Independiente Rivadavia",
+      "abbrev": "IND",
+      "team_id": "8inprqnxjps9ckiamn3cfoo8v",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Shelbourne",
+      "abbrev": "SHEL",
+      "team_id": "7e5odtzvbyx4ubpzwyphao0sv",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Newell's Old Boys",
+      "abbrev": "NOB",
+      "team_id": "3oj3koph7uf63y1f9zr8r7ylo",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "Austria Wien",
+      "abbrev": "FAK",
+      "team_id": "84gk4ytf9vr8oml51cqyit78w",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Deportivo Riestra",
+      "abbrev": "RIE",
+      "team_id": "7gcwwr8m5docs6jqrn2stilie",
+      "season_ids": [
+        "8v84l9nq3d5t0j4gb781i3llg"
+      ]
+    },
+    {
+      "name": "CFR Cluj",
+      "abbrev": "CFR",
+      "team_id": "j9rqsuwsz35jx5drlh5f629w",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Polissya",
+      "abbrev": "PZH",
+      "team_id": "6473hce9r52khyh9ptc6i385c",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Flamengo",
+      "abbrev": "FLA",
+      "team_id": "102ykb145wz6dtveg65nistwm",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Vasco da Gama",
+      "abbrev": "VAS",
+      "team_id": "5ponlslulpugdlvd93n9yqu2b",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Anderlecht",
+      "abbrev": "AND",
+      "team_id": "6vyr13j6kbwdtxjwm1m4m8nu2",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Internacional",
+      "abbrev": "ICL",
+      "team_id": "c7n1isjmpyqt5pj51yekr08wo",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Lugano",
+      "abbrev": "LUG",
+      "team_id": "btqfm8txcvhi29sddmc9nr68",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Fluminense",
+      "abbrev": "FLU",
+      "team_id": "2ldx5vhhqfz2rllkgp7wpa744",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Mirassol",
+      "abbrev": "MIR",
+      "team_id": "cllomrn9h2sg6vmxy0pdnmups",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Cruzeiro",
+      "abbrev": "CRU",
+      "team_id": "bd6vujl7jfv4wtc8gvo1o1t5y",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Atlético Mineiro",
+      "abbrev": "ATL",
+      "team_id": "1f6qzkdjh8fih5ii1eyqmkolq",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Santos",
+      "abbrev": "SAN",
+      "team_id": "1icvp50kgaw8oduqmhyt3iex0",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Brann Women",
+      "abbrev": "BRNW",
+      "team_id": "5knntb3hvwoje3rrurzsvr95g",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "São Paulo",
+      "abbrev": "SAO",
+      "team_id": "5p301ikmaba9gesscss3zo745",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Corinthians",
+      "abbrev": "COR",
+      "team_id": "f0td6lvs326lppbwh1fj8v2ls",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "RB Bragantino",
+      "abbrev": "RBB",
+      "team_id": "4ayjm36vlnc5j8jhwpsdwxuph",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Botafogo",
+      "abbrev": "BOT",
+      "team_id": "2x94b2pn1o1tb5l1bbu8x9yu9",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Grêmio",
+      "abbrev": "GRE",
+      "team_id": "1yd80wg4djlmtgkei51x0x4t6",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Palmeiras",
+      "abbrev": "PAL",
+      "team_id": "b9d2xcvxxcwplyp4le9ulnlv9",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Athletico Paranaense",
+      "abbrev": "CAP",
+      "team_id": "5h3amvo8ykt01u4h3upw3c5qf",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Bahia",
+      "abbrev": "BAH",
+      "team_id": "e93fgat6j6g86zqul1m3m2kpn",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Remo",
+      "abbrev": "REM",
+      "team_id": "eks7plclfqznw5kd17zlq6dhm",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Vitória",
+      "abbrev": "VIT",
+      "team_id": "436xob9epu7bzdu7c1zzjjdak",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Chapecoense",
+      "abbrev": "CHA",
+      "team_id": "dcmhxgsc612y27h5p2rzqy7i",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Spartak Trnava",
+      "abbrev": "SPAT",
+      "team_id": "e2eyddqxo12gs0dhbsb7l5pua",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Wolfsberger AC",
+      "abbrev": "WAC",
+      "team_id": "9pn4d8sj6pmqidrhhlvev437k",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Coritiba",
+      "abbrev": "CBA",
+      "team_id": "ewfcgj6z5nzaswg3n2qwtmut8",
+      "season_ids": [
+        "752zalnunu0zkdfbbm915kys4"
+      ]
+    },
+    {
+      "name": "Levski Sofia",
+      "abbrev": "LSF",
+      "team_id": "c3yrcw3g5bj4rlmcxw9i8tale",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Internazionale Women",
+      "abbrev": "INTW",
+      "team_id": "ca8pjvyb7hgttr1dalj2nguum",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    },
+    {
+      "name": "Astana",
+      "abbrev": "AST",
+      "team_id": "8hluxv5afo5yejrtl36naq9uv",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Arda Kardzhali",
+      "abbrev": "ARD",
+      "team_id": "5y0ugwe1fh4wt4nsen0n47cxl",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "KA",
+      "abbrev": "KA",
+      "team_id": "4mo70a9j7p2ersbrieg5aw3dg",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Fredrikstad",
+      "abbrev": "FFK",
+      "team_id": "e5txudmuc2qpc460bs4lb5aff",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Servette",
+      "abbrev": "SFC",
+      "team_id": "ccwv4ymbs3u0q8xaby4hqb0jz",
+      "season_ids": [
+        "2mr0u0l78k2gdsm79q56tb2fo",
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Dundee United",
+      "abbrev": "DNU",
+      "team_id": "4qdzzur2cuuridyb0jso8mksi",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Hibernian",
+      "abbrev": "HIB",
+      "team_id": "c9ky1957qli8v2lylfga7io8b",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Puskás",
+      "abbrev": "PUS",
+      "team_id": "7gmb3yf0l30i996xp4cqt5u9p",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Viking",
+      "abbrev": "VIK",
+      "team_id": "bsykw9d70ffqe9atosc92n1e9",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Maccabi Haifa",
+      "abbrev": "MHA",
+      "team_id": "bglyqy0awtu6lzvpab390rir2",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Víkingur Reykjavík",
+      "abbrev": "VIR",
+      "team_id": "7gmdb4hmtrz199zv9r66qy9qp",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Paks",
+      "abbrev": "PAK",
+      "team_id": "e86hbyj6fwyumuwoiaglh33r5",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0",
+        "7ttpe5jzya3vjhjadiemjy7mc"
+      ]
+    },
+    {
+      "name": "Ilves",
+      "abbrev": "ILV",
+      "team_id": "2rdnn9p03qrmmv34tyx1nahpa",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Spaeri",
+      "abbrev": "SPAE",
+      "team_id": "oi708995c54gdqni76i7omi",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Baník Ostrava",
+      "abbrev": "BNK",
+      "team_id": "dfvvrv84skv23rsn1k6kt4slc",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Rosenborg",
+      "abbrev": "RBK",
+      "team_id": "c7jgkxx1czv5etn7snf1r6p2m",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Aris Limassol",
+      "abbrev": "ARL",
+      "team_id": "3yt473wfo7f64lhmyfsf0zxcg",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "HB",
+      "abbrev": "HBT",
+      "team_id": "6foqbb98vw3n9fvcmgjm6wdqn",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Decic",
+      "abbrev": "DEC",
+      "team_id": "dov4tu4y70u1l4gc47280fxlu",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Dungannon Swifts",
+      "abbrev": "DUN",
+      "team_id": "6ehepmlp6lxt0cvhis2tnzmjj",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Sheriff",
+      "abbrev": "SHRF",
+      "team_id": "dcx559ojp4lgxwc9z9xxbzgre",
+      "season_ids": [
+        "7ttpe5jzya3vjhjadiemjy7mc",
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "AIK",
+      "abbrev": "AIK",
+      "team_id": "5mbo4f0vps12dr0fcvjn3wyp5",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Vardar Skopje",
+      "abbrev": "VAR",
+      "team_id": "8t3x6av7uu9f5lj2kt0rdr3w5",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Inter Miami",
+      "abbrev": "MIA",
+      "team_id": "7a7uyvix8axi28h7d3bwl4tbe",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "St Patrick's Athletic",
+      "abbrev": "STPA",
+      "team_id": "1bb2bbjq1gdsq3qqlh3c6rxs7",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Pyunik",
+      "abbrev": "PYU",
+      "team_id": "6a568y7uc4jumukhqo96lb5du",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "San Diego",
+      "abbrev": "SDG",
+      "team_id": "74lhmgpfmledj7a1h58wuar6c",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Columbus Crew",
+      "abbrev": "CLB",
+      "team_id": "chjb0xe5vlaaguop3q2nbalni",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "New York City",
+      "abbrev": "NYC",
+      "team_id": "1bksy4rix8pm8rjve81uqo8ut",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Neman Grodno",
+      "abbrev": "NEM",
+      "team_id": "386qiirdll8s1nqs9e2npa9c4",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Nashville SC",
+      "abbrev": "NSH",
+      "team_id": "1oogd0fpwledjm2ycsuv7afze",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Colorado Rapids",
+      "abbrev": "COL",
+      "team_id": "cvrl5bces32x6fup1ks1hvets",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Vancouver Whitecaps",
+      "abbrev": "VAN",
+      "team_id": "cdmq2tqfwo5td2ztv1s62bqlf",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Portland Timbers",
+      "abbrev": "PTM",
+      "team_id": "77o8sorlijzpr0t4s7231zzxp",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Toronto",
+      "abbrev": "TFC",
+      "team_id": "28teusnamw1ujgh5di1auf2f7",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Chicago Fire",
+      "abbrev": "CHI",
+      "team_id": "apsqaaege20za4re5wm6bzq9a",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Sporting KC",
+      "abbrev": "SKC",
+      "team_id": "3olfhpj6emfhceudd95ytb9gy",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Austin",
+      "abbrev": "ATX",
+      "team_id": "yrsr1hyy65062qyzw8sug3ys",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "St. Louis City",
+      "abbrev": "STL",
+      "team_id": "7rh4h3y77fl3s7rdqp61si49g",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "New York RB",
+      "abbrev": "NYR",
+      "team_id": "7k329us81r2yiw9pakgo5tp6e",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Philadelphia Union",
+      "abbrev": "PHI",
+      "team_id": "aq0m4zmew7kkplbi7fa0pv45c",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "New England",
+      "abbrev": "NE",
+      "team_id": "3ko4vrn7aouqpdr21sv4ipcvj",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Charlotte",
+      "abbrev": "CHAR",
+      "team_id": "dqq34048nqex146r77i5l8twq",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "DC United",
+      "abbrev": "DC",
+      "team_id": "5qw82lpi6fio4fbljihlyyulb",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Orlando City",
+      "abbrev": "ORLC",
+      "team_id": "eaqreat4kxwvah0bvwg1wtoq5",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Dallas",
+      "abbrev": "DAL",
+      "team_id": "4gi4qw4gt6nfq0c6r8y574qgp",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Cincinnati",
+      "abbrev": "CIN",
+      "team_id": "652hppivbqchvrp3wopx1isyt",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Seattle Sounders",
+      "abbrev": "SEA",
+      "team_id": "3st9rj62b3qnni6uolw0lwaqn",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Houston Dynamo",
+      "abbrev": "HOU",
+      "team_id": "69m5c06m9up1j8vf8ulnb80xu",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "SJ Earthquakes",
+      "abbrev": "SJ",
+      "team_id": "a2jg79bf9ab1vj6iok2r328cc",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Real Salt Lake",
+      "abbrev": "RSL",
+      "team_id": "29zyafx618w7tvp34n53pzwwb",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Atlanta United",
+      "abbrev": "ATLU",
+      "team_id": "943ue6l8ylnidoygbi9p8op2h",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Minnesota United",
+      "abbrev": "MIN",
+      "team_id": "dna80a164iz5ta6pp6ivk64rx",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Los Angeles",
+      "abbrev": "LAF",
+      "team_id": "c6e7kqqrkt389ysrth6yy6puy",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "LA Galaxy",
+      "abbrev": "LAG",
+      "team_id": "6qr5y32dthc4dqycckwmfj1si",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Montréal",
+      "abbrev": "MTL",
+      "team_id": "oisd4xgg4qxt18c7tikdejbe",
+      "season_ids": [
+        "6i6n0jkbh9zzij6s8htfjh2j8"
+      ]
+    },
+    {
+      "name": "Cherno more Varna",
+      "abbrev": "CHM",
+      "team_id": "8dvknzmkpm7sdaxjpqoawxis",
+      "season_ids": [
+        "7x2zp2hm4p6wuijwdw3h7a8t0"
+      ]
+    },
+    {
+      "name": "Valur Women",
+      "abbrev": "VALW",
+      "team_id": "d4pb1bfgm0jx644nwtme1lnbo",
+      "season_ids": [
+        "24f2xd1kljmiu7o0xrpj30kd0"
+      ]
+    }
+  ],
+  "seasons": {
+    "51r6ph2woavlbbpk8f29nynf8": "Premier League",
+    "80zg2v1cuqcfhphn56u4qpyqc": "La Liga",
+    "2bchmrj23l9u42d68ntcekob8": "Bundesliga",
+    "emdmtfr1v8rey2qru3xzfwges": "Serie A",
+    "dbxs75cag7zyip5re0ppsanmc": "Ligue 1",
+    "aegyls91smdw9kipjgbsu8tn8": "Liga MX",
+    "6i6n0jkbh9zzij6s8htfjh2j8": "MLS",
+    "3ducfa94ga849pfvx8bjjgt1w": "NWSL",
+    "221phckhkd7y6rg3uyava3ifo": "Women's Super League",
+    "2mr0u0l78k2gdsm79q56tb2fo": "UEFA Champions League",
+    "7ttpe5jzya3vjhjadiemjy7mc": "UEFA Europa League",
+    "7x2zp2hm4p6wuijwdw3h7a8t0": "UEFA Conference League",
+    "24f2xd1kljmiu7o0xrpj30kd0": "UEFA Women's Champions League"
+  },
+  "secondary_seasons": [
+    "2mr0u0l78k2gdsm79q56tb2fo",
+    "7ttpe5jzya3vjhjadiemjy7mc",
+    "7x2zp2hm4p6wuijwdw3h7a8t0",
+    "24f2xd1kljmiu7o0xrpj30kd0"
+  ]
+}
