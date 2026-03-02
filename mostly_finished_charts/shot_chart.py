@@ -411,7 +411,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                            own_goals_for=0, own_goals_against=0,
                            flip_coords=False, competition='',
                            exclude_penalties=False, highlight_mode='All',
-                           player_name=None):
+                           player_name=None, is_home=True,
+                           custom_title=None, custom_subtitle=None):
     """
     Create a single team's shot chart using mplsoccer VerticalPitch.
     """
@@ -446,6 +447,13 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     ax.set_xlim(-1, 101)  # Minimal margin for sidelines
     ax.set_ylim(50, 103)  # Start at halfway line, room for goal at top
 
+    # Filter penalties before classifying or plotting
+    if exclude_penalties:
+        if 'ShotPlayStyle' in shots_df.columns:
+            shots_df = shots_df[shots_df['ShotPlayStyle'] != 'Penalty'].copy()
+        else:
+            shots_df = shots_df[shots_df['playType'] != 'PenaltyGoal'].copy()
+
     # Classify shots for highlighting
     shots_df = classify_highlight(shots_df.copy(), highlight_mode)
 
@@ -459,29 +467,39 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     goals = len(shots_df[shots_df['playType'].isin(GOAL_TYPES)])
     highlight_stats = compute_highlight_stats(shots_df, highlight_mode)
 
-    # Title with score
-    if player_name:
+    # Title with score — always show home team first
+    if custom_title:
+        fig.suptitle(custom_title, fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    elif player_name:
         fig.suptitle(f"{player_name.upper()} ({team_name.upper()}) vs {opponent_name.upper()}",
                      fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
-    else:
+    elif is_home:
         fig.suptitle(f"{team_name.upper()} {team_final_score}-{opponent_goals} {opponent_name.upper()}",
+                     fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    else:
+        # Away team chart: put home team (opponent) first
+        fig.suptitle(f"{opponent_name.upper()} {opponent_goals}-{team_final_score} {team_name.upper()}",
                      fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
-    if player_name:
-        subtitle_parts = [f"{player_name.upper()} {shot_map_label}"]
+    if custom_subtitle:
+        fig.text(0.5, 0.91, custom_subtitle, ha='center', va='center',
+                 fontsize=11, color=TEXT_SECONDARY)
     else:
-        subtitle_parts = [f"{team_name.upper()} {shot_map_label}"]
-    if highlight_mode != 'All':
-        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
-    if competition:
-        subtitle_parts.append(competition.upper())
-    if match_info.get('date_formatted'):
-        subtitle_parts.append(match_info['date_formatted'])
+        shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
+        if player_name:
+            subtitle_parts = [f"{player_name.upper()} {shot_map_label}"]
+        else:
+            subtitle_parts = [f"{team_name.upper()} {shot_map_label}"]
+        if highlight_mode != 'All':
+            subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
+        if competition:
+            subtitle_parts.append(competition.upper())
+        if match_info.get('date_formatted'):
+            subtitle_parts.append(match_info['date_formatted'])
 
-    fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
-             ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+        fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
+                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Legend as third headline line with team color
     # Calculate positions based on text length for proper centering
@@ -543,7 +561,8 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
 def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_info,
                                    competition='', player_name=None,
                                    exclude_penalties=False, highlight_mode='All',
-                                   shots_against=False):
+                                   shots_against=False,
+                                   custom_title=None, custom_subtitle=None):
     """
     Create a multi-match shot chart for one team on a vertical half-pitch.
 
@@ -579,6 +598,13 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     ax.set_xlim(-1, 101)
     ax.set_ylim(50, 103)
 
+    # Filter penalties before classifying or plotting
+    if exclude_penalties:
+        if 'ShotPlayStyle' in shots_df.columns:
+            shots_df = shots_df[shots_df['ShotPlayStyle'] != 'Penalty'].copy()
+        else:
+            shots_df = shots_df[shots_df['playType'] != 'PenaltyGoal'].copy()
+
     # Classify shots for highlighting
     shots_df = classify_highlight(shots_df.copy(), highlight_mode)
 
@@ -611,16 +637,17 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     map_label = "SHOTS AGAINST MAP" if shots_against else "SHOT MAP"
     if player_name:
         if shots_against:
-            title_text = f"{player_name.upper()} SHOTS AGAINST {team_name.upper()} {season_str}".strip()
+            auto_title = f"{player_name.upper()} SHOTS AGAINST {team_name.upper()} {season_str}".strip()
             subtitle_parts = []
         else:
-            title_text = f"{player_name.upper()} {season_str} SHOT MAP".strip()
+            auto_title = f"{player_name.upper()} {season_str} SHOT MAP".strip()
             subtitle_parts = [team_name.upper()]
     else:
-        title_text = f"{team_name.upper()} {season_str} {map_label}".strip()
+        auto_title = f"{team_name.upper()} {season_str} {map_label}".strip()
         subtitle_parts = []
 
-    title_obj = fig.suptitle(title_text, fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    title_obj = fig.suptitle(custom_title or auto_title,
+                              fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Team color accent bar matching title width
     fig.canvas.draw()
@@ -637,19 +664,23 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         edgecolor=bar_edge, linewidth=bar_lw, zorder=10
     ))
 
-    # Add competition, highlight label, and date range to subtitle
-    if competition:
-        subtitle_parts.append(competition.upper())
-    if highlight_mode != 'All':
-        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
-    if exclude_penalties:
-        subtitle_parts.append('Non-Penalty Shots')
-    elif date_range:
-        subtitle_parts.append(date_range)
+    if custom_subtitle:
+        fig.text(0.5, 0.91, custom_subtitle, ha='center', va='center',
+                 fontsize=11, color=TEXT_SECONDARY)
+    else:
+        # Add competition, highlight label, and date range to subtitle
+        if competition:
+            subtitle_parts.append(competition.upper())
+        if highlight_mode != 'All':
+            subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
+        if exclude_penalties:
+            subtitle_parts.append('Non-Penalty Shots')
+        elif date_range:
+            subtitle_parts.append(date_range)
 
-    if subtitle_parts:
-        fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
-                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+        if subtitle_parts:
+            fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
+                     ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Legend: ● Shot (black) and ● Goal (team color)
     legend_ax = fig.add_axes([0, 0.85, 1, 0.04], facecolor='none')
@@ -700,9 +731,12 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
 
 def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False,
-                          highlight_mode='All'):
+                          flip_y=False, highlight_mode='All'):
     """
     Plot shots on horizontal full pitch.
+
+    flip_y: apply y = 100 - y (needed for home team in combined chart to stay
+            consistent with the y = 100 - y applied in plot_shots_vertical).
 
     highlight_mode:
         'All' - normal rendering for all shots
@@ -724,6 +758,9 @@ def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False,
 
         if flip_x:
             x = 100 - x  # Mirror to opposite end
+
+        if flip_y:
+            y = 100 - y  # Match y-axis orientation used in plot_shots_vertical
 
         base_size = 50
         size = base_size + (xg * 700)
@@ -751,7 +788,8 @@ def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False,
 def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                                 team2_name, team2_color, team2_flip,
                                 match_info, competition='',
-                                exclude_penalties=False, highlight_mode='All'):
+                                exclude_penalties=False, highlight_mode='All',
+                                custom_title=None, custom_subtitle=None):
     """
     Create a combined shot chart showing both teams on a full horizontal pitch.
 
@@ -783,6 +821,13 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     # Draw pitch lines
     pitch.draw(ax=ax)
 
+    # Filter penalties before classifying or plotting
+    if exclude_penalties:
+        if 'ShotPlayStyle' in shots_df.columns:
+            shots_df = shots_df[shots_df['ShotPlayStyle'] != 'Penalty'].copy()
+        else:
+            shots_df = shots_df[shots_df['playType'] != 'PenaltyGoal'].copy()
+
     # Filter shots by team and classify for highlighting
     team1_shots = classify_highlight(shots_df[shots_df['Team'] == team1_name].copy(), highlight_mode)
     team2_shots = classify_highlight(shots_df[shots_df['Team'] == team2_name].copy(), highlight_mode)
@@ -797,9 +842,9 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     team2_combined_flip = team2_avg_x < 50
 
     plot_shots_horizontal(ax, pitch, team1_shots, team1_color, flip_x=team1_combined_flip,
-                          highlight_mode=highlight_mode)
+                          flip_y=True, highlight_mode=highlight_mode)
     plot_shots_horizontal(ax, pitch, team2_shots, team2_color, flip_x=team2_combined_flip,
-                          highlight_mode=highlight_mode)
+                          flip_y=False, highlight_mode=highlight_mode)
 
     # Calculate stats
     team1_total_shots = len(team1_shots)
@@ -815,7 +860,8 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     team2_own_goals = team2_goals - team2_shot_goals
 
     # Title with score
-    fig.suptitle(f"{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}",
+    auto_title = f"{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}"
+    fig.suptitle(custom_title or auto_title,
                  fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Compute per-team highlight stats
@@ -823,17 +869,21 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     team2_hl_stats = compute_highlight_stats(team2_shots, highlight_mode)
 
     # Subtitle
-    shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
-    subtitle_parts = [shot_map_label]
-    if highlight_mode != 'All':
-        subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
-    if competition:
-        subtitle_parts.append(competition.upper())
-    if match_info.get('date_formatted'):
-        subtitle_parts.append(match_info['date_formatted'])
+    if custom_subtitle:
+        fig.text(0.5, 0.91, custom_subtitle, ha='center', va='center',
+                 fontsize=11, color=TEXT_SECONDARY)
+    else:
+        shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
+        subtitle_parts = [shot_map_label]
+        if highlight_mode != 'All':
+            subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
+        if competition:
+            subtitle_parts.append(competition.upper())
+        if match_info.get('date_formatted'):
+            subtitle_parts.append(match_info['date_formatted'])
 
-    fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
-             ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+        fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
+                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Legend as third headline line with team colors
     # Calculate positions based on text length for proper centering

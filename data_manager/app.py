@@ -16,6 +16,7 @@ from downloader import (
     download_player_pool, upload_to_supabase, load_secrets,
     download_event_log, upsert_events_to_motherduck,
     get_motherduck_connection, get_all_team_last_dates,
+    backfill_season_ids,
 )
 
 st.set_page_config(
@@ -233,7 +234,10 @@ st.header("Event Log Downloads")
 st.caption("Downloads event-by-event data for each team and upserts to MotherDuck.")
 
 
-def _run_event_log_downloads(teams_to_download, incremental=True):
+TEST_DOWNLOAD_DIR = os.path.join(BASE_DIR, "data", "test_downloads")
+
+
+def _run_event_log_downloads(teams_to_download, incremental=True, download_only=False):
     session = create_session(st.session_state["cookies"])
     progress = st.progress(0)
     status = st.empty()
@@ -241,8 +245,15 @@ def _run_event_log_downloads(teams_to_download, incremental=True):
     n = len(teams_to_download)
     last_updated = load_last_updated()
 
-    con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-    last_dates = get_all_team_last_dates(con) if incremental else {}
+    con = None
+    last_dates = {}
+    if not download_only:
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        if incremental:
+            last_dates = get_all_team_last_dates(con)
+
+    if download_only:
+        os.makedirs(TEST_DOWNLOAD_DIR, exist_ok=True)
 
     for i, team in enumerate(teams_to_download):
         status.text(f"Downloading {team['name']}... ({i+1}/{n})")
@@ -253,17 +264,24 @@ def _run_event_log_downloads(teams_to_download, incremental=True):
                 last = last_dates[team["team_id"]]
                 since = str((datetime.strptime(last, "%Y-%m-%d") - timedelta(days=1)).date())
 
-            with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
-                tmp_path = tmp.name
+            if download_only:
+                save_path = os.path.join(TEST_DOWNLOAD_DIR, f"{team['abbrev']}.csv")
+                rows, _ = download_event_log(
+                    session, team["team_id"], team["season_ids"], save_path, since_date=since
+                )
+                results.append((True, f"{team['name']}: {rows:,} rows saved to data/test_downloads/{team['abbrev']}.csv"))
+            else:
+                with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+                    tmp_path = tmp.name
 
-            rows, _ = download_event_log(
-                session, team["team_id"], team["season_ids"], tmp_path, since_date=since
-            )
-            upsert_events_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
+                rows, _ = download_event_log(
+                    session, team["team_id"], team["season_ids"], tmp_path, since_date=since
+                )
+                upsert_events_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
 
-            last_updated[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
-            label = f"(since {since})" if since else "(full)"
-            results.append((True, f"{team['name']}: {rows:,} rows upserted {label}"))
+                last_updated[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+                label = f"(since {since})" if since else "(full)"
+                results.append((True, f"{team['name']}: {rows:,} rows upserted {label}"))
         except Exception as e:
             results.append((False, f"{team['name']}: {e}"))
         finally:
@@ -272,8 +290,10 @@ def _run_event_log_downloads(teams_to_download, incremental=True):
 
         progress.progress((i + 1) / n)
 
-    con.close()
-    save_last_updated(last_updated)
+    if con:
+        con.close()
+    if not download_only:
+        save_last_updated(last_updated)
     status.empty()
     progress.empty()
     st.session_state["event_log_results"] = results
@@ -343,19 +363,49 @@ _total = len(_selected_teams)
 st.write(f"**{_total} team{'s' if _total != 1 else ''} selected**")
 
 _incremental = st.checkbox("Incremental — only download since last update", value=True)
+_download_only = st.checkbox(
+    "Download to file only — skip database upsert",
+    value=False,
+    help=f"Saves CSVs to data/test_downloads/ for inspection. Does not update last-downloaded timestamps."
+)
 
 _col_a, _col_b = st.columns([1, 1])
 with _col_a:
     _dl_selected = st.button("Download Selected", type="primary",
-                             disabled=not authenticated or not motherduck_configured or _total == 0)
+                             disabled=not authenticated or (not motherduck_configured and not _download_only) or _total == 0)
 with _col_b:
     _dl_all = st.button("Download All Teams",
-                        disabled=not authenticated or not motherduck_configured)
+                        disabled=not authenticated or (not motherduck_configured and not _download_only))
 
 if _dl_selected:
-    _run_event_log_downloads(_selected_teams, incremental=_incremental)
+    _run_event_log_downloads(_selected_teams, incremental=_incremental, download_only=_download_only)
 if _dl_all:
-    _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental)
+    _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental, download_only=_download_only)
+
+# ── Database Maintenance ──────────────────────────────────────────────────────
+st.divider()
+st.header("Database Maintenance")
+
+st.caption("Backfill season IDs for existing games that predate season tracking.")
+if st.button("Backfill Season IDs", disabled=not motherduck_configured):
+    try:
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        updated, skipped, skipped_details = backfill_season_ids(con, config)
+        con.close()
+        st.session_state["backfill_result"] = (True, updated, skipped, skipped_details)
+    except Exception as e:
+        st.session_state["backfill_result"] = (False, str(e), 0, [])
+    st.rerun()
+
+if "backfill_result" in st.session_state:
+    success, val1, val2, details = st.session_state.pop("backfill_result")
+    if success:
+        st.success(f"Done — {val1} games updated, {val2} skipped.")
+        if details:
+            import pandas as pd
+            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
+    else:
+        st.error(f"Backfill failed: {val1}")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()

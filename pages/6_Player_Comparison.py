@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from shared.motherduck import get_player_current_team
 from shared.colors import fuzzy_match_team, TEAM_COLORS
+from pages.streamlit_utils import custom_title_inputs
 from mostly_finished_charts.player_comparison_chart import (
     load_player_data,
     get_player_percentiles,
@@ -72,7 +73,8 @@ def _load_player_data_cached(file_content):
 
 
 @st.cache_data(show_spinner=False)
-def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=()):
+def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=(),
+                                    custom_title=None, custom_subtitle=None):
     """Generate single-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results, player_row, peer_count, final_position = get_player_percentiles(
@@ -95,7 +97,8 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, "player_comparison.png")
-        create_comparison_chart(results, player_row, peer_count, output_path, final_position)
+        create_comparison_chart(results, player_row, peer_count, output_path, final_position,
+                                custom_title=custom_title, custom_subtitle=custom_subtitle)
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
@@ -112,7 +115,8 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
 
 
 @st.cache_data(show_spinner=False)
-def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position, color_overrides=()):
+def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position, color_overrides=(),
+                                   custom_title=None, custom_subtitle=None):
     """Generate multi-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
@@ -135,7 +139,8 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, "multi_player_comparison.png")
-        create_multi_player_comparison_chart(results_by_player, player_rows, peer_count, final_position, output_path)
+        create_multi_player_comparison_chart(results_by_player, player_rows, peer_count, final_position, output_path,
+                                             custom_title=custom_title, custom_subtitle=custom_subtitle)
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
@@ -258,7 +263,8 @@ def _get_team_overrides(selected_players, df):
     return tuple(overrides)
 
 
-def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None):
+def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None,
+                    custom_title=None, custom_subtitle=None):
     """Run chart generation and store results in session state."""
     st.session_state["player_comparison_charts"] = None
 
@@ -269,7 +275,8 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
         if comparison_mode == "Single Player":
             player_name = selected_players[0]
             charts, peer_count, final_position = _generate_single_player_charts(
-                file_content, player_name, min_minutes, compare_position, color_overrides
+                file_content, player_name, min_minutes, compare_position, color_overrides,
+                custom_title=custom_title, custom_subtitle=custom_subtitle
             )
             if charts is None:
                 st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
@@ -284,7 +291,8 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             }
         else:
             charts, peer_count, final_position = _generate_multi_player_charts(
-                file_content, tuple(selected_players), min_minutes, compare_position, color_overrides
+                file_content, tuple(selected_players), min_minutes, compare_position, color_overrides,
+                custom_title=custom_title, custom_subtitle=custom_subtitle
             )
             if charts is None:
                 st.error("One or more players not found or don't meet minimum minutes.")
@@ -354,7 +362,9 @@ def _sidebar_controls(player_list, df=None):
                 can_generate = False
                 st.sidebar.error(f"Players in different positions ({', '.join(set(player_positions))}). Select a position above.")
 
-    return comparison_mode, selected_players, min_minutes, compare_position, can_generate
+    _dt_pc = " & ".join(p.upper() for p in selected_players) if selected_players else ""
+    custom_title_pc, custom_subtitle_pc = custom_title_inputs("player_comparison", _dt_pc)
+    return comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -405,7 +415,7 @@ if not use_manual:
     all_players = sorted(player_to_pools.keys())
 
     # Sidebar controls
-    comparison_mode, selected_players, min_minutes, compare_position, can_generate = _sidebar_controls(
+    comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
         all_players
     )
 
@@ -467,7 +477,8 @@ if not use_manual:
                         pool_keys.add(pk)
                 if pool_keys:
                     _df = pools[next(iter(pool_keys))]["df"]
-            _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df)
+            _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df,
+                            custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc)
     elif not selected_players:
         if comparison_mode == "Single Player":
             st.info("Select a player from the sidebar to analyze")
@@ -496,13 +507,14 @@ else:
             col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
             player_list = sorted(df[col].dropna().unique().tolist())
 
-            comparison_mode, selected_players, min_minutes, compare_position, can_generate = _sidebar_controls(
+            comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
                 player_list, df
             )
 
             if can_generate:
                 if st.button("Generate Charts", type="primary"):
-                    _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position)
+                    _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position,
+                                    custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc)
             else:
                 if comparison_mode == "Single Player":
                     st.info("Select a player from the sidebar to analyze")

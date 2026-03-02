@@ -20,6 +20,7 @@ from mostly_finished_charts.passing_flow_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.colors import TEAM_COLORS, fuzzy_match_team
+from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="Progressive Flow", page_icon="", layout="wide")
@@ -69,6 +70,8 @@ with st.sidebar.expander("Zone Reference"):
 
     **Forward pass rule:** destination column > source column, OR destination is a penalty area.
     """)
+
+custom_title, custom_subtitle = custom_title_inputs("passing_flow")
 
 # File upload
 uploaded_file = st.file_uploader(
@@ -141,6 +144,8 @@ if uploaded_file is not None:
                             fig = create_passing_flow_chart(
                                 chart_df, selected_team, team_color, match_info,
                                 stats, competition=competition,
+                                custom_title=custom_title,
+                                custom_subtitle=custom_subtitle,
                             )
 
                             # Save to bytes

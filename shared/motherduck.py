@@ -85,40 +85,27 @@ def get_connection():
 
 @st.cache_data(ttl=3600)
 def get_teams_by_league():
-    """Return dict of league_name -> list of team dicts, only for teams with data.
+    """Return dict of league_name -> list of team dicts.
 
     Each team dict has: team_id, display_name, abbrev.
+    Built entirely from config.json (no DB query) so the initial page load is fast.
     Teams are assigned to exactly one league bucket by priority order.
     Result is cached for 1 hour.
     """
-    con = get_connection()
-    rows = con.execute(
-        "SELECT DISTINCT teamId, teamFullName, teamAbbrevName FROM events"
-    ).fetchall()
-
-    md_teams = {
-        team_id: {'team_id': team_id, 'raw_name': full_name, 'abbrev': abbrev}
-        for team_id, full_name, abbrev in rows
-        if team_id
-    }
-
     config = _load_config()
-    abbrev_to_seasons = {t['abbrev']: t['season_ids'] for t in config['teams']}
-
     league_teams = {league: [] for league in LEAGUE_ORDER}
 
-    for team_id, team in md_teams.items():
-        abbrev = team['abbrev']
-        season_ids = abbrev_to_seasons.get(abbrev, [])
-        league = _get_team_league(season_ids)
-
-        _, matched_name, _ = fuzzy_match_team(team['raw_name'], TEAM_COLORS)
-        display_name = matched_name if matched_name else team['raw_name']
-
+    for team in config['teams']:
+        team_id = team.get('team_id')
+        if not team_id:
+            continue
+        league = _get_team_league(team.get('season_ids', []))
+        _, matched_name, _ = fuzzy_match_team(team['name'], TEAM_COLORS)
+        display_name = matched_name if matched_name else team['name']
         league_teams[league].append({
             'team_id': team_id,
             'display_name': display_name,
-            'abbrev': abbrev,
+            'abbrev': team.get('abbrev', ''),
         })
 
     result = {}
@@ -137,19 +124,22 @@ def get_games_for_team(team_id):
     """Return list of game dicts for a team, sorted most recent first.
 
     Each dict has: game_id, date, home_team, away_team,
-                   home_score, away_score, label.
+                   home_score, away_score, season_id, season_name, label.
     Result is cached for 1 hour.
     """
     con = get_connection()
     rows = con.execute("""
-        SELECT gameId, Date, homeTeam, awayTeam, homeFinalScore, awayFinalScore
+        SELECT gameId, Date, homeTeam, awayTeam, homeFinalScore, awayFinalScore, seasonId
         FROM games
         WHERE homeTeamId = ? OR awayTeamId = ?
         ORDER BY Date DESC
     """, [team_id, team_id]).fetchall()
 
+    config = _load_config()
+    season_names = config.get('seasons', {})
+
     games = []
-    for game_id, date_str, home_team, away_team, home_score, away_score in rows:
+    for game_id, date_str, home_team, away_team, home_score, away_score, season_id in rows:
         try:
             date_display = datetime.strptime(date_str, '%Y-%m-%d').strftime('%b %d, %Y')
         except Exception:
@@ -160,6 +150,8 @@ def get_games_for_team(team_id):
         home_display = home_clean if home_clean else home_team
         away_display = away_clean if away_clean else away_team
 
+        season_name = season_names.get(season_id, '') if season_id else ''
+
         label = f"{date_display}  —  {home_display} {home_score}–{away_score} {away_display}"
         games.append({
             'game_id': game_id,
@@ -169,6 +161,8 @@ def get_games_for_team(team_id):
             'away_team': away_display,
             'home_score': home_score,
             'away_score': away_score,
+            'season_id': season_id,
+            'season_name': season_name,
             'label': label,
         })
 
@@ -200,6 +194,258 @@ def get_player_current_team(player_id):
     if row:
         return {'color': row[0], 'team_name': row[1], 'abbrev': row[2]}
     return None
+
+
+@st.cache_data(ttl=3600)
+def build_shot_chart_single(game_id):
+    """Build shot chart data for a single game from MotherDuck.
+
+    Returns (shots_df, match_info, team_colors) compatible with the shot
+    chart helper functions in pages/4_Shot_Chart.py.
+    """
+    import pandas as pd
+    con = get_connection()
+    rows = con.execute("""
+        SELECT e.EventXDecimal, e.EventYDecimal, e.xG, e.playType,
+               e.teamFullName, e.newestTeamColor, e.Date,
+               e.homeTeam, e.awayTeam, e.ShotPlayStyle, e.shooter,
+               g.homeFinalScore, g.awayFinalScore
+        FROM events e
+        JOIN games g ON e.gameId = g.gameId
+        WHERE e.gameId = ?
+          AND e.playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+    """, [game_id]).fetchall()
+
+    if not rows:
+        return pd.DataFrame(), {}, {}
+
+    data = []
+    team_colors = {}
+    meta = None
+
+    for ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter, h_score, a_score in rows:
+        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
+        team_display = clean_name if clean_name else team_full
+
+        if color and team_display:
+            team_colors[team_display] = color
+
+        if meta is None:
+            _, home_clean, _ = fuzzy_match_team(home or '', TEAM_COLORS)
+            _, away_clean, _ = fuzzy_match_team(away or '', TEAM_COLORS)
+            try:
+                date_formatted = datetime.strptime(date, '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            except Exception:
+                date_formatted = date or ''
+            meta = {
+                'date': date or '',
+                'date_formatted': date_formatted,
+                'home_team': home_clean if home_clean else home,
+                'away_team': away_clean if away_clean else away,
+                'home_score': int(h_score or 0),
+                'away_score': int(a_score or 0),
+            }
+
+        data.append({
+            'EventX': float(ex) if ex is not None else 50.0,
+            'EventY': float(ey) if ey is not None else 50.0,
+            'xG': float(xg) if xg else 0.0,
+            'playType': play_type,
+            'Team': team_display,
+            'ShotPlayStyle': shot_style,
+            'shooter': shooter,
+        })
+
+    return pd.DataFrame(data), meta or {}, team_colors
+
+
+@st.cache_data(ttl=3600)
+def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
+    """Build multi-match shot chart data for a team from MotherDuck.
+
+    game_ids_tuple: tuple of game IDs (tuple required for st.cache_data hashability).
+    against: if True, returns opponent shots in those games instead of team's shots.
+
+    Returns (shots_df, multi_match_info, team_color) compatible with
+    create_multi_match_shot_chart() in the shot chart module.
+    """
+    import pandas as pd
+    if not game_ids_tuple:
+        return pd.DataFrame(), {}, '#888888'
+
+    con = get_connection()
+    placeholders = ','.join(['?' for _ in game_ids_tuple])
+    team_clause = "teamId != ?" if against else "teamId = ?"
+
+    rows = con.execute(f"""
+        SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
+               teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
+               ShotPlayStyle, shooter
+        FROM events
+        WHERE gameId IN ({placeholders})
+          AND {team_clause}
+          AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+        ORDER BY Date, gameId
+    """, list(game_ids_tuple) + [team_id]).fetchall()
+
+    if not rows:
+        return pd.DataFrame(), {}, '#888888'
+
+    data = []
+    for game_id, ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter in rows:
+        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
+        team_display = clean_name if clean_name else team_full
+        data.append({
+            'gameId': game_id,
+            'EventX': float(ex) if ex is not None else 50.0,
+            'EventY': float(ey) if ey is not None else 50.0,
+            'xG': float(xg) if xg else 0.0,
+            'playType': play_type,
+            'Team': team_display,
+            'newestTeamColor': color,
+            'Date': date,
+            'homeTeam': home,
+            'awayTeam': away,
+            'ShotPlayStyle': shot_style,
+            'shooter': shooter,
+        })
+
+    shots_df = pd.DataFrame(data)
+
+    # Add _match_id and _needs_flip (same logic as load_multi_match_shot_data)
+    shots_df['_match_id'] = shots_df['gameId']
+    shots_df['_needs_flip'] = False
+    for match_id, group in shots_df.groupby('_match_id'):
+        if group['EventX'].mean() < 50:
+            shots_df.loc[group.index, '_needs_flip'] = True
+
+    # Build multi_match_info
+    team_name = shots_df['Team'].mode()[0] if not shots_df.empty else ''
+    dates = shots_df['Date'].dropna().sort_values()
+    date_range = ''
+    if len(dates) > 0:
+        try:
+            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
+            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            date_range = f"{first} - {last}" if dates.iloc[0] != dates.iloc[-1] else last
+        except Exception:
+            pass
+
+    total_matches = shots_df['_match_id'].nunique()
+    player_list = sorted(shots_df['shooter'].dropna().unique().tolist())
+    colors = shots_df['newestTeamColor'].dropna()
+    team_color = colors.iloc[0] if not colors.empty else '#888888'
+
+    multi_match_info = {
+        'team_name': team_name,
+        'date_range': date_range,
+        'total_matches': total_matches,
+        'player_list': player_list,
+        'is_player_csv': False,
+        'player_name': None,
+    }
+
+    return shots_df, multi_match_info, team_color
+
+
+@st.cache_data(ttl=3600)
+def build_shots_for_player(shooter_name):
+    """Get all shots for a named player across the entire database.
+
+    Used when a player has transferred — returns their complete shot record
+    regardless of which team(s) they played for.
+
+    Returns (shots_df, multi_match_info, team_color) with the same structure
+    as build_shot_chart_multi().
+    """
+    import pandas as pd
+    if not shooter_name:
+        return pd.DataFrame(), {}, '#888888'
+
+    con = get_connection()
+    rows = con.execute("""
+        SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
+               teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
+               ShotPlayStyle, shooter
+        FROM events
+        WHERE shooter = ?
+          AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+        ORDER BY Date, gameId
+    """, [shooter_name]).fetchall()
+
+    if not rows:
+        return pd.DataFrame(), {}, '#888888'
+
+    data = []
+    for game_id, ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter in rows:
+        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
+        team_display = clean_name if clean_name else team_full
+        data.append({
+            'gameId': game_id,
+            'EventX': float(ex) if ex is not None else 50.0,
+            'EventY': float(ey) if ey is not None else 50.0,
+            'xG': float(xg) if xg else 0.0,
+            'playType': play_type,
+            'Team': team_display,
+            'newestTeamColor': color,
+            'Date': date,
+            'homeTeam': home,
+            'awayTeam': away,
+            'ShotPlayStyle': shot_style,
+            'shooter': shooter,
+        })
+
+    shots_df = pd.DataFrame(data)
+    shots_df['_match_id'] = shots_df['gameId']
+    shots_df['_needs_flip'] = False
+    for match_id, group in shots_df.groupby('_match_id'):
+        if group['EventX'].mean() < 50:
+            shots_df.loc[group.index, '_needs_flip'] = True
+
+    dates = shots_df['Date'].dropna().sort_values()
+    date_range = ''
+    if len(dates) > 0:
+        try:
+            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
+            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            date_range = f"{first} - {last}" if dates.iloc[0] != dates.iloc[-1] else last
+        except Exception:
+            pass
+
+    total_matches = shots_df['_match_id'].nunique()
+    # Most recent team = last row's team (data is ordered by Date)
+    team_name = shots_df['Team'].iloc[-1] if not shots_df.empty else ''
+    colors = shots_df['newestTeamColor'].dropna()
+    team_color = colors.iloc[-1] if not colors.empty else '#888888'
+
+    multi_match_info = {
+        'team_name': team_name,
+        'date_range': date_range,
+        'total_matches': total_matches,
+        'player_list': [shooter_name],
+        'is_player_csv': False,
+        'player_name': shooter_name,
+    }
+
+    return shots_df, multi_match_info, team_color
+
+
+@st.cache_data(ttl=3600)
+def get_player_game_count(player_name):
+    """Return the number of distinct games a player appeared in across the entire database.
+
+    Uses the toucher column, which captures all player involvements (not just shots).
+    Returns an int, or None if the player is not found.
+    """
+    if not player_name:
+        return None
+    con = get_connection()
+    row = con.execute(
+        "SELECT COUNT(DISTINCT gameId) FROM events WHERE toucher = ?",
+        [player_name]
+    ).fetchone()
+    count = row[0] if row else 0
+    return count if count > 0 else None
 
 
 @st.cache_data(ttl=3600)

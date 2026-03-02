@@ -307,7 +307,9 @@ def analyze_sequences(sequences):
     return length_data, team_data, shot_sequences, team_length_data
 
 
-def create_sequence_analysis_chart(length_data, team_data, shot_sequences, match_info, output_path, team_colors=None, team_length_data=None):
+def create_sequence_analysis_chart(length_data, team_data, shot_sequences, match_info, output_path,
+                                    team_colors=None, team_length_data=None,
+                                    custom_title=None, custom_subtitle=None):
     """Create a multi-panel sequence analysis chart"""
 
     if team_colors is None:
@@ -505,14 +507,16 @@ def create_sequence_analysis_chart(length_data, team_data, shot_sequences, match
     style_axis(ax4)
 
     # Main title with xG totals
-    title = f"{match_info['home_team'].upper()} {match_info['home_score']}-{match_info['away_score']} {match_info['away_team'].upper()}"
+    auto_title = f"{match_info['home_team'].upper()} {match_info['home_score']}-{match_info['away_score']} {match_info['away_team'].upper()}"
     t1_total_xg = team_data[team1]['xG']
     t2_total_xg = team_data[team2]['xG']
     xg_line = f"{team1} {t1_total_xg:.2f} xG  -  {team2} {t2_total_xg:.2f} xG"
-    fig.text(0.5, 0.97, title, ha='center', fontsize=22, fontweight='bold', color='white')
+    fig.text(0.5, 0.97, custom_title or auto_title,
+             ha='center', fontsize=22, fontweight='bold', color='white')
     fig.text(0.5, 0.935, xg_line, ha='center', fontsize=14, fontweight='bold', color='#B8C5D6')
-    fig.text(0.5, 0.905, 'SEQUENCE ANALYSIS: HOW POSSESSIONS BUILD TO SHOTS',
-            ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    auto_subtitle = 'SEQUENCE ANALYSIS: HOW POSSESSIONS BUILD TO SHOTS'
+    fig.text(0.5, 0.905, custom_subtitle or auto_subtitle,
+             ha='center', fontsize=12, color='#8BA3B8', style='italic')
 
     # Footer
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)

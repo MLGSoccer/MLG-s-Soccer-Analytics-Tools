@@ -576,7 +576,8 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     return output_path
 
 
-def create_comparison_chart(results, player_row, peer_count, output_path, comparison_position=None):
+def create_comparison_chart(results, player_row, peer_count, output_path, comparison_position=None,
+                            custom_title=None, custom_subtitle=None):
     """Create the player comparison chart"""
 
     # Use full name if available, otherwise abbreviated
@@ -604,8 +605,8 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     ax.axis('off')
 
     # Title - player name and team on main line
-    fig.text(0.5, 0.95, f'{player_name.upper()}  •  {team.upper()}', ha='center', fontsize=24,
-             fontweight='bold', color='white')
+    fig.text(0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team.upper()}',
+             ha='center', fontsize=24, fontweight='bold', color='white')
 
     # ============ PLAYER INFO STRIP WITH TEAM COLOR ============
     strip_y = 0.895
@@ -671,11 +672,13 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
                     transform=ax.transAxes, ha='center', va='top', fontweight='bold')
 
         # Subtitle below strip
-        fig.text(0.5, 0.86, f'{position}  •  vs Position Peers  •  Last 365 Days  •  {nineties_played:.1f} 90s',
+        auto_subtitle = f'{position}  •  vs Position Peers  •  Last 365 Days  •  {nineties_played:.1f} 90s'
+        fig.text(0.5, 0.86, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=12, color='#8BA3B8')
     else:
         # No player info - use original layout
-        fig.text(0.5, 0.89, f'{position}  •  vs Position Peers  •  Last 365 Days  •  {nineties_played:.1f} 90s',
+        auto_subtitle = f'{position}  •  vs Position Peers  •  Last 365 Days  •  {nineties_played:.1f} 90s'
+        fig.text(0.5, 0.89, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=12, color='#8BA3B8')
 
     # Layout parameters
@@ -1262,7 +1265,8 @@ def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, ba
 
 
 def create_multi_player_comparison_chart(results_by_player, player_rows, peer_count,
-                                          comparison_position, output_path):
+                                          comparison_position, output_path,
+                                          custom_title=None, custom_subtitle=None):
     """Create the multi-player comparison chart (combined view).
 
     Args:
@@ -1297,6 +1301,11 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     strips_y = 0.90
     names_y = 0.95
 
+    # Optional custom title above player names
+    if custom_title:
+        fig.text(0.5, 0.985, custom_title, ha='center', fontsize=14,
+                 fontweight='bold', color='white')
+
     # Font size based on number of players
     name_fontsize = 18 if num_players == 2 else 15
 
@@ -1327,7 +1336,8 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
 
     # Subtitle
     subtitle_y = strips_bottom - 0.015
-    fig.text(0.5, subtitle_y, f'{comparison_position} vs Position Peers  |  Last 365 Days',
+    auto_subtitle = f'{comparison_position} vs Position Peers  |  Last 365 Days'
+    fig.text(0.5, subtitle_y, custom_subtitle or auto_subtitle,
              ha='center', fontsize=11, color='#8BA3B8')
 
     # Prepare metrics data for grouped bars

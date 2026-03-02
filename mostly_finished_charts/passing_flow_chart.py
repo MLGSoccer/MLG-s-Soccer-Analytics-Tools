@@ -516,7 +516,8 @@ def _build_station_flows(pass_df, station_config=None):
 
 
 def create_passing_flow_chart(pass_df, team_name, team_color, match_info,
-                               stats, competition=''):
+                               stats, competition='',
+                               custom_title=None, custom_subtitle=None):
     """Build a matplotlib pitch chart with edge-bundled pass curves.
 
     Each pass is drawn as a smooth curve. Nearby passes with similar paths
@@ -759,22 +760,26 @@ def create_passing_flow_chart(pass_df, team_name, team_color, match_info,
     date = match_info.get('date', '')
     score_str = match_info.get('score', '')
 
-    title_text = f"{team_name.upper()} PROGRESSIVE FLOW"
-    fig.suptitle(title_text, fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    auto_title = f"{team_name.upper()} PROGRESSIVE FLOW"
+    fig.suptitle(custom_title or auto_title, fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    subtitle_parts = []
-    if opponent:
-        subtitle_parts.append(f"vs {opponent}")
-    if score_str:
-        subtitle_parts.append(score_str)
-    if date:
-        subtitle_parts.append(date)
-    if competition:
-        subtitle_parts.append(competition.upper())
-    if subtitle_parts:
-        fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
-                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+    if custom_subtitle:
+        fig.text(0.5, 0.92, custom_subtitle, ha='center', va='center',
+                 fontsize=11, color=TEXT_SECONDARY)
+    else:
+        subtitle_parts = []
+        if opponent:
+            subtitle_parts.append(f"vs {opponent}")
+        if score_str:
+            subtitle_parts.append(score_str)
+        if date:
+            subtitle_parts.append(date)
+        if competition:
+            subtitle_parts.append(competition.upper())
+        if subtitle_parts:
+            fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
+                     ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Color legend (blue = backward, white = lateral, red = forward)
     legend_ax = fig.add_axes([0.30, 0.855, 0.40, 0.025], facecolor='none')
@@ -936,14 +941,17 @@ def run(config):
 
     team_name = config.get('team_name')
     if not team_name:
-        print("\nTeams found:")
-        for i, t in enumerate(teams, 1):
-            print(f"  {i}. {t}")
-        choice = input(f"Select team (1-{len(teams)}): ").strip()
-        try:
-            team_name = teams[int(choice) - 1]
-        except (ValueError, IndexError):
+        if config.get('gui_mode'):
             team_name = teams[0]
+        else:
+            print("\nTeams found:")
+            for i, t in enumerate(teams, 1):
+                print(f"  {i}. {t}")
+            choice = input(f"Select team (1-{len(teams)}): ").strip()
+            try:
+                team_name = teams[int(choice) - 1]
+            except (ValueError, IndexError):
+                team_name = teams[0]
 
     print(f"\nAnalyzing passing flow for: {team_name}")
 

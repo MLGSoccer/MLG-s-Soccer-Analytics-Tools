@@ -50,6 +50,35 @@ def check_team_colors(team_names, csv_colors=None):
     return results
 
 
+def custom_title_inputs(key_prefix="", default_title="", default_subtitle=""):
+    """Add optional custom title/subtitle inputs to sidebar.
+
+    Pre-populated with default_title/default_subtitle when provided.
+    Uses a hash-based key so the widget resets when defaults change
+    (e.g. a new game is selected), while preserving edits within a selection.
+
+    Returns (custom_title, custom_subtitle) — each is None when cleared to blank,
+    so callers can do: title = custom_title or auto_title
+    """
+    import hashlib
+    h = hashlib.md5(f"{default_title}|{default_subtitle}".encode()).hexdigest()[:8]
+    with st.sidebar.expander("Custom Title (optional)", expanded=False):
+        custom_title = st.text_input(
+            "Title", value=default_title, key=f"{key_prefix}_ctitle_{h}",
+            placeholder="Leave blank for auto-generated"
+        )
+        custom_subtitle = st.text_input(
+            "Subtitle", value=default_subtitle, key=f"{key_prefix}_csubtitle_{h}",
+            placeholder="Leave blank for auto-generated"
+        )
+    # Only override when the user has actually changed the value from the default.
+    # If it matches the default (or is blank), return None so the chart's own
+    # auto-generated title/subtitle is used (which may include extra info like xG totals).
+    out_title = custom_title if (custom_title and custom_title != default_title) else None
+    out_subtitle = custom_subtitle if (custom_subtitle and custom_subtitle != default_subtitle) else None
+    return out_title, out_subtitle
+
+
 def show_color_status(team_names, csv_colors=None):
     """Show color resolution status for teams.
 

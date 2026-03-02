@@ -644,8 +644,8 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
             color, matched_name, ambiguous = fuzzy_match_team(team_name, TEAM_COLORS)
             if color:
                 if ambiguous and len(ambiguous) > 1:
-                    # Prompt user to choose
-                    chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous)
+                    # Prompt user to choose (or auto-select in gui_mode)
+                    chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous, gui_mode=not interactive)
                     if chosen_color:
                         return chosen_color, "database", chosen_name
                     # User chose "none of these" - fall through to manual entry
@@ -655,7 +655,7 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
             color, matched_name, ambiguous = fuzzy_match_team(team_name, custom_colors)
             if color:
                 if ambiguous and len(ambiguous) > 1:
-                    chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous)
+                    chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous, gui_mode=not interactive)
                     if chosen_color:
                         return chosen_color, "saved", chosen_name
                 else:
@@ -1047,24 +1047,27 @@ def create_xg_chart(shots, team_info):
     
     # CBS Sports title structure
     # Main title with score - WHITE for contrast against dark background
-    main_title = f'{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}'
-    fig.text(0.5, 0.97, main_title, 
-            ha='center', fontsize=24, fontweight='bold', 
+    auto_title = f'{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}'
+    display_title = team_info.get('custom_title') or auto_title
+    fig.text(0.5, 0.97, display_title,
+            ha='center', fontsize=24, fontweight='bold',
             color='#FFFFFF', fontfamily='sans-serif',
             path_effects=[patheffects.withStroke(linewidth=3, foreground='#1A2332')])
-    
+
     # Chart type label
-    fig.text(0.5, 0.94, 'xG RACE CHART', 
-            ha='center', fontsize=12, fontweight='normal', 
+    fig.text(0.5, 0.94, 'xG RACE CHART',
+            ha='center', fontsize=12, fontweight='normal',
             color='#8BA3B8', fontfamily='sans-serif', style='italic')
-    
+
     # Subtitle with competition, date, and xG totals - Light gray for readability
-    if team_info.get('date'):
-        subtitle = f'{team_info["competition"]} | {team_info["date"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
+    if team_info.get('custom_subtitle'):
+        display_subtitle = team_info['custom_subtitle']
+    elif team_info.get('date'):
+        display_subtitle = f'{team_info["competition"]} | {team_info["date"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
     else:
-        subtitle = f'{team_info["competition"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
-    fig.text(0.5, 0.915, subtitle, 
-            ha='center', fontsize=13, color='#B8C5D6', 
+        display_subtitle = f'{team_info["competition"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
+    fig.text(0.5, 0.915, display_subtitle,
+            ha='center', fontsize=13, color='#B8C5D6',
             fontfamily='sans-serif')
     
     # CBS Sports grid - REMOVED for cleaner picture-like aesthetic

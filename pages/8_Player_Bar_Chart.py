@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mostly_finished_charts.player_bar_chart import run as run_player_bar
 from shared.stat_mappings import STAT_DISPLAY_NAMES
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Player Bar Chart", page_icon="📊", layout="wide")
 
@@ -162,7 +163,7 @@ if uploaded_file is not None:
         )
 
         # Custom title
-        custom_title = st.sidebar.text_input("Custom Title (optional)")
+        custom_title, _ = custom_title_inputs("player_bar")
 
         # Generate button
         can_generate = True

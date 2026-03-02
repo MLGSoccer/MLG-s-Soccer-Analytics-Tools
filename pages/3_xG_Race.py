@@ -15,6 +15,7 @@ from mostly_finished_charts.xg_race_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import get_teams_by_league, get_games_for_team, build_shots_from_game
+from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="xG Race Chart", page_icon="🏁", layout="wide")
@@ -33,7 +34,8 @@ def _parse_xg_race_cached(file_content):
         os.unlink(tmp_path)
 
 
-def _generate_chart(shots, match_info, team_colors, competition, own_goals_hashable):
+def _generate_chart(shots, match_info, team_colors, competition, own_goals_hashable,
+                    custom_title=None, custom_subtitle=None):
     """Generate xG race chart and return (img_bytes, filename, caption)."""
     config = {
         'competition': competition if competition else None,
@@ -42,6 +44,10 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
     }
     team_info = get_team_info(shots, match_info, team_colors, config)
     team_info['data_source'] = 'trumedia'
+    if custom_title:
+        team_info['custom_title'] = custom_title
+    if custom_subtitle:
+        team_info['custom_subtitle'] = custom_subtitle
 
     fig = create_xg_chart(shots, team_info)
     if fig is None:
@@ -79,7 +85,8 @@ st.divider()
 # ── Database mode ─────────────────────────────────────────────────────────────
 if data_source == "Database":
     try:
-        teams_by_league = get_teams_by_league()
+        with st.spinner("Loading teams..."):
+            teams_by_league = get_teams_by_league()
     except Exception as e:
         st.error(f"Could not connect to database: {e}")
         st.stop()
@@ -126,6 +133,12 @@ if data_source == "Database":
     )
 
     if selected_game:
+        _dt = (f"{selected_game['home_team'].upper()} "
+               f"{selected_game['home_score']}-{selected_game['away_score']} "
+               f"{selected_game['away_team'].upper()}")
+        _ds = f"{competition} | {selected_game['date_display']}" if competition else selected_game['date_display']
+        custom_title_xg, custom_subtitle_xg = custom_title_inputs("xg_race_db", _dt, _ds)
+
         shots, match_info, team_colors = build_shots_from_game(selected_game['game_id'])
 
         if not shots:
@@ -166,7 +179,8 @@ if data_source == "Database":
                 with st.spinner("Generating xG race chart..."):
                     own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
                     img_bytes, filename, caption = _generate_chart(
-                        shots, match_info, team_colors, competition, own_goals_hashable
+                        shots, match_info, team_colors, competition, own_goals_hashable,
+                        custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg
                     )
                     if img_bytes is None:
                         st.error("Chart generation failed. Please check team names.")
@@ -214,6 +228,10 @@ else:
                 home_team = match_info.get('home_team', 'Home Team')
                 away_team = match_info.get('away_team', 'Away Team')
 
+                _dt = f"{home_team.upper()} vs {away_team.upper()}"
+                _ds = f"{competition} | {match_info.get('date', '')}" if competition else match_info.get('date', '')
+                custom_title_xg, custom_subtitle_xg = custom_title_inputs("xg_race_csv", _dt, _ds)
+
                 st.success(f"Found {len(shots)} shots: **{home_team}** vs **{away_team}**")
 
                 col1, col2, col3 = st.columns(3)
@@ -250,7 +268,8 @@ else:
                     with st.spinner("Generating xG race chart..."):
                         own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
                         img_bytes, filename, caption = _generate_chart(
-                            shots, match_info, team_colors, competition, own_goals_hashable
+                            shots, match_info, team_colors, competition, own_goals_hashable,
+                            custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg
                         )
                         if img_bytes is None:
                             st.error("Chart generation failed. Please check team names.")

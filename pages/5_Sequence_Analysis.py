@@ -16,6 +16,7 @@ from mostly_finished_charts.sequence_analysis_chart import (
     create_individual_charts
 )
 from shared.colors import get_team_color
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Sequence Analysis", page_icon="🔄", layout="wide")
 
@@ -37,7 +38,8 @@ def _load_sequences_cached(file_content):
 
 
 @st.cache_data
-def _generate_sequence_charts(file_content, teams, csv_team_colors):
+def _generate_sequence_charts(file_content, teams, csv_team_colors,
+                              custom_title=None, custom_subtitle=None):
     """Generate all charts and return image bytes."""
     sequences, _, length_data, team_data, shot_sequences, team_length_data, match_info = _load_sequences_cached(file_content)
 
@@ -55,7 +57,9 @@ def _generate_sequence_charts(file_content, teams, csv_team_colors):
             length_data, team_data, shot_sequences,
             match_info, output_path,
             team_colors=team_colors,
-            team_length_data=team_length_data
+            team_length_data=team_length_data,
+            custom_title=custom_title,
+            custom_subtitle=custom_subtitle,
         )
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
@@ -112,10 +116,15 @@ if uploaded_file is not None:
         from pages.streamlit_utils import check_team_colors
         check_team_colors(teams, csv_team_colors)
 
+        _dt_seq = " VS ".join(t.upper() for t in teams[:2]) if teams else ""
+        custom_title, custom_subtitle = custom_title_inputs("sequence", _dt_seq)
+
         if st.button("Generate Charts", type="primary"):
             st.session_state["sequence_charts"] = None
             with st.spinner("Generating charts..."):
-                charts = _generate_sequence_charts(file_content, teams, csv_team_colors)
+                charts = _generate_sequence_charts(file_content, teams, csv_team_colors,
+                                                   custom_title=custom_title,
+                                                   custom_subtitle=custom_subtitle)
                 st.session_state["sequence_charts"] = charts
 
         # Display from session state

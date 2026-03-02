@@ -12,6 +12,7 @@ from mostly_finished_charts.setpiece_report_chart import (
     load_setpiece_data,
     create_setpiece_report
 )
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Set Piece Report", page_icon="🎯", layout="wide")
 
@@ -30,13 +31,16 @@ def _load_setpiece_cached(file_content):
 
 
 @st.cache_data
-def _generate_setpiece_charts(file_content, report_type):
+def _generate_setpiece_charts(file_content, report_type,
+                               custom_title=None, custom_subtitle=None):
     """Generate set piece report and return image bytes."""
     df = _load_setpiece_cached(file_content)
 
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
-        saved_files = create_setpiece_report(df, tmp_dir, report_type=report_type)
+        saved_files = create_setpiece_report(df, tmp_dir, report_type=report_type,
+                                             custom_title=custom_title,
+                                             custom_subtitle=custom_subtitle)
 
         for filepath in saved_files:
             if os.path.exists(filepath):
@@ -76,10 +80,14 @@ if uploaded_file is not None:
 
         st.success(f"Loaded set piece data ({len(df)} rows)")
 
+        custom_title, custom_subtitle = custom_title_inputs("setpiece")
+
         if st.button("Generate Report", type="primary"):
             st.session_state["setpiece_charts"] = None
             with st.spinner("Generating set piece report..."):
-                charts = _generate_setpiece_charts(file_content, report_type)
+                charts = _generate_setpiece_charts(file_content, report_type,
+                                                    custom_title=custom_title,
+                                                    custom_subtitle=custom_subtitle)
                 st.session_state["setpiece_charts"] = charts
 
         # Display from session state

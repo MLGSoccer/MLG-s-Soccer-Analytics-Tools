@@ -14,6 +14,7 @@ from mostly_finished_charts.team_rollingxg_chart import (
     create_rolling_charts,
     create_individual_charts
 )
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Team Rolling xG", page_icon="📈", layout="wide")
 
@@ -31,7 +32,8 @@ def _parse_csv_cached(file_content):
 
 
 @st.cache_data
-def _generate_charts(file_content, team_name, team_color, window_size):
+def _generate_charts(file_content, team_name, team_color, window_size,
+                     custom_title=None, custom_subtitle=None):
     """Generate all charts and return image bytes, cached to survive reruns."""
     # Re-parse (cached separately) to get matches
     matches, _, _ = _parse_csv_cached(file_content)
@@ -40,7 +42,8 @@ def _generate_charts(file_content, team_name, team_color, window_size):
     with tempfile.TemporaryDirectory() as tmp_dir:
         # Combined chart
         combined_path = os.path.join(tmp_dir, "combined.png")
-        create_rolling_charts(matches, team_name, team_color, combined_path, window_size)
+        create_rolling_charts(matches, team_name, team_color, combined_path, window_size,
+                              custom_title=custom_title, custom_subtitle=custom_subtitle)
         with open(combined_path, "rb") as f:
             charts["combined"] = f.read()
 
@@ -100,11 +103,14 @@ if uploaded_file is not None:
         if len(matches) < 5:
             st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
 
+        custom_title, custom_subtitle = custom_title_inputs("team_rolling", team_name.upper())
+
         # Generate button
         if st.button("Generate Charts", type="primary"):
             st.session_state["team_rolling_xg_charts"] = None  # clear stale charts
             with st.spinner("Generating charts..."):
-                charts = _generate_charts(file_content, team_name, team_color, window_size)
+                charts = _generate_charts(file_content, team_name, team_color, window_size,
+                                          custom_title=custom_title, custom_subtitle=custom_subtitle)
                 st.session_state["team_rolling_xg_charts"] = charts
                 st.session_state["team_rolling_xg_team"] = team_name
 

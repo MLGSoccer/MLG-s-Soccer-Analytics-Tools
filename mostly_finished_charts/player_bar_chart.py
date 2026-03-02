@@ -27,7 +27,7 @@ from shared.stat_mappings import (
 )
 
 # Import position mapping from player_comparison_chart
-from mostly_finished_charts.player_comparison_chart import POSITION_MAPPING, POSITION_CATEGORIES
+from .player_comparison_chart import POSITION_MAPPING, POSITION_CATEGORIES
 
 
 # =============================================================================

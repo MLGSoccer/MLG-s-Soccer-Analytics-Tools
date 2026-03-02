@@ -479,7 +479,7 @@ def _draw_same_zone_badge(ax, center, circle_radius, label_text,
 
 def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
                                 match_info, num_matches=1, player_name=None,
-                                competition=''):
+                                competition='', custom_title=None, custom_subtitle=None):
     """Build overview chart with partial-fill circles at each zone center.
 
     Circle size = total passes, fill level = completion %, fill color = directional
@@ -557,27 +557,31 @@ def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
         display_name = f"{player_name.upper()} ({team_name})"
     else:
         display_name = team_name.upper()
-    title_text = f"{display_name} - ZONE PASSING OVERVIEW"
-    fig.suptitle(title_text, fontsize=18, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    auto_title = f"{display_name} - ZONE PASSING OVERVIEW"
+    fig.suptitle(custom_title or auto_title, fontsize=18, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    subtitle_parts = []
-    opponent = match_info.get('opponent', '')
-    score = match_info.get('score', '')
-    date = match_info.get('date', '')
-    if opponent:
-        subtitle_parts.append(f"vs {opponent}")
-    if score:
-        subtitle_parts.append(score)
-    if date:
-        subtitle_parts.append(date)
-    if competition:
-        subtitle_parts.append(competition.upper())
-    if num_matches > 1:
-        subtitle_parts.append(f"{num_matches} matches")
-    if subtitle_parts:
-        fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
-                 ha='center', va='center', fontsize=10, color=TEXT_SECONDARY)
+    if custom_subtitle:
+        fig.text(0.5, 0.92, custom_subtitle, ha='center', va='center',
+                 fontsize=10, color=TEXT_SECONDARY)
+    else:
+        subtitle_parts = []
+        opponent = match_info.get('opponent', '')
+        score = match_info.get('score', '')
+        date = match_info.get('date', '')
+        if opponent:
+            subtitle_parts.append(f"vs {opponent}")
+        if score:
+            subtitle_parts.append(score)
+        if date:
+            subtitle_parts.append(date)
+        if competition:
+            subtitle_parts.append(competition.upper())
+        if num_matches > 1:
+            subtitle_parts.append(f"{num_matches} matches")
+        if subtitle_parts:
+            fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
+                     ha='center', va='center', fontsize=10, color=TEXT_SECONDARY)
 
     # Color legend
     legend_y = 0.04
@@ -605,7 +609,7 @@ def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
 def create_zone_detail_chart(pass_df, zone_agg_df, source_zone, team_name,
                               team_color, match_info, num_matches=1,
                               player_name=None, competition='',
-                              min_per_game=0.5):
+                              min_per_game=0.5, custom_title=None, custom_subtitle=None):
     """Build detail chart for a single source zone with arrows to destinations.
 
     Matches the mockup: large central circle with team color, curved arrows
@@ -731,25 +735,29 @@ def create_zone_detail_chart(pass_df, zone_agg_df, source_zone, team_name,
         display_name = f"{player_name.upper()} ({team_name})"
     else:
         display_name = team_name.upper()
-    title_text = f"{display_name} - DIRECTIONAL PASSING ANALYSIS"
-    fig.suptitle(title_text, fontsize=18, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    auto_title = f"{display_name} - DIRECTIONAL PASSING ANALYSIS"
+    fig.suptitle(custom_title or auto_title, fontsize=18, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
 
     # Subtitle
-    subtitle_parts = []
-    if num_matches > 1:
-        subtitle_parts.append(f"Passes per game | Arrow thickness = volume | {num_matches} matches")
+    if custom_subtitle:
+        fig.text(0.5, 0.92, custom_subtitle, ha='center', va='center',
+                 fontsize=10, color=TEXT_SECONDARY)
     else:
-        subtitle_parts.append("Pass count | Arrow thickness = volume")
-    opponent = match_info.get('opponent', '')
-    if opponent:
-        subtitle_parts.append(f"vs {opponent}")
-    date = match_info.get('date', '')
-    if date:
-        subtitle_parts.append(date)
-    if competition:
-        subtitle_parts.append(competition.upper())
-    fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
-             ha='center', va='center', fontsize=10, color=TEXT_SECONDARY)
+        subtitle_parts = []
+        if num_matches > 1:
+            subtitle_parts.append(f"Passes per game | Arrow thickness = volume | {num_matches} matches")
+        else:
+            subtitle_parts.append("Pass count | Arrow thickness = volume")
+        opponent = match_info.get('opponent', '')
+        if opponent:
+            subtitle_parts.append(f"vs {opponent}")
+        date = match_info.get('date', '')
+        if date:
+            subtitle_parts.append(date)
+        if competition:
+            subtitle_parts.append(competition.upper())
+        fig.text(0.5, 0.92, ' | '.join(subtitle_parts),
+                 ha='center', va='center', fontsize=10, color=TEXT_SECONDARY)
 
     # Direction legend at bottom (left-to-right matches pitch: backward, lateral, forward)
     legend_y = 0.055

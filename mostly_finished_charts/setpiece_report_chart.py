@@ -89,7 +89,8 @@ def _save_figure(fig, output_folder, filename):
     return filepath
 
 
-def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
+def create_setpiece_attacking_report(df, output_folder=None, league_name=None,
+                                      custom_title=None, custom_subtitle=None):
     """Create 4-panel attacking set piece xG report plus individual panels."""
 
     # Get league name from data if not provided
@@ -108,8 +109,10 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
     # =========================================================================
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     fig.patch.set_facecolor(BG_COLOR)
-    fig.suptitle(f'Set Piece Attacking Report: {league_name}',
+    fig.suptitle(custom_title or f'Set Piece Attacking Report: {league_name}',
                  fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.96)
+    if custom_subtitle:
+        fig.text(0.5, 0.925, custom_subtitle, ha='center', fontsize=11, color='#8BA3B8')
 
     # Panel 1: Set Piece xG per Game (horizontal bar)
     ax1 = axes[0, 0]
@@ -337,7 +340,8 @@ def create_setpiece_attacking_report(df, output_folder=None, league_name=None):
     return saved_files
 
 
-def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
+def create_setpiece_defensive_report(df, output_folder=None, league_name=None,
+                                      custom_title=None, custom_subtitle=None):
     """Create 4-panel defensive set piece xG report plus individual panels."""
 
     # Get league name from data if not provided
@@ -356,8 +360,10 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
     # =========================================================================
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     fig.patch.set_facecolor(BG_COLOR)
-    fig.suptitle(f'Set Piece Defensive Report: {league_name}',
+    fig.suptitle(custom_title or f'Set Piece Defensive Report: {league_name}',
                  fontsize=20, fontweight='bold', color=TEXT_PRIMARY, y=0.96)
+    if custom_subtitle:
+        fig.text(0.5, 0.925, custom_subtitle, ha='center', fontsize=11, color='#8BA3B8')
 
     # Panel 1: Set Piece xGA per Game (horizontal bar)
     ax1 = axes[0, 0]
@@ -583,7 +589,8 @@ def create_setpiece_defensive_report(df, output_folder=None, league_name=None):
     return saved_files
 
 
-def create_setpiece_report(df, output_folder=None, league_name=None, report_type='both'):
+def create_setpiece_report(df, output_folder=None, league_name=None, report_type='both',
+                           custom_title=None, custom_subtitle=None):
     """Create set piece report(s).
 
     Args:
@@ -599,12 +606,16 @@ def create_setpiece_report(df, output_folder=None, league_name=None, report_type
 
     if report_type in ['attacking', 'both']:
         print("\nGenerating Attacking Set Piece Report...")
-        files = create_setpiece_attacking_report(df, output_folder, league_name)
+        files = create_setpiece_attacking_report(df, output_folder, league_name,
+                                                  custom_title=custom_title,
+                                                  custom_subtitle=custom_subtitle)
         all_files.extend(files)
 
     if report_type in ['defensive', 'both']:
         print("\nGenerating Defensive Set Piece Report...")
-        files = create_setpiece_defensive_report(df, output_folder, league_name)
+        files = create_setpiece_defensive_report(df, output_folder, league_name,
+                                                  custom_title=custom_title,
+                                                  custom_subtitle=custom_subtitle)
         all_files.extend(files)
 
     print(f"\n[OK] Generated {len(all_files)} charts")

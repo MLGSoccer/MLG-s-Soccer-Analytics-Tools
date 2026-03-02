@@ -265,7 +265,8 @@ def calculate_rolling_per90_weighted(values, minutes, window=10):
     return rolling
 
 
-def create_rolling_charts(matches, player_name, team_name, team_color, season, output_path, window=10, player_info=None):
+def create_rolling_charts(matches, player_name, team_name, team_color, season, output_path, window=10, player_info=None,
+                          custom_title=None, custom_subtitle=None):
     """Create the 4-panel player rolling chart."""
 
     if not team_color:
@@ -491,7 +492,8 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     total_xg = sum(xg_values)
 
     # Main title - player name and team
-    fig.text(0.5, 0.97, f'{player_name.upper()}  •  {team_name.upper()}', ha='center', fontsize=22, fontweight='bold', color='white')
+    fig.text(0.5, 0.97, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
+             ha='center', fontsize=22, fontweight='bold', color='white')
 
     # ============ PLAYER INFO STRIP WITH TEAM COLOR ============
     if has_player_info:
@@ -528,13 +530,15 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
                     transform=ax_header.transAxes, ha='center', va='top', fontweight='bold')
 
         # Subtitle and stats below strip
-        fig.text(0.5, 0.87, f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES',
+        auto_subtitle = f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES'
+        fig.text(0.5, 0.87, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=13, color='#8BA3B8', style='italic')
         fig.text(0.5, 0.84, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')
     else:
         # Original layout without info strip
-        fig.text(0.5, 0.93, f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES',
+        auto_subtitle = f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES'
+        fig.text(0.5, 0.93, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=13, color='#8BA3B8', style='italic')
         fig.text(0.5, 0.895, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')

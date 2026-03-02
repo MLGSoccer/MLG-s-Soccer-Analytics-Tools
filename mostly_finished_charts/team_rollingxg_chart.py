@@ -424,7 +424,8 @@ def draw_season_boundaries(ax, boundaries, y_pos='top'):
                 alpha=0.7, ha='left', va=va, rotation=0)
 
 
-def create_rolling_charts(matches, team_name, team_color, output_path, window=10):
+def create_rolling_charts(matches, team_name, team_color, output_path, window=10,
+                          custom_title=None, custom_subtitle=None):
     """Create the 4-panel rolling xG chart."""
 
     if not team_color:
@@ -533,7 +534,8 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     draw_season_boundaries(ax4, season_boundaries, y_pos='top')
 
     # Main title
-    fig.text(0.5, 0.97, f'{team_name.upper()}', ha='center', fontsize=22, fontweight='bold', color='white')
+    fig.text(0.5, 0.97, custom_title or f'{team_name.upper()}',
+             ha='center', fontsize=22, fontweight='bold', color='white')
 
     # Build subtitle with season range if multiple seasons
     if len(season_boundaries) > 1:
@@ -543,7 +545,8 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     else:
         season_text = f'{season_boundaries[0][1]} | ' if season_boundaries and season_boundaries[0][1] else ''
 
-    fig.text(0.5, 0.93, f'{season_text}{window}-GAME ROLLING xG ANALYSIS | {len(matches)} MATCHES',
+    auto_subtitle = f'{season_text}{window}-GAME ROLLING xG ANALYSIS | {len(matches)} MATCHES'
+    fig.text(0.5, 0.93, custom_subtitle or auto_subtitle,
              ha='center', fontsize=13, color='#8BA3B8', style='italic')
 
     # Footer

@@ -1014,8 +1014,14 @@ def get_team_color(team_name, csv_color=None, prompt_if_missing=True):
     return '#888888'
 
 
-def prompt_ambiguous_choice(team_name, candidates):
-    """Ask user to choose from ambiguous team name matches"""
+def prompt_ambiguous_choice(team_name, candidates, gui_mode=False):
+    """Ask user to choose from ambiguous team name matches.
+
+    In gui_mode, silently returns the first candidate instead of prompting.
+    """
+    if gui_mode:
+        return candidates[0][0], candidates[0][1]
+
     print(f"\n[!] Multiple matches found for '{team_name}':")
     for i, (color, name) in enumerate(candidates, 1):
         print(f"  {i}. {name} ({color})")
@@ -1049,6 +1055,8 @@ def resolve_team_colors(teams, csv_team_colors=None, interactive=True):
     custom_colors = load_custom_colors()
     resolved_colors = {}
 
+    _gui_mode = not interactive
+
     def get_color_with_fallback(team_name):
         # 1. Check CSV color (exact match)
         if team_name in csv_team_colors:
@@ -1057,7 +1065,7 @@ def resolve_team_colors(teams, csv_team_colors=None, interactive=True):
         color, matched_name, ambiguous = fuzzy_match_team(team_name, TEAM_COLORS)
         if color:
             if ambiguous and len(ambiguous) > 1:
-                chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous)
+                chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous, gui_mode=_gui_mode)
                 if chosen_color:
                     return chosen_color, f"database (matched '{chosen_name}')"
             else:
@@ -1068,7 +1076,7 @@ def resolve_team_colors(teams, csv_team_colors=None, interactive=True):
         color, matched_name, ambiguous = fuzzy_match_team(team_name, custom_colors)
         if color:
             if ambiguous and len(ambiguous) > 1:
-                chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous)
+                chosen_color, chosen_name = prompt_ambiguous_choice(team_name, ambiguous, gui_mode=_gui_mode)
                 if chosen_color:
                     return chosen_color, f"saved (matched '{chosen_name}')"
             else:

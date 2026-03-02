@@ -239,7 +239,9 @@ EVENT_LOG_SELECT = (
     "[EventX|EVENT] AS STAT('EventXDecimal', 'EventXDecimal', 'EventXDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
     "[PassEndY|EVENT] AS STAT('PassEndYDecimal', 'PassEndYDecimal', 'PassEndYDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
     "[PassEndX|EVENT] AS STAT('PassEndXDecimal', 'PassEndXDecimal', 'PassEndXDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
-    "[xG|EVENT],[xA|EVENT],[ShotDist|EVENT],[BodyPart|EVENT],[ShotPlayStyle|EVENT]"
+    "[xG|EVENT],[xA|EVENT],[ShotDist|EVENT],[BodyPart|EVENT],[ShotPlayStyle|EVENT],"
+    "season.seasonId as seasonId,"
+    "season.seasonName as seasonName"
 )
 
 _INT_COLS = {
@@ -271,6 +273,7 @@ EVENTS_MD_COLS = [
     'opponent', 'opponentId',
     'EventXDecimal', 'EventYDecimal', 'PassEndXDecimal', 'PassEndYDecimal',
     'xG', 'xA', 'ShotDist', 'BodyPart', 'ShotPlayStyle',
+    'seasonId',
 ]
 
 GAMES_DDL = """
@@ -283,7 +286,8 @@ CREATE TABLE IF NOT EXISTS games (
     homeTeamId VARCHAR,
     awayTeamId VARCHAR,
     homeFinalScore INTEGER,
-    awayFinalScore INTEGER
+    awayFinalScore INTEGER,
+    seasonId VARCHAR
 )
 """
 
@@ -342,7 +346,8 @@ CREATE TABLE IF NOT EXISTS events (
     xA DOUBLE,
     ShotDist DOUBLE,
     BodyPart VARCHAR,
-    ShotPlayStyle VARCHAR
+    ShotPlayStyle VARCHAR,
+    seasonId VARCHAR
 )
 """
 
@@ -357,6 +362,8 @@ def get_motherduck_connection(token):
     con = duckdb.connect(f"md:{MOTHERDUCK_DB}?motherduck_token={token}")
     con.execute(GAMES_DDL)
     con.execute(EVENTS_DDL)
+    con.execute("ALTER TABLE games ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     return con
 
 
@@ -426,6 +433,73 @@ def download_event_log(session, team_id, season_ids, output_path, since_date=Non
     return row_count, size_kb
 
 
+def backfill_season_ids(con, config):
+    """Infer and populate seasonId for games that don't have one yet.
+
+    Uses the intersection of both teams' season_ids from config to determine
+    which season each game belongs to. When two teams share both a domestic
+    league season and a UEFA competition season, the domestic (primary) season
+    is preferred.
+
+    Returns (updated, skipped, skipped_details).
+    """
+    team_id_to_seasons = {t['team_id']: t['season_ids'] for t in config['teams']}
+    secondary_seasons = set(config.get('secondary_seasons', []))
+
+    rows = con.execute("""
+        SELECT gameId, homeTeamId, awayTeamId
+        FROM games
+        WHERE seasonId IS NULL OR seasonId = ''
+    """).fetchall()
+
+    updated = 0
+    skipped = 0
+    updates = []
+    skipped_details = []
+
+    for game_id, home_team_id, away_team_id in rows:
+        home_seasons = set(team_id_to_seasons.get(home_team_id, []))
+        away_seasons = set(team_id_to_seasons.get(away_team_id, []))
+        intersection = home_seasons & away_seasons
+
+        chosen = None
+        if len(intersection) == 1:
+            chosen = list(intersection)[0]
+        elif len(intersection) == 2:
+            # If exactly one season is a primary (domestic) league, prefer it
+            primary_in_intersection = [s for s in intersection if s not in secondary_seasons]
+            if len(primary_in_intersection) == 1:
+                chosen = primary_in_intersection[0]
+
+        if chosen is not None:
+            updates.append((chosen, game_id))
+            updated += 1
+        else:
+            reason = "no teams in config" if not home_seasons and not away_seasons \
+                else "home team not in config" if not home_seasons \
+                else "away team not in config" if not away_seasons \
+                else f"ambiguous ({len(intersection)} matching seasons)"
+            skipped_details.append({
+                'game_id': game_id,
+                'home_team_id': home_team_id,
+                'away_team_id': away_team_id,
+                'reason': reason,
+            })
+            skipped += 1
+
+    if updates:
+        con.executemany("UPDATE games SET seasonId = ? WHERE gameId = ?", updates)
+        con.execute("""
+            UPDATE events SET seasonId = g.seasonId
+            FROM games g
+            WHERE events.gameId = g.gameId
+              AND (events.seasonId IS NULL OR events.seasonId = '')
+              AND g.seasonId IS NOT NULL
+        """)
+
+    return updated, skipped, skipped_details
+
+
 def upsert_events_to_motherduck(token, csv_path, con=None):
     """Parse a team event log CSV and upsert into MotherDuck games + events tables.
 
@@ -457,7 +531,8 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
 
     # ── Build games DataFrame ──────────────────────────────────────────────────
     game_src_cols = ['gameId', 'optaMatchId', 'Date', 'homeTeam', 'awayTeam',
-                     'homeFinalScore', 'awayFinalScore', 'teamFullName', 'teamId', 'opponentId']
+                     'homeFinalScore', 'awayFinalScore', 'teamFullName', 'teamId', 'opponentId',
+                     'seasonId']
     games_df = df[[c for c in game_src_cols if c in df.columns]].drop_duplicates('gameId').copy()
 
     if all(c in games_df.columns for c in ('teamFullName', 'teamId', 'opponentId', 'homeTeam')):
@@ -466,7 +541,7 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
         games_df['awayTeamId'] = games_df['opponentId'].where(is_home, games_df['teamId'])
 
     games_final = ['gameId', 'optaMatchId', 'Date', 'homeTeam', 'awayTeam',
-                   'homeTeamId', 'awayTeamId', 'homeFinalScore', 'awayFinalScore']
+                   'homeTeamId', 'awayTeamId', 'homeFinalScore', 'awayFinalScore', 'seasonId']
     games_df = games_df[[c for c in games_final if c in games_df.columns]]
 
     # ── Build events DataFrame ─────────────────────────────────────────────────

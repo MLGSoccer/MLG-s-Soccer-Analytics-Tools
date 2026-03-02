@@ -15,6 +15,7 @@ from mostly_finished_charts.team_chart_generator import (
     create_horizontal_bar_chart,
     create_vertical_bar_chart
 )
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Team Chart Generator", page_icon="📉", layout="wide")
 
@@ -112,6 +113,10 @@ if uploaded_file is not None:
         else:
             x_label = st.sidebar.text_input("Value Label", value=value_col or "")
             y_label = ""
+
+        custom_title, _ = custom_title_inputs("team_chart")
+        if custom_title:
+            title = custom_title
 
         # Generate button
         if st.button("Generate Chart", type="primary"):

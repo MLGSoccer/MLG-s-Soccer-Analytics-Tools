@@ -25,6 +25,7 @@ from mostly_finished_charts.passing_flow_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.colors import TEAM_COLORS, fuzzy_match_team
+from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Zone Passing", page_icon="", layout="wide")
 
@@ -137,6 +138,8 @@ exclude_corners = st.sidebar.checkbox(
     value=False,
     help="Remove passes originating from corner arc coordinates"
 )
+
+custom_title, custom_subtitle = custom_title_inputs("zone_passing")
 
 # File upload
 uploaded_file = st.file_uploader(
@@ -264,6 +267,7 @@ if uploaded_file is not None:
                     pass_df, zone_agg_df, selected_team, stored_color,
                     stored_match_info, num_matches=stored_num_matches,
                     player_name=stored_player, competition=competition,
+                    custom_title=custom_title, custom_subtitle=custom_subtitle,
                 )
 
                 safe_name = (stored_player or selected_team).replace(' ', '_').replace('/', '-')
@@ -306,6 +310,8 @@ if uploaded_file is not None:
                         player_name=stored_player,
                         competition=competition,
                         min_per_game=min_per_game,
+                        custom_title=custom_title,
+                        custom_subtitle=custom_subtitle,
                     )
 
                     zone_safe = sel_zone.replace(' ', '_')
