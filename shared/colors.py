@@ -183,7 +183,7 @@ TEAM_ABBREV = {
     'BES': 'Besiktas',
 
     # Liga MX
-    'CFA': 'Club América',
+    'CFA': 'Club America',
     'GDL': 'Guadalajara',
     'MTY': 'Monterrey',
     'TIG': 'Tigres UANL',
@@ -191,16 +191,16 @@ TEAM_ABBREV = {
     'PUM': 'Pumas UNAM',
     'TOL': 'Toluca',
     'SAN': 'Santos Laguna',
-    'LEO': 'León',
+    'LEO': 'Leon',
     'PAC': 'Pachuca',
     'PUE': 'Puebla',
     'ATL': 'Atlas',
     'NEC': 'Necaxa',
-    'QRO': 'Querétaro',
-    'MZT': 'Mazatlán',
+    'QRO': 'Queretaro',
+    'MZT': 'Mazatlan',
     'TIJ': 'Tijuana',
-    'JSL': 'Juárez',
-    'ASL': 'Atlético San Luis',
+    'JSL': 'Juarez',
+    'ASL': 'Atletico San Luis',
     'CTJ': 'Club Tijuana',
 
     # NWSL
@@ -379,7 +379,7 @@ TEAM_COLORS = {
     'Rangers': '#0000CD',
 
     # Liga MX
-    'Club América': '#FFCD00',
+    'Club America': '#FFCD00',
     'Guadalajara': '#E51C23',
     'Monterrey': '#003DA5',
     'Tigres UANL': '#F4C400',
@@ -387,16 +387,16 @@ TEAM_COLORS = {
     'Pumas UNAM': '#003366',
     'Toluca': '#C8102E',
     'Santos Laguna': '#00A651',
-    'León': '#006633',
+    'Leon': '#006633',
     'Pachuca': '#004E9A',
     'Puebla': '#004A8D',
     'Atlas': '#BA1F24',
     'Necaxa': '#C8102E',
-    'Querétaro': '#003DA5',
-    'Mazatlán': '#6A2382',
+    'Queretaro': '#003DA5',
+    'Mazatlan': '#6A2382',
     'Tijuana': '#C8102E',
-    'Juárez': '#C68E28',
-    'Atlético San Luis': '#E31837',
+    'Juarez': '#C68E28',
+    'Atletico San Luis': '#E31837',
     'Club Tijuana': '#C8102E',
 
     # NWSL
