@@ -10,9 +10,9 @@ from datetime import datetime
 
 from shared.colors import fuzzy_match_team, TEAM_COLORS
 
-# ── League configuration ──────────────────────────────────────────────────────
+# -- League configuration ------------------------------------------------------
 
-# Season ID → curated league bucket mapping
+# Season ID -> curated league bucket mapping
 _SEASON_TO_LEAGUE = {
     "51r6ph2woavlbbpk8f29nynf8": "Premier League",
     "80zg2v1cuqcfhphn56u4qpyqc": "La Liga",
@@ -25,7 +25,7 @@ _SEASON_TO_LEAGUE = {
     "2mr0u0l78k2gdsm79q56tb2fo": "Champions League",
 }
 
-# Priority order — first match wins for each team
+# Priority order -- first match wins for each team
 LEAGUE_ORDER = [
     "Premier League",
     "La Liga",
@@ -39,7 +39,7 @@ LEAGUE_ORDER = [
     "Other",
 ]
 
-# TruMedia playType → chart outcome mapping
+# TruMedia playType -> chart outcome mapping
 _OUTCOME_MAP = {
     'Goal': 'Goal',
     'PenaltyGoal': 'Goal',
@@ -70,7 +70,7 @@ def _get_team_league(season_ids):
     return "Other"
 
 
-# ── Connection ────────────────────────────────────────────────────────────────
+# -- Connection ----------------------------------------------------------------
 
 @st.cache_resource
 def get_connection():
@@ -81,7 +81,7 @@ def get_connection():
     return duckdb.connect(f"md:soccer?motherduck_token={token}")
 
 
-# ── Team and league data ──────────────────────────────────────────────────────
+# -- Team and league data ------------------------------------------------------
 
 @st.cache_data(ttl=3600)
 def get_teams_by_league():
@@ -117,7 +117,7 @@ def get_teams_by_league():
     return result
 
 
-# ── Game data ─────────────────────────────────────────────────────────────────
+# -- Game data -----------------------------------------------------------------
 
 @st.cache_data(ttl=3600)
 def get_games_for_team(team_id):
@@ -152,7 +152,7 @@ def get_games_for_team(team_id):
 
         season_name = season_names.get(season_id, '') if season_id else ''
 
-        label = f"{date_display}  —  {home_display} {home_score}–{away_score} {away_display}"
+        label = f"{date_display}  --  {home_display} {home_score}-{away_score} {away_display}"
         games.append({
             'game_id': game_id,
             'date': date_str,
@@ -169,7 +169,7 @@ def get_games_for_team(team_id):
     return games
 
 
-# ── Shot data ─────────────────────────────────────────────────────────────────
+# -- Shot data -----------------------------------------------------------------
 
 @st.cache_data(ttl=3600)
 def get_player_current_team(player_id):
@@ -352,7 +352,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 def build_shots_for_player(shooter_name):
     """Get all shots for a named player across the entire database.
 
-    Used when a player has transferred — returns their complete shot record
+    Used when a player has transferred -- returns their complete shot record
     regardless of which team(s) they played for.
 
     Returns (shots_df, multi_match_info, team_color) with the same structure
@@ -673,7 +673,7 @@ def get_player_game_log(player_name):
 def get_goal_scorers_for_game(game_id):
     """Return goal scorer info for a game from the events table.
 
-    Only includes regular goals and penalties — own goals are handled separately.
+    Only includes regular goals and penalties -- own goals are handled separately.
     Returns list of {minute, player, team, pen} dicts, sorted by minute.
     """
     if not game_id:
