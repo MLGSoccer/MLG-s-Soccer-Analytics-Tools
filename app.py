@@ -10,6 +10,17 @@ st.set_page_config(
     layout="wide"
 )
 
+if not st.session_state.get("authenticated"):
+    st.title("Soccer Charts")
+    pwd = st.text_input("Password", type="password")
+    if st.button("Enter"):
+        if pwd == st.secrets["APP_PASSWORD"]:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Incorrect password")
+    st.stop()
+
 pg = st.navigation({
     "": [
         st.Page("pages/3_xG_Race.py", title="xG Race"),

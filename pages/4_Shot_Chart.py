@@ -26,7 +26,7 @@ from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team,
     build_shot_chart_single, build_shot_chart_multi, build_shots_for_player,
-    get_player_game_count,
+    get_player_game_count, get_player_total_minutes,
 )
 from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
@@ -187,7 +187,8 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
 def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
                                  competition, selected_player, exclude_penalties,
                                  highlight_mode, shots_against=False,
-                                 custom_title=None, custom_subtitle=None):
+                                 custom_title=None, custom_subtitle=None,
+                                 minutes=None):
     """Generate multi-match shot chart and return (img_bytes, filename, caption)."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         fig = create_multi_match_shot_chart(
@@ -196,7 +197,8 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
             exclude_penalties=exclude_penalties,
             highlight_mode=highlight_mode,
             shots_against=shots_against,
-            custom_title=custom_title, custom_subtitle=custom_subtitle
+            custom_title=custom_title, custom_subtitle=custom_subtitle,
+            minutes=minutes
         )
 
         name_part = team_name.replace(' ', '_').replace('/', '-')
@@ -561,6 +563,8 @@ if data_source == "Database":
                                     f"{', '.join(player_teams)}. Showing all."
                                 )
 
+                    p_minutes = None  # total minutes played; populated below if player selected + data available
+
                     if selected_player:
                         if player_full_shots is not None and not player_full_shots.empty:
                             player_shots = player_full_shots
@@ -576,11 +580,28 @@ if data_source == "Database":
                         p_xg = player_shots['xG'].sum()
                         p_goals = len(player_shots[player_shots['playType'].isin(GOAL_TYPES)])
 
-                        pc1, pc2, pc3, pc4 = st.columns(4)
-                        pc1.metric("Matches", p_matches)
-                        pc2.metric("Shots", p_shots)
-                        pc3.metric("xG", f"{p_xg:.2f}")
-                        pc4.metric("Goals", p_goals)
+                        # Try per-90 stats from player_minutes table (Shots For mode only)
+                        p_minutes = None
+                        if not shots_against:
+                            try:
+                                p_game_ids = tuple(player_shots['_match_id'].dropna().unique().tolist())
+                                p_minutes = get_player_total_minutes(selected_player, p_game_ids)
+                            except Exception:
+                                pass
+
+                        if p_minutes:
+                            pc1, pc2, pc3, pc4, pc5 = st.columns(5)
+                            pc1.metric("Matches", p_matches)
+                            pc2.metric("Minutes", p_minutes)
+                            pc3.metric("Shots/90", f"{p_shots / p_minutes * 90:.2f}")
+                            pc4.metric("xG/90", f"{p_xg / p_minutes * 90:.2f}")
+                            pc5.metric("Goals/90", f"{p_goals / p_minutes * 90:.2f}")
+                        else:
+                            pc1, pc2, pc3, pc4 = st.columns(4)
+                            pc1.metric("Matches", p_matches)
+                            pc2.metric("Shots", p_shots)
+                            pc3.metric("xG", f"{p_xg:.2f}")
+                            pc4.metric("Goals", p_goals)
 
                     if st.button("Generate Shot Map", type="primary", key="db_season_gen"):
                         st.session_state["multi_shot_chart"] = None
@@ -607,7 +628,8 @@ if data_source == "Database":
                                     competition, selected_player, exclude_penalties,
                                     highlight_mode, shots_against=shots_against,
                                     custom_title=custom_title_db_season,
-                                    custom_subtitle=custom_subtitle_db_season
+                                    custom_subtitle=custom_subtitle_db_season,
+                                    minutes=p_minutes if selected_player else None
                                 )
                                 st.session_state["multi_shot_chart"] = {
                                     "img": img_bytes, "filename": filename, "caption": caption,

@@ -4,15 +4,77 @@ Handles authentication via cURL parsing and data downloads via POST requests.
 """
 import re
 import os
+import difflib
 import requests
 import duckdb
 import pandas as pd
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime as _dt
 
 
 EXPORT_URL = "https://cbssports.opta.trumediasports.com/dp-proxy-export"
 SUPABASE_BUCKET = "player-pools"
 MOTHERDUCK_DB = "soccer"
+API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
+
+# Known TruMedia → API-Football team name mismatches (add more as discovered).
+# Use this when the fuzzy match fails because the two sources use significantly
+# different names for the same club (e.g. short name vs full official name).
+TRUMEDIA_TO_API_NAME = {
+    "Olympique Marseille": "Marseille",
+    "Olympique Lyonnais": "Lyon",
+    "Brest": "Stade Brestois 29",
+    "Köln": "FC Köln",
+    "Internazionale": "Inter",
+    "Milan": "AC Milan",
+    "Roma": "AS Roma",
+    "PSV": "PSV Eindhoven",
+    "Union Saint-Gilloise": "Union St. Gilloise",
+    "København": "FC Copenhagen",
+    "Malmö FF": "Malmo FF",
+    "Servette": "Servette FC",
+    "Viktoria Plzen": "Plzen",
+    "Basel": "FC Basel 1893",
+    # Premier League — API-Football uses short names
+    "AFC Bournemouth": "Bournemouth",
+    "Brighton & Hove Albion": "Brighton",
+    "Wolverhampton Wanderers": "Wolves",
+    "Newcastle United": "Newcastle",
+    "West Ham United": "West Ham",
+    "Tottenham Hotspur": "Tottenham",
+    "Leeds United": "Leeds",
+    # Liga MX — API-Football uses different club names
+    "Pumas UNAM": "U.N.A.M. - Pumas",
+    "Juárez": "FC Juarez",
+    "Querétaro": "Club Queretaro",
+    # NWSL — TruMedia uses "X Women", API-Football uses inconsistent naming
+    "Kansas City Current Women": "Kansas City W",
+    "Gotham FC Women": "NJ/NY Gotham FC W",
+    "Seattle Reign Women": "Seattle Reign FC",
+    "Bay Women": "Bay FC",
+    "Angel City Women": "Angel City W",
+    "Chicago Stars Women": "Chicago Red Stars W",
+}
+
+# Maps TruMedia season IDs → API-Football league IDs.
+# Passed as ?league= filter on /fixtures queries to prevent cross-competition
+# false matches (e.g. men's vs women's Champions League on the same date).
+# None = skip league filtering for that season (safe fallback).
+# To find an unknown ID: GET /leagues?name=<name>&season=2025 on the API.
+SEASON_TO_API_LEAGUE = {
+    "51r6ph2woavlbbpk8f29nynf8": 39,    # Premier League 2025/26
+    "80zg2v1cuqcfhphn56u4qpyqc": 140,   # La Liga 2025/26
+    "2bchmrj23l9u42d68ntcekob8": 78,    # Bundesliga 2025/26
+    "emdmtfr1v8rey2qru3xzfwges": 135,   # Serie A 2025/26
+    "dbxs75cag7zyip5re0ppsanmc": 61,    # Ligue 1 2025/26
+    "aegyls91smdw9kipjgbsu8tn8": 262,   # Liga MX 2025/26
+    "6i6n0jkbh9zzij6s8htfjh2j8": 253,   # MLS 2026
+    "3ducfa94ga849pfvx8bjjgt1w": None,  # NWSL 2025 — verify ID
+    "221phckhkd7y6rg3uyava3ifo": None,  # WSL 2025/26 — verify ID
+    "2mr0u0l78k2gdsm79q56tb2fo": 2,     # UEFA Champions League 2025/26
+    "7ttpe5jzya3vjhjadiemjy7mc": 3,     # UEFA Europa League 2025/26
+    "7x2zp2hm4p6wuijwdw3h7a8t0": None, # UEFA Conference League 2025/26 — verify ID
+    "24f2xd1kljmiu7o0xrpj30kd0": None, # UEFA Women's Champions League 2025/26 — verify ID
+}
 
 
 def load_secrets(secrets_path):
@@ -352,6 +414,47 @@ CREATE TABLE IF NOT EXISTS events (
 """
 
 
+GAME_FIXTURES_DDL = """
+CREATE TABLE IF NOT EXISTS game_fixtures (
+    gameId VARCHAR PRIMARY KEY,
+    fixture_id INTEGER,
+    fetch_status VARCHAR,
+    fetched_at VARCHAR
+)
+"""
+
+PLAYER_MINUTES_DDL = """
+CREATE TABLE IF NOT EXISTS player_minutes (
+    gameId VARCHAR,
+    playerName VARCHAR,
+    teamName VARCHAR,
+    minutes INTEGER,
+    started BOOLEAN,
+    PRIMARY KEY (gameId, playerName)
+)
+"""
+
+OWN_GOALS_DDL = """
+CREATE TABLE IF NOT EXISTS own_goals (
+    gameId VARCHAR,
+    minute INTEGER,
+    credited_team VARCHAR,
+    PRIMARY KEY (gameId, minute)
+)
+"""
+
+CARDS_DDL = """
+CREATE TABLE IF NOT EXISTS cards (
+    gameId VARCHAR,
+    minute INTEGER,
+    playerName VARCHAR,
+    teamName VARCHAR,
+    card_type VARCHAR,
+    PRIMARY KEY (gameId, minute, playerName)
+)
+"""
+
+
 def get_motherduck_connection(token):
     """Open a connection to MotherDuck and ensure the database and tables exist."""
     # Connect to default database first to create our database if needed
@@ -362,6 +465,10 @@ def get_motherduck_connection(token):
     con = duckdb.connect(f"md:{MOTHERDUCK_DB}?motherduck_token={token}")
     con.execute(GAMES_DDL)
     con.execute(EVENTS_DDL)
+    con.execute(GAME_FIXTURES_DDL)
+    con.execute(PLAYER_MINUTES_DDL)
+    con.execute(OWN_GOALS_DDL)
+    con.execute(CARDS_DDL)
     con.execute("ALTER TABLE games ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     return con
@@ -373,6 +480,290 @@ def get_all_team_last_dates(con):
         "SELECT teamId, MAX(Date) FROM events GROUP BY teamId"
     ).fetchall()
     return {team_id: last_date for team_id, last_date in rows if last_date}
+
+
+# ── API-Football ──────────────────────────────────────────────────────────────
+
+def _apifootball_get(api_key, endpoint, params):
+    """Make a GET request to the API-Football v3 API."""
+    headers = {"x-apisports-key": api_key}
+    r = requests.get(
+        f"{API_FOOTBALL_BASE}/{endpoint}",
+        headers=headers,
+        params=params,
+        timeout=15,
+    )
+    r.raise_for_status()
+    result = r.json()
+    errors = result.get("errors")
+    if errors:
+        raise RuntimeError(f"API-Football error: {errors}")
+    return result
+
+
+def fetch_fixture_id(api_key, date_str, home_team, away_team, league_id=None):
+    """Match a TruMedia game to an API-Football fixture ID by date + team names.
+
+    Normalizes team names through TRUMEDIA_TO_API_NAME before scoring.
+    If league_id is provided, restricts the query to that competition only
+    (prevents false matches across competitions on the same date).
+    Returns (fixture_id, score) or (None, 0.0) if no reliable match found.
+    """
+    params = {"date": date_str}
+    if league_id is not None:
+        params["league"] = league_id
+        # API-Football requires season when league is provided.
+        # Derive season year: for games Aug-Dec use the game year;
+        # for games Jan-Jul use game year - 1 (covers European split seasons).
+        try:
+            game_date = _dt.strptime(date_str[:10], "%Y-%m-%d")
+            params["season"] = game_date.year if game_date.month >= 7 else game_date.year - 1
+        except ValueError:
+            pass
+    result = _apifootball_get(api_key, "fixtures", params)
+    fixtures = result.get("response", [])
+    if not fixtures:
+        return None, 0.0
+
+    norm_home = TRUMEDIA_TO_API_NAME.get(home_team, home_team)
+    norm_away = TRUMEDIA_TO_API_NAME.get(away_team, away_team)
+
+    best_score = 0.0
+    best_fixture_id = None
+    best_api_home = best_api_away = ""
+    for f in fixtures:
+        api_home = f["teams"]["home"]["name"]
+        api_away = f["teams"]["away"]["name"]
+        score = (
+            difflib.SequenceMatcher(None, norm_home.lower(), api_home.lower()).ratio() +
+            difflib.SequenceMatcher(None, norm_away.lower(), api_away.lower()).ratio()
+        ) / 2
+        if score > best_score:
+            best_score = score
+            best_fixture_id = f["fixture"]["id"]
+            best_api_home = api_home
+            best_api_away = api_away
+
+    if best_score >= 0.70:
+        return best_fixture_id, best_score
+
+    # Print the near-miss so the user can add the right mapping to TRUMEDIA_TO_API_NAME
+    if best_api_home:
+        print(
+            f"  near-miss ({best_score:.2f}): '{home_team}' vs '{away_team}'  →  "
+            f"API had '{best_api_home}' vs '{best_api_away}'"
+        )
+    return None, best_score
+
+
+def compute_player_minutes(lineups_response, events_response):
+    """Compute minutes played per player from API-Football lineups + events.
+
+    Returns:
+        player_minutes_list: [{playerName, teamName, minutes, started}]
+        own_goals_list: [{minute, credited_team}]
+        cards_list: [{minute, playerName, teamName, card_type}]
+    """
+    lineups = lineups_response.get("response", [])
+    events = events_response.get("response", [])
+
+    team_names = [t["team"]["name"] for t in lineups if "team" in t]
+
+    # Build player registry from lineups
+    players = {}
+    for team_data in lineups:
+        team_name = team_data["team"]["name"]
+        for entry in team_data.get("startXI", []):
+            name = entry["player"]["name"]
+            players[name] = {"teamName": team_name, "started": True, "minutes": 90}
+        for entry in team_data.get("substitutes", []):
+            name = entry["player"]["name"]
+            players[name] = {"teamName": team_name, "started": False, "minutes": 0}
+
+    if not players:
+        return [], [], []
+
+    # Determine actual game duration (handles extra time)
+    game_duration = 90
+    for ev in events:
+        elapsed = ev.get("time", {}).get("elapsed") or 0
+        extra = ev.get("time", {}).get("extra") or 0
+        effective = elapsed + extra
+        if effective > game_duration:
+            game_duration = effective
+
+    # Update all starters to actual game duration
+    for p in players.values():
+        if p["started"]:
+            p["minutes"] = game_duration
+
+    own_goals_list = []
+    cards_list = []
+    for ev in events:
+        ev_type = ev.get("type", "")
+        elapsed = ev.get("time", {}).get("elapsed") or 0
+        extra = ev.get("time", {}).get("extra") or 0
+        effective_minute = elapsed + extra
+
+        if ev_type == "subst":
+            player_in = (ev.get("player") or {}).get("name", "")
+            player_out = (ev.get("assist") or {}).get("name", "")
+            team_name = (ev.get("team") or {}).get("name", "")
+
+            if player_out in players:
+                players[player_out]["minutes"] = effective_minute
+            elif player_out:
+                players[player_out] = {"teamName": team_name, "started": True,
+                                       "minutes": effective_minute}
+
+            if player_in in players:
+                players[player_in]["minutes"] = game_duration - effective_minute
+            elif player_in:
+                players[player_in] = {"teamName": team_name, "started": False,
+                                      "minutes": game_duration - effective_minute}
+
+        elif ev_type == "Goal" and ev.get("detail") == "Own Goal":
+            scoring_team = (ev.get("team") or {}).get("name", "")
+            credited_team = next((t for t in team_names if t != scoring_team), scoring_team)
+            own_goals_list.append({"minute": effective_minute, "credited_team": credited_team})
+
+        elif ev_type == "Card":
+            detail = ev.get("detail", "")
+            # Normalize to consistent names
+            card_type = {
+                "Yellow Card": "yellow",
+                "Red Card": "red",
+                "Yellow Red Card": "second_yellow",
+            }.get(detail, detail.lower().replace(" ", "_"))
+            player_name = (ev.get("player") or {}).get("name", "")
+            team_name = (ev.get("team") or {}).get("name", "")
+            if player_name:
+                cards_list.append({
+                    "minute": effective_minute,
+                    "playerName": player_name,
+                    "teamName": team_name,
+                    "card_type": card_type,
+                })
+
+    player_minutes_list = [
+        {
+            "playerName": name,
+            "teamName": p["teamName"],
+            "minutes": max(0, p["minutes"]),
+            "started": p["started"],
+        }
+        for name, p in players.items()
+        if p["minutes"] > 0
+    ]
+    return player_minutes_list, own_goals_list, cards_list
+
+
+def fetch_and_store_fixture_data(api_key, token, game_id, date, home, away, con=None, season_id=None, fixture_id=None):
+    """Fetch lineups + events from API-Football for one game and store to MotherDuck.
+
+    Writes to game_fixtures, player_minutes, own_goals, and cards tables.
+    season_id is used to look up the API-Football league ID for filtered queries.
+    If fixture_id is provided, the API-Football fixture lookup is skipped entirely.
+    Returns fetch_status string: 'matched', 'not_found', or 'error: ...'
+    """
+    fetched_at = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    own_con = con is None
+    if own_con:
+        con = get_motherduck_connection(token)
+
+    league_id = SEASON_TO_API_LEAGUE.get(season_id) if season_id else None
+
+    try:
+        if fixture_id is None:
+            fixture_id, _score = fetch_fixture_id(api_key, str(date)[:10], home, away, league_id=league_id)
+
+        if fixture_id is None:
+            con.execute(
+                "INSERT OR REPLACE INTO game_fixtures VALUES (?, ?, ?, ?)",
+                [game_id, None, "not_found", fetched_at],
+            )
+            return "not_found"
+
+        lineups_resp = _apifootball_get(api_key, "fixtures/lineups", {"fixture": fixture_id})
+        events_resp = _apifootball_get(api_key, "fixtures/events", {"fixture": fixture_id})
+
+        player_minutes_list, own_goals_list, cards_list = compute_player_minutes(lineups_resp, events_resp)
+
+        if player_minutes_list:
+            pm_df = pd.DataFrame(player_minutes_list)
+            pm_df["gameId"] = game_id
+            pm_df = pm_df[["gameId", "playerName", "teamName", "minutes", "started"]]
+            con.register("_pm_staging", pm_df)
+            con.execute("INSERT OR REPLACE INTO player_minutes SELECT * FROM _pm_staging")
+            con.unregister("_pm_staging")
+
+        if own_goals_list:
+            og_df = pd.DataFrame(own_goals_list)
+            og_df["gameId"] = game_id
+            og_df = og_df[["gameId", "minute", "credited_team"]]
+            con.register("_og_staging", og_df)
+            con.execute("INSERT OR REPLACE INTO own_goals SELECT * FROM _og_staging")
+            con.unregister("_og_staging")
+
+        if cards_list:
+            c_df = pd.DataFrame(cards_list)
+            c_df["gameId"] = game_id
+            c_df = c_df[["gameId", "minute", "playerName", "teamName", "card_type"]]
+            con.register("_c_staging", c_df)
+            con.execute("INSERT OR REPLACE INTO cards SELECT * FROM _c_staging")
+            con.unregister("_c_staging")
+
+        con.execute(
+            "INSERT OR REPLACE INTO game_fixtures VALUES (?, ?, ?, ?)",
+            [game_id, fixture_id, "matched", fetched_at],
+        )
+        return "matched"
+
+    except Exception as e:
+        try:
+            con.execute(
+                "INSERT OR REPLACE INTO game_fixtures VALUES (?, ?, ?, ?)",
+                [game_id, None, f"error: {str(e)[:200]}", fetched_at],
+            )
+        except Exception:
+            pass
+        return f"error: {e}"
+
+    finally:
+        if own_con:
+            con.close()
+
+
+def get_games_missing_fixture_data(con, season_ids=None):
+    """Return games that have no entry in game_fixtures (fetch never attempted).
+
+    Args:
+        season_ids: optional list/set of seasonId strings to restrict results.
+
+    Returns list of dicts: {gameId, Date, homeTeam, awayTeam, seasonId}.
+    """
+    if season_ids:
+        placeholders = ",".join("?" * len(season_ids))
+        rows = con.execute(f"""
+            SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId
+            FROM games g
+            LEFT JOIN game_fixtures gf ON g.gameId = gf.gameId
+            WHERE gf.gameId IS NULL
+              AND g.seasonId IN ({placeholders})
+            ORDER BY g.Date DESC
+        """, list(season_ids)).fetchall()
+    else:
+        rows = con.execute("""
+            SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId
+            FROM games g
+            LEFT JOIN game_fixtures gf ON g.gameId = gf.gameId
+            WHERE gf.gameId IS NULL
+            ORDER BY g.Date DESC
+        """).fetchall()
+    return [
+        {"gameId": r[0], "Date": r[1], "homeTeam": r[2], "awayTeam": r[3], "seasonId": r[4]}
+        for r in rows
+    ]
 
 
 def build_event_log_statement(team_id, season_ids, since_date=None):

@@ -562,7 +562,8 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                                    competition='', player_name=None,
                                    exclude_penalties=False, highlight_mode='All',
                                    shots_against=False,
-                                   custom_title=None, custom_subtitle=None):
+                                   custom_title=None, custom_subtitle=None,
+                                   minutes=None):
     """
     Create a multi-match shot chart for one team on a vertical half-pitch.
 
@@ -711,9 +712,18 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     legend_ax.text(goal_start + marker_width, 0.5, goal_text, ha='left', va='center',
                    fontsize=10, color=TEXT_SECONDARY)
 
-    # Stats box
-    stats_text = (f"Shots: {total_shots}  |  xG: {total_xg:.1f}  |  Goals: {goals}"
-                  f"  |  {total_matches} Matches  |  {shots_per_game:.1f} Shots/Game")
+    # Stats box — show per-90 when player minutes are available, else aggregate totals
+    if minutes and player_name:
+        shots_90 = total_shots / minutes * 90
+        xg_90 = total_xg / minutes * 90
+        goals_90 = goals / minutes * 90
+        stats_text = (
+            f"{goals} Goals  |  {total_shots} Shots  |  {total_xg:.1f} xG  |  {total_matches} Matches\n"
+            f"{goals_90:.2f} Goals/90  |  {shots_90:.2f} Shots/90  |  {xg_90:.2f} xG/90  |  {minutes} Minutes"
+        )
+    else:
+        stats_text = (f"Shots: {total_shots}  |  xG: {total_xg:.1f}  |  Goals: {goals}"
+                      f"  |  {total_matches} Matches  |  {shots_per_game:.1f} Shots/Game")
     if highlight_stats:
         stats_text += (f"\n{highlight_mode}: {highlight_stats['shots']} shots, "
                        f"{highlight_stats['xg']:.1f} xG, {highlight_stats['goals']} goals")

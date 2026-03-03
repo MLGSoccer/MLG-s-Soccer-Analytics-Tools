@@ -4,6 +4,7 @@ Creates rolling average charts for individual player performance analysis.
 Tracks shots, goals, and xG on a per-90-minutes basis.
 """
 import csv
+import re
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
@@ -187,18 +188,35 @@ def calculate_per_90(value, minutes):
     return (value / minutes) * 90
 
 
-def find_season_boundaries(matches):
-    """Find match indices where season changes.
+def _season_year(match):
+    """Extract the year portion from a match's season name (e.g. '2025/26', '2024/25', '2025').
 
-    Returns list of (match_index, season_name) tuples for each new season start.
+    Uses season_name if present (DB mode), otherwise falls back to season (CSV mode,
+    where it is already a readable string like 'Premier League 2024/25').
+    Returns the raw season value if no year pattern is found.
+    """
+    name = match.get('season_name') or match.get('season', '')
+    m = re.search(r'\d{4}(?:/\d{2,4})?', name)
+    return m.group(0) if m else name
+
+
+def find_season_boundaries(matches):
+    """Find match indices where the season YEAR changes.
+
+    Premier League 2025/26 and Champions League 2025/26 share the same year
+    and will NOT produce a boundary between them — only a genuine year change
+    (e.g. 2024/25 → 2025/26) triggers a vertical line.
+
+    Returns list of (match_index, year_label) tuples for each new year start.
     """
     boundaries = []
-    current_season = None
+    current_year = None
 
     for i, match in enumerate(matches):
-        if match['season'] != current_season:
-            boundaries.append((i + 1, match['season']))  # +1 for 1-indexed match numbers
-            current_season = match['season']
+        year = _season_year(match)
+        if year != current_year:
+            boundaries.append((i + 1, year))
+            current_year = year
 
     return boundaries
 

@@ -17,6 +17,7 @@ from downloader import (
     download_event_log, upsert_events_to_motherduck,
     get_motherduck_connection, get_all_team_last_dates,
     backfill_season_ids,
+    fetch_and_store_fixture_data, get_games_missing_fixture_data,
 )
 
 st.set_page_config(
@@ -38,8 +39,10 @@ secrets = load_secrets(SECRETS_PATH)
 SUPABASE_URL = secrets.get("SUPABASE_URL")
 SUPABASE_KEY = secrets.get("SUPABASE_KEY")
 MOTHERDUCK_TOKEN = secrets.get("MOTHERDUCK_TOKEN")
+API_FOOTBALL_KEY = secrets.get("API_FOOTBALL_KEY")
 supabase_configured = bool(SUPABASE_URL and SUPABASE_KEY)
 motherduck_configured = bool(MOTHERDUCK_TOKEN)
+apifootball_configured = bool(API_FOOTBALL_KEY)
 
 DATA_DIR = os.path.join(BASE_DIR, "data", "player_pools")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -237,7 +240,8 @@ st.caption("Downloads event-by-event data for each team and upserts to MotherDuc
 TEST_DOWNLOAD_DIR = os.path.join(BASE_DIR, "data", "test_downloads")
 
 
-def _run_event_log_downloads(teams_to_download, incremental=True, download_only=False):
+def _run_event_log_downloads(teams_to_download, incremental=True, download_only=False,
+                             fetch_player_minutes=True):
     session = create_session(st.session_state["cookies"])
     progress = st.progress(0)
     status = st.empty()
@@ -289,6 +293,31 @@ def _run_event_log_downloads(teams_to_download, incremental=True, download_only=
                 os.remove(tmp_path)
 
         progress.progress((i + 1) / n)
+
+    # After all team downloads, fetch player minutes/own goals/cards for any new games
+    if not download_only and fetch_player_minutes and apifootball_configured and con:
+        missing = get_games_missing_fixture_data(con)
+        if missing:
+            pm_matched = 0
+            pm_failed = 0
+            for j, game in enumerate(missing):
+                status.text(f"Fetching match data (API-Football)... ({j+1}/{len(missing)})")
+                game_status = fetch_and_store_fixture_data(
+                    api_key=API_FOOTBALL_KEY,
+                    token=MOTHERDUCK_TOKEN,
+                    game_id=game["gameId"],
+                    date=game["Date"],
+                    home=game["homeTeam"],
+                    away=game["awayTeam"],
+                    con=con,
+                    season_id=game.get("seasonId"),
+                )
+                if game_status == "matched":
+                    pm_matched += 1
+                else:
+                    pm_failed += 1
+            results.append((True, f"API-Football: {pm_matched} games fetched"
+                            + (f", {pm_failed} not found/failed" if pm_failed else "")))
 
     if con:
         con.close()
@@ -368,6 +397,13 @@ _download_only = st.checkbox(
     value=False,
     help=f"Saves CSVs to data/test_downloads/ for inspection. Does not update last-downloaded timestamps."
 )
+_fetch_pm = st.checkbox(
+    "Fetch player minutes, own goals & cards (API-Football)",
+    value=True,
+    disabled=not apifootball_configured,
+    help="After downloading, fetch lineups + match events for new games to compute player minutes, own goals, and cards."
+         + ("" if apifootball_configured else " (API_FOOTBALL_KEY not configured)"),
+)
 
 _col_a, _col_b = st.columns([1, 1])
 with _col_a:
@@ -378,9 +414,11 @@ with _col_b:
                         disabled=not authenticated or (not motherduck_configured and not _download_only))
 
 if _dl_selected:
-    _run_event_log_downloads(_selected_teams, incremental=_incremental, download_only=_download_only)
+    _run_event_log_downloads(_selected_teams, incremental=_incremental, download_only=_download_only,
+                             fetch_player_minutes=_fetch_pm and not _download_only)
 if _dl_all:
-    _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental, download_only=_download_only)
+    _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental, download_only=_download_only,
+                             fetch_player_minutes=_fetch_pm and not _download_only)
 
 # ── Database Maintenance ──────────────────────────────────────────────────────
 st.divider()
@@ -406,6 +444,194 @@ if "backfill_result" in st.session_state:
             st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
     else:
         st.error(f"Backfill failed: {val1}")
+
+# ── Fix Missing API-Football Data ─────────────────────────────────────────────
+st.divider()
+st.header("Fix Missing API-Football Data")
+st.caption("Games with no player minutes, own goals, or cards data in the database.")
+
+if not motherduck_configured or not apifootball_configured:
+    st.info("Requires both MotherDuck and API-Football to be configured.")
+else:
+    # League filter — uses the same season name list as the rest of the app
+    _pm_league_filter = st.multiselect(
+        "Filter by league (leave blank for all)",
+        options=sorted(_season_names.values()),
+        key="pm_league_filter",
+    )
+    _pm_season_ids = (
+        [sid for sid, name in _season_names.items() if name in _pm_league_filter]
+        if _pm_league_filter else None
+    )
+
+    def _query_missing_and_failed(season_ids):
+        """Return (missing_list, failed_list) filtered by season_ids (None = all)."""
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        missing = get_games_missing_fixture_data(con, season_ids=season_ids)
+        if season_ids:
+            _ph = ",".join("?" * len(season_ids))
+            failed_rows = con.execute(f"""
+                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, gf.fetch_status, g.seasonId
+                FROM games g
+                JOIN game_fixtures gf ON g.gameId = gf.gameId
+                WHERE gf.fetch_status != 'matched'
+                  AND g.seasonId IN ({_ph})
+                ORDER BY g.Date DESC
+            """, season_ids).fetchall()
+        else:
+            failed_rows = con.execute("""
+                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, gf.fetch_status, g.seasonId
+                FROM games g
+                JOIN game_fixtures gf ON g.gameId = gf.gameId
+                WHERE gf.fetch_status != 'matched'
+                ORDER BY g.Date DESC
+            """).fetchall()
+        con.close()
+        failed = [
+            {"gameId": r[0], "Date": r[1], "homeTeam": r[2], "awayTeam": r[3],
+             "status": r[4], "seasonId": r[5]}
+            for r in failed_rows
+        ]
+        return missing, failed
+
+    def _run_backfill(games_to_fetch, label=""):
+        """Fetch player minutes for a list of game dicts. Shows inline progress."""
+        total = len(games_to_fetch)
+        if total == 0:
+            st.info("Nothing to fetch.")
+            return
+        progress = st.progress(0)
+        status = st.empty()
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        pm_matched = pm_not_found = pm_errors = 0
+        for i, g in enumerate(games_to_fetch, 1):
+            status.text(f"{label}Fetching {i}/{total}:  {g['homeTeam']} vs {g['awayTeam']}  ({g['Date']})")
+            s = fetch_and_store_fixture_data(
+                api_key=API_FOOTBALL_KEY, token=MOTHERDUCK_TOKEN,
+                game_id=g["gameId"], date=g["Date"],
+                home=g["homeTeam"], away=g["awayTeam"], con=con,
+                season_id=g.get("seasonId"),
+                fixture_id=g.get("fixture_id"),
+            )
+            if s == "matched":
+                pm_matched += 1
+            elif s == "not_found":
+                pm_not_found += 1
+            else:
+                pm_errors += 1
+            progress.progress(i / total)
+        con.close()
+        status.empty()
+        progress.empty()
+        parts = [f"{pm_matched} matched"]
+        if pm_not_found:
+            parts.append(f"{pm_not_found} not found")
+        if pm_errors:
+            parts.append(f"{pm_errors} errors")
+        st.success(f"Done — {', '.join(parts)}")
+        st.session_state.pop("missing_games", None)
+        st.session_state.pop("failed_games", None)
+
+    def _query_matched(season_ids):
+        """Return all games already matched in game_fixtures (to allow force re-fetch).
+        Includes the stored fixture_id so the re-fetch can skip the API lookup."""
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        if season_ids:
+            _ph = ",".join("?" * len(season_ids))
+            rows = con.execute(f"""
+                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId, gf.fixture_id
+                FROM games g
+                JOIN game_fixtures gf ON g.gameId = gf.gameId
+                WHERE gf.fetch_status = 'matched'
+                  AND g.seasonId IN ({_ph})
+                ORDER BY g.Date DESC
+            """, season_ids).fetchall()
+        else:
+            rows = con.execute("""
+                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId, gf.fixture_id
+                FROM games g
+                JOIN game_fixtures gf ON g.gameId = gf.gameId
+                WHERE gf.fetch_status = 'matched'
+                ORDER BY g.Date DESC
+            """).fetchall()
+        con.close()
+        return [
+            {"gameId": r[0], "Date": r[1], "homeTeam": r[2], "awayTeam": r[3],
+             "seasonId": r[4], "fixture_id": r[5]}
+            for r in rows
+        ]
+
+    _btn_col1, _btn_col2, _btn_col3 = st.columns([1, 1, 1])
+    with _btn_col1:
+        if st.button("Check missing games", key="check_missing"):
+            missing, failed = _query_missing_and_failed(_pm_season_ids)
+            st.session_state["missing_games"] = missing
+            st.session_state["failed_games"] = failed
+    with _btn_col2:
+        _fetch_label = (
+            f"Fetch for {', '.join(_pm_league_filter)}" if _pm_league_filter else "Fetch All Missing"
+        )
+        if st.button(_fetch_label, type="primary", key="fetch_missing_now"):
+            missing, failed = _query_missing_and_failed(_pm_season_ids)
+            all_games = missing + [
+                {"gameId": g["gameId"], "Date": g["Date"],
+                 "homeTeam": g["homeTeam"], "awayTeam": g["awayTeam"]}
+                for g in failed
+            ]
+            _run_backfill(all_games)
+            st.rerun()
+    with _btn_col3:
+        _refetch_label = (
+            f"Re-fetch Matched ({', '.join(_pm_league_filter)})" if _pm_league_filter else "Re-fetch All Matched"
+        )
+        if st.button(_refetch_label, key="refetch_matched_now",
+                     help="Re-download API-Football data for already-matched games (e.g. to backfill cards)"):
+            matched = _query_matched(_pm_season_ids)
+            _run_backfill(matched, label="Re-fetching: ")
+            st.rerun()
+
+    if "missing_games" in st.session_state:
+        import pandas as pd
+        missing = st.session_state["missing_games"]
+        failed = st.session_state.get("failed_games", [])
+
+        st.write(f"**{len(missing)}** games never attempted  •  **{len(failed)}** previously failed")
+
+        if missing or failed:
+            retry_col, _ = st.columns([1, 3])
+            with retry_col:
+                if st.button("Fetch Shown Games", type="primary", key="retry_all_missing"):
+                    all_games = missing + [
+                        {"gameId": g["gameId"], "Date": g["Date"],
+                         "homeTeam": g["homeTeam"], "awayTeam": g["awayTeam"]}
+                        for g in failed
+                    ]
+                    _run_backfill(all_games)
+                    st.rerun()
+
+            if missing:
+                st.subheader("Never attempted")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "League": _season_names.get(g.get("seasonId"), "Unknown"),
+                        "Date": g["Date"],
+                        "Home": g["homeTeam"],
+                        "Away": g["awayTeam"],
+                    } for g in missing]),
+                    hide_index=True, use_container_width=True,
+                )
+            if failed:
+                st.subheader("Previously failed")
+                st.dataframe(
+                    pd.DataFrame([{
+                        "League": _season_names.get(g.get("seasonId"), "Unknown"),
+                        "Date": g["Date"],
+                        "Home": g["homeTeam"],
+                        "Away": g["awayTeam"],
+                        "Status": g["status"],
+                    } for g in failed]),
+                    hide_index=True, use_container_width=True,
+                )
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()

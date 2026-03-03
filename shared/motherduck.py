@@ -531,3 +531,225 @@ def build_shots_from_game(game_id):
         match_info['first_half_end_minute'] = first_half_end_minute
 
     return shots, match_info, team_colors
+
+
+@st.cache_data(ttl=3600)
+def get_own_goals_for_game(game_id):
+    """Return own goal events for a game from the own_goals table.
+
+    Returns list of {minute, credited_team} dicts, or empty list if none found.
+    """
+    if not game_id:
+        return []
+    con = get_connection()
+    rows = con.execute(
+        "SELECT minute, credited_team FROM own_goals WHERE gameId = ? ORDER BY minute",
+        [game_id]
+    ).fetchall()
+    return [{"minute": r[0], "credited_team": r[1]} for r in rows]
+
+
+@st.cache_data(ttl=3600)
+def get_player_total_minutes(player_name, game_ids_tuple):
+    """Return total minutes played by a player across the specified games.
+
+    game_ids_tuple must be a tuple (not list) for cache hashability.
+    Returns an int, or None if no minutes data found for any of the games.
+    """
+    if not player_name or not game_ids_tuple:
+        return None
+    con = get_connection()
+    placeholders = ",".join("?" * len(game_ids_tuple))
+    # Use fuzzy name match to handle API-Football vs TruMedia spelling differences.
+    # For each game, pick the player_minutes row whose name best matches, then sum.
+    row = con.execute(f"""
+        SELECT SUM(minutes)
+        FROM (
+            SELECT gameId, minutes,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY gameId
+                       ORDER BY jaro_winkler_similarity(lower(playerName), lower(?)) DESC
+                   ) AS rn,
+                   jaro_winkler_similarity(lower(playerName), lower(?)) AS name_sim
+            FROM player_minutes
+            WHERE gameId IN ({placeholders})
+        ) t
+        WHERE rn = 1 AND name_sim > 0.72
+    """, [player_name, player_name] + list(game_ids_tuple)).fetchone()
+    total = row[0] if row else None
+    return int(total) if total else None
+
+
+@st.cache_data(ttl=3600)
+def get_player_game_log(player_name):
+    """Return per-game stats for a player joined with minutes played.
+
+    Joins events + games + player_minutes to build a complete per-game record.
+    Returns list of dicts matching the format expected by create_rolling_charts():
+        {date, opponent, result, minutes, goals, xg, shots, season, team_name, team_color}
+    Only includes games where minutes data is available (player_minutes join).
+    """
+    if not player_name:
+        return []
+    con = get_connection()
+    # Use a fuzzy name match (jaro_winkler > 0.72) to bridge API-Football player
+    # names stored in player_minutes and TruMedia names stored in events.shooter.
+    # 0.72 chosen to handle "M. Salah" vs "Mohamed Salah" (score ~0.738) while
+    # still rejecting clearly wrong matches (typically < 0.60).
+    # The ranked_minutes CTE picks the best-matching player per game, so one
+    # slightly-different spelling doesn't produce duplicate or missing rows.
+    rows = con.execute("""
+        WITH ranked_minutes AS (
+            SELECT gameId, minutes, name_sim
+            FROM (
+                SELECT gameId, minutes,
+                       jaro_winkler_similarity(lower(playerName), lower(?)) AS name_sim,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY gameId
+                           ORDER BY jaro_winkler_similarity(lower(playerName), lower(?)) DESC
+                       ) AS rn
+                FROM player_minutes
+            ) t
+            WHERE rn = 1
+        )
+        SELECT
+            g.Date,
+            e.opponent,
+            g.homeFinalScore,
+            g.awayFinalScore,
+            e.homeTeam,
+            e.teamFullName,
+            rm.minutes,
+            SUM(CASE WHEN e.playType IN ('Goal', 'PenaltyGoal') THEN 1 ELSE 0 END) AS goals,
+            SUM(COALESCE(e.xG, 0)) AS xg,
+            COUNT(*) AS shots,
+            e.newestTeamColor,
+            g.seasonId
+        FROM events e
+        JOIN games g ON e.gameId = g.gameId
+        JOIN ranked_minutes rm ON e.gameId = rm.gameId AND rm.name_sim > 0.72
+        WHERE e.shooter = ?
+          AND e.playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post',
+                             'BlockedShot', 'ShotOnPost', 'OwnGoal')
+        GROUP BY g.Date, e.opponent, g.homeFinalScore, g.awayFinalScore,
+                 e.homeTeam, e.teamFullName, rm.minutes, e.newestTeamColor, g.seasonId
+        ORDER BY g.Date ASC
+    """, [player_name, player_name, player_name]).fetchall()
+
+    season_names = _load_config().get('seasons', {})
+
+    matches = []
+    for (date_str, opponent, home_score, away_score, home_team, team_full,
+         minutes, goals, xg, shots, team_color, season_id) in rows:
+        is_home = team_full == home_team
+        team_score = home_score if is_home else away_score
+        opp_score = away_score if is_home else home_score
+        if team_score is not None and opp_score is not None:
+            if team_score > opp_score:
+                result = "W"
+            elif team_score < opp_score:
+                result = "L"
+            else:
+                result = "D"
+        else:
+            result = "?"
+        matches.append({
+            "date": date_str,
+            "opponent": opponent or "Unknown",
+            "result": result,
+            "minutes": int(minutes or 0),
+            "goals": int(goals or 0),
+            "xg": float(xg or 0),
+            "shots": int(shots or 0),
+            "season": season_id or "",
+            "season_name": season_names.get(season_id, "") if season_id else "",
+            "team_name": team_full or "",
+            "team_color": team_color or "#808080",
+        })
+    return matches
+
+
+@st.cache_data(ttl=3600)
+def get_goal_scorers_for_game(game_id):
+    """Return goal scorer info for a game from the events table.
+
+    Only includes regular goals and penalties — own goals are handled separately.
+    Returns list of {minute, player, team, pen} dicts, sorted by minute.
+    """
+    if not game_id:
+        return []
+    con = get_connection()
+    rows = con.execute("""
+        SELECT gameClock, Period, shooter, teamFullName, playType
+        FROM events
+        WHERE gameId = ?
+          AND playType IN ('Goal', 'PenaltyGoal')
+          AND shooter IS NOT NULL AND shooter != ''
+        ORDER BY Period, gameClock
+    """, [game_id]).fetchall()
+
+    scorers = []
+    for game_clock, period, shooter, team_full, play_type in rows:
+        try:
+            minute = int(float(game_clock or 0) / 60)
+            period = int(period or 1)
+            if period == 2 and minute < 46:
+                minute += 45
+            elif period == 3 and minute < 91:
+                minute += 90
+            elif period == 4 and minute < 106:
+                minute += 105
+            _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
+            scorers.append({
+                'minute': minute,
+                'player': shooter,
+                'team': clean_name if clean_name else team_full,
+                'pen': play_type == 'PenaltyGoal',
+            })
+        except (ValueError, TypeError):
+            continue
+    return scorers
+
+
+@st.cache_data(ttl=3600)
+def get_red_cards_for_game(game_id):
+    """Return red card events for a game from the cards table.
+
+    Includes red cards and second yellows. Returns empty list if no API data
+    was fetched for this game.
+    Returns list of {minute, player, team, card_type} dicts, sorted by minute.
+    """
+    if not game_id:
+        return []
+    con = get_connection()
+    rows = con.execute("""
+        SELECT minute, playerName, teamName, card_type
+        FROM cards
+        WHERE gameId = ? AND card_type IN ('red', 'second_yellow')
+        ORDER BY minute
+    """, [game_id]).fetchall()
+    return [
+        {'minute': r[0], 'player': r[1], 'team': r[2], 'card_type': r[3]}
+        for r in rows
+    ]
+
+
+@st.cache_data(ttl=3600)
+def get_shooters_for_team(team_id):
+    """Return sorted list of distinct shooter names for a team.
+
+    Only includes players who have at least one shot-type event for this team.
+    """
+    if not team_id:
+        return []
+    con = get_connection()
+    rows = con.execute("""
+        SELECT DISTINCT shooter
+        FROM events
+        WHERE teamId = ?
+          AND shooter IS NOT NULL
+          AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post',
+                           'BlockedShot', 'ShotOnPost', 'OwnGoal')
+        ORDER BY shooter
+    """, [team_id]).fetchall()
+    return [r[0] for r in rows]

@@ -742,6 +742,129 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
     }
 
 
+def _draw_events_box(ax, goal_scorers, red_cards, team_info, own_goals=None):
+    """Draw goal scorers, own goals, and red cards in a box in the upper-left corner.
+
+    goal_scorers: list of {minute, player, team, pen} dicts
+    red_cards:    list of {minute, player, team, card_type} dicts
+    own_goals:    list of {minute, team} dicts (team = credited team)
+    """
+    import difflib
+
+    own_goals = own_goals or []
+    if not goal_scorers and not red_cards and not own_goals:
+        return
+
+    team1_name = team_info['team1']['name']
+    team1_color = team_info['team1']['color']
+    team2_name = team_info['team2']['name']
+    team2_color = team_info['team2']['color']
+
+    def _team_color(team_name):
+        if not team_name:
+            return '#555555'
+        s1 = difflib.SequenceMatcher(None, team_name.lower(), team1_name.lower()).ratio()
+        s2 = difflib.SequenceMatcher(None, team_name.lower(), team2_name.lower()).ratio()
+        return team1_color if s1 >= s2 else team2_color
+
+    def _trunc(s, max_chars=24):
+        return s if len(s) <= max_chars else s[:max_chars - 1] + '\u2026'
+
+    # Merge goals and cards into one chronological list: (minute, text, color, marker)
+    # marker is 'circle' for goals, 'card' for red cards
+    events = []
+    for gs in goal_scorers:
+        label = f"{gs['minute']}' {gs['player']}"
+        if gs.get('pen'):
+            label += ' (P)'
+        events.append((gs['minute'], _trunc(label), _team_color(gs['team']), 'circle'))
+    for og in own_goals:
+        label = f"{og['minute']}' Own Goal"
+        events.append((og['minute'], _trunc(label), _team_color(og['team']), 'circle'))
+    for rc in red_cards:
+        label = f"{rc['minute']}' {rc['player']}"
+        events.append((rc['minute'], _trunc(label), '#CC2222', 'card'))
+    events.sort(key=lambda x: x[0])
+
+    BOX_BG   = '#EDF1F7'
+    BOX_EDGE = '#C4D0DF'
+    CBS_BLUE = '#00325B'
+    FONT     = 'Segoe UI'
+
+    box_top = 0.97
+
+    line_h   = 0.062
+    pad      = 0.013
+    accent_h = 0.014
+    header_h = 0.065
+    box_x    = 0.01
+    marker_x = box_x + pad + 0.011   # centre x of marker symbol
+    text_x   = box_x + pad + 0.028   # text starts after marker area
+
+    # Box width fitted to longest label (fontsize=10, Segoe UI, ~16" wide axes)
+    CHAR_W = 0.0048   # axes units per character at this font/figure size
+    longest = max((len(t) for _, t, _, _ in events), default=10)
+    box_w = text_x - box_x + longest * CHAR_W + pad
+    box_w = max(box_w, 0.14)  # floor so header always fits
+
+    box_h = accent_h + header_h + pad + len(events) * line_h + pad
+
+    # Outer box
+    ax.add_patch(mpatches.FancyBboxPatch(
+        (box_x, box_top - box_h), box_w, box_h,
+        boxstyle='round,pad=0.005',
+        facecolor=BOX_BG, edgecolor=BOX_EDGE, linewidth=1.0,
+        transform=ax.transAxes, zorder=10, alpha=0.96, clip_on=False,
+    ))
+    # CBS blue accent bar at top
+    ax.add_patch(mpatches.FancyBboxPatch(
+        (box_x, box_top - accent_h), box_w, accent_h,
+        boxstyle='round,pad=0.003',
+        facecolor=CBS_BLUE, edgecolor='none',
+        transform=ax.transAxes, zorder=11, clip_on=False,
+    ))
+    # "KEY EVENTS" header - letter-spaced
+    ax.text(
+        box_x + pad, box_top - accent_h - header_h / 2,
+        '\u2009'.join('KEY') + '  ' + '\u2009'.join('EVENTS'),
+        transform=ax.transAxes, fontsize=8.5, fontweight='bold',
+        fontfamily=FONT, color='#1A2D42', va='center', zorder=12, clip_on=False,
+    )
+    # Hairline separator
+    sep_y = box_top - accent_h - header_h - 0.004
+    ax.plot([box_x + pad, box_x + box_w - pad], [sep_y, sep_y],
+            color=BOX_EDGE, linewidth=0.8,
+            transform=ax.transAxes, zorder=11, clip_on=False)
+
+    y = sep_y - pad
+    for _, text, color, marker in events:
+        cy = y - line_h * 0.36   # visual midline of each row
+
+        if marker == 'circle':
+            ax.plot([marker_x], [cy], 'o',
+                    color=color, markersize=7,
+                    markeredgecolor=BOX_BG, markeredgewidth=0.8,
+                    transform=ax.transAxes, zorder=12, clip_on=False)
+        elif marker == 'card':
+            card_w, card_h = 0.007, 0.016
+            ax.add_patch(mpatches.FancyBboxPatch(
+                (marker_x - card_w / 2, cy - card_h / 2),
+                card_w, card_h,
+                boxstyle='round,pad=0.001',
+                facecolor='#CC2222', edgecolor='#991111', linewidth=0.5,
+                transform=ax.transAxes, zorder=12, clip_on=False,
+            ))
+
+        ax.text(
+            text_x, cy, text,
+            transform=ax.transAxes,
+            fontsize=10.0, fontfamily=FONT,
+            fontweight='semibold', color=color,
+            va='center', zorder=11, clip_on=False,
+        )
+        y -= line_h
+
+
 def create_gradient_background(ax, color1='#FFFFFF', color2='#F0F0F0'):
     """Create a glossy gradient background with shine effect"""
     gradient = np.linspace(0, 1, 512).reshape(512, 1)
@@ -761,7 +884,7 @@ def create_gradient_background(ax, color1='#FFFFFF', color2='#F0F0F0'):
                               ax.get_ylim()[0], ax.get_ylim()[1]], 
               aspect='auto', zorder=0, alpha=0.5)
 
-def create_xg_chart(shots, team_info):
+def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goals=None):
     """Create the xG race chart with CBS Sports styling and enhancements"""
     # Separate shots by team
     team1_name = team_info['team1']['name']
@@ -1074,30 +1197,26 @@ def create_xg_chart(shots, team_info):
     # Grid removed entirely
     ax.set_axisbelow(True)
     
-    # CBS Sports legend - add own goal marker if present
-    legend_elements = [
-        plt.Line2D([0], [0], color=team_info['team1']['color'], linewidth=4, label=team1_name.upper()),
-        plt.Line2D([0], [0], color=team_info['team2']['color'], linewidth=4, label=team2_name.upper())
-    ]
-    
+    # Team key - part of the header package, drawn in figure space below the subtitle
+    fig.text(0.47, 0.876, '\u25CF  ' + team1_name.upper(),
+             color=team_info['team1']['color'], ha='right', fontsize=11,
+             fontweight='bold', fontfamily='sans-serif')
+    fig.text(0.50, 0.876, '|',
+             color='#556B7F', ha='center', fontsize=11, fontfamily='sans-serif')
+    fig.text(0.53, 0.876, '\u25CF  ' + team2_name.upper(),
+             color=team_info['team2']['color'], ha='left', fontsize=11,
+             fontweight='bold', fontfamily='sans-serif')
+    # Marker key - only shown when own goals are present (circle = goal, square = own goal)
     if own_goals:
-        legend_elements.append(
-            plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='gray', 
-                      markersize=10, label='GOAL', linestyle='None',
-                      markeredgecolor='white', markeredgewidth=2)
-        )
-        legend_elements.append(
-            plt.Line2D([0], [0], marker='s', color='w', markerfacecolor='gray', 
-                      markersize=10, label='OWN GOAL', linestyle='None',
-                      markeredgecolor='white', markeredgewidth=2)
-        )
-    
-    legend = ax.legend(handles=legend_elements, fontsize=12, loc='upper left', 
-                      framealpha=1, edgecolor='#00325B', fancybox=False, 
-                      frameon=True, handlelength=1.5)
-    legend.get_frame().set_facecolor('white')
-    legend.get_frame().set_linewidth(2)
-    
+        fig.text(0.98, 0.876, '\u25CB  goal     \u25A1  own goal',
+                 color='#8BA3B8', ha='right', fontsize=9,
+                 fontfamily='sans-serif')
+
+    # Events info box - goal scorers, own goals, and red cards (upper-left corner)
+    if goal_scorers or red_cards or own_goals:
+        _draw_events_box(ax, goal_scorers or [], red_cards or [],
+                         team_info, own_goals=own_goals or [])
+
     # CBS Sports branding footer
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10,
             fontweight='bold', color='#00325B', fontfamily='sans-serif')
@@ -1130,7 +1249,7 @@ def create_xg_chart(shots, team_info):
     for label in ax.get_xticklabels() + ax.get_yticklabels():
         label.set_alpha(0.8)
     
-    plt.tight_layout(rect=[0, 0.03, 1, 0.88])
+    plt.tight_layout(rect=[0, 0.03, 1, 0.855])
     return fig
 
 def run(config):

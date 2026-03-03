@@ -14,7 +14,10 @@ from mostly_finished_charts.xg_race_chart import (
     create_xg_chart
 )
 from shared.styles import BG_COLOR
-from shared.motherduck import get_teams_by_league, get_games_for_team, build_shots_from_game
+from shared.motherduck import (
+    get_teams_by_league, get_games_for_team, build_shots_from_game,
+    get_own_goals_for_game, get_goal_scorers_for_game, get_red_cards_for_game,
+)
 from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
 
@@ -35,7 +38,8 @@ def _parse_xg_race_cached(file_content):
 
 
 def _generate_chart(shots, match_info, team_colors, competition, own_goals_hashable,
-                    custom_title=None, custom_subtitle=None):
+                    custom_title=None, custom_subtitle=None,
+                    goal_scorers=None, red_cards=None):
     """Generate xG race chart and return (img_bytes, filename, caption)."""
     config = {
         'competition': competition if competition else None,
@@ -49,7 +53,9 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
     if custom_subtitle:
         team_info['custom_subtitle'] = custom_subtitle
 
-    fig = create_xg_chart(shots, team_info)
+    fig = create_xg_chart(shots, team_info,
+                          goal_scorers=goal_scorers, red_cards=red_cards,
+                          own_goals=config['own_goals'])
     if fig is None:
         return None, None, None
 
@@ -152,23 +158,58 @@ if data_source == "Database":
             from pages.streamlit_utils import check_team_colors
             check_team_colors([home_team, away_team], team_colors)
 
-            # Own goals
+            # Goal scorers and red cards from database
+            try:
+                goal_scorers = get_goal_scorers_for_game(selected_game['game_id'])
+            except Exception:
+                goal_scorers = []
+            try:
+                red_cards = get_red_cards_for_game(selected_game['game_id'])
+            except Exception:
+                red_cards = []
+
+            if red_cards:
+                st.sidebar.info(f"Auto-detected {len(red_cards)} red card(s) from database")
+
+            # Own goals — auto-populated from database where available
+            try:
+                auto_ogs = get_own_goals_for_game(selected_game['game_id'])
+            except Exception:
+                auto_ogs = []
+
             st.sidebar.header("Own Goals")
-            st.sidebar.caption("Add any own goals not in the data")
+            if auto_ogs:
+                st.sidebar.info(f"Auto-detected {len(auto_ogs)} own goal(s) from database")
+            else:
+                st.sidebar.caption("Add any own goals not in the data")
+
             num_own_goals = st.sidebar.number_input(
-                "Number of own goals", min_value=0, max_value=5, value=0
+                "Number of own goals", min_value=0, max_value=5,
+                value=len(auto_ogs), key=f"num_og_{selected_game['game_id']}"
             )
+            import difflib as _dl
             own_goals = []
             for i in range(num_own_goals):
                 st.sidebar.markdown(f"**Own Goal {i+1}**")
                 og_col1, og_col2 = st.sidebar.columns(2)
+                if i < len(auto_ogs):
+                    default_minute = auto_ogs[i]['minute']
+                    cr = auto_ogs[i]['credited_team']
+                    hs = _dl.SequenceMatcher(None, cr.lower(), home_team.lower()).ratio()
+                    as_ = _dl.SequenceMatcher(None, cr.lower(), away_team.lower()).ratio()
+                    default_scorer_idx = 0 if hs >= as_ else 1
+                else:
+                    default_minute = 45
+                    default_scorer_idx = 0
                 with og_col1:
                     minute = st.number_input(
-                        "Minute", min_value=1, max_value=120, value=45, key=f"og_minute_{i}"
+                        "Minute", min_value=1, max_value=120,
+                        value=default_minute, key=f"og_minute_{selected_game['game_id']}_{i}"
                     )
                 with og_col2:
                     scoring_team = st.selectbox(
-                        "Scored by", options=[home_team, away_team], key=f"og_team_{i}"
+                        "Scored by", options=[home_team, away_team],
+                        index=default_scorer_idx, key=f"og_team_{selected_game['game_id']}_{i}"
                     )
                 credited_team = away_team if scoring_team == home_team else home_team
                 own_goals.append({'minute': minute, 'team': credited_team})
@@ -180,7 +221,8 @@ if data_source == "Database":
                     own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
                     img_bytes, filename, caption = _generate_chart(
                         shots, match_info, team_colors, competition, own_goals_hashable,
-                        custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg
+                        custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
+                        goal_scorers=goal_scorers, red_cards=red_cards,
                     )
                     if img_bytes is None:
                         st.error("Chart generation failed. Please check team names.")
