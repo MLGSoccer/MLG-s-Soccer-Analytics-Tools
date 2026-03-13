@@ -575,7 +575,7 @@ def get_player_total_minutes(player_name, game_ids_tuple):
 
     game_ids_tuple must be a tuple (not list) for cache hashability.
     Looks up the player's TruMedia ID via events.shooterId, then sums from
-    player_game_minutes — no fuzzy name matching required.
+    player_game_minutes -- no fuzzy name matching required.
     Returns (int, int) or (None, None) if no minutes data found.
     """
     if not player_name or not game_ids_tuple:
@@ -603,7 +603,7 @@ def get_player_total_minutes(player_name, game_ids_tuple):
 def get_player_game_log(player_id, player_name):
     """Return per-game stats for a player joined with minutes played.
 
-    Drives from player_game_minutes (keyed by playerId — no fuzzy matching) so
+    Drives from player_game_minutes (keyed by playerId -- no fuzzy matching) so
     shot-free games are included (shown as 0 shots/xg/goals).
     Returns list of dicts matching the format expected by create_rolling_charts():
         {date, opponent, result, minutes, goals, xg, shots, season, team_name, team_color}
