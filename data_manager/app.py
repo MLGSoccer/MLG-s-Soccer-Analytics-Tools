@@ -15,6 +15,7 @@ from downloader import (
     parse_cookies_from_curl, create_session,
     download_player_pool, upload_to_supabase, load_secrets,
     download_event_log, upsert_events_to_motherduck,
+    download_minutes_and_cards, upsert_minutes_to_motherduck,
     get_motherduck_connection, get_all_team_last_dates,
     backfill_season_ids,
     fetch_and_store_fixture_data, get_games_missing_fixture_data,
@@ -31,6 +32,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 SECRETS_PATH = os.path.join(BASE_DIR, "secrets.env")
 LAST_UPDATED_PATH = os.path.join(BASE_DIR, "data", "last_updated.json")
+MINUTES_LAST_UPDATED_PATH = os.path.join(BASE_DIR, "data", "minutes_last_updated.json")
 
 with open(CONFIG_PATH) as f:
     config = json.load(f)
@@ -60,6 +62,18 @@ def load_last_updated():
 def save_last_updated(data):
     """Persist the last-updated timestamps."""
     with open(LAST_UPDATED_PATH, 'w') as f:
+        json.dump(data, f, indent=2)
+
+
+def load_minutes_last_updated():
+    if os.path.exists(MINUTES_LAST_UPDATED_PATH):
+        with open(MINUTES_LAST_UPDATED_PATH) as f:
+            return json.load(f)
+    return {}
+
+
+def save_minutes_last_updated(data):
+    with open(MINUTES_LAST_UPDATED_PATH, 'w') as f:
         json.dump(data, f, indent=2)
 
 
@@ -419,6 +433,122 @@ if _dl_selected:
 if _dl_all:
     _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental, download_only=_download_only,
                              fetch_player_minutes=_fetch_pm and not _download_only)
+
+# ── Minutes & Cards Downloads ─────────────────────────────────────────────────
+st.divider()
+st.header("Minutes & Cards Downloads")
+st.caption("Downloads per-player, per-game minutes and card data from TruMedia and upserts to MotherDuck. "
+           "Uses TruMedia player IDs so data joins directly to the events table with no name matching.")
+
+if "minutes_results" in st.session_state:
+    for _success, _message in st.session_state.pop("minutes_results"):
+        if _success:
+            st.success(_message)
+        else:
+            st.error(_message)
+
+_minutes_last_updated = load_minutes_last_updated()
+
+
+def _run_minutes_downloads(teams_to_download):
+    session = create_session(st.session_state["cookies"])
+    progress = st.progress(0)
+    status = st.empty()
+    results = []
+    n = len(teams_to_download)
+    minutes_lu = load_minutes_last_updated()
+
+    con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+
+    for i, team in enumerate(teams_to_download):
+        status.text(f"Downloading minutes for {team['name']}... ({i+1}/{n})")
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+                tmp_path = tmp.name
+
+            rows, _ = download_minutes_and_cards(
+                session, team["team_id"], team["season_ids"], tmp_path
+            )
+            upsert_minutes_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
+
+            minutes_lu[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+            results.append((True, f"{team['name']}: {rows:,} player-game rows upserted"))
+        except Exception as e:
+            results.append((False, f"{team['name']}: {e}"))
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+        progress.progress((i + 1) / n)
+
+    con.close()
+    save_minutes_last_updated(minutes_lu)
+    status.empty()
+    progress.empty()
+    st.session_state["minutes_results"] = results
+    st.rerun()
+
+
+# Per-league expanders for minutes
+for _mleague_name, _mteams in leagues.items():
+    with st.expander(f"{_mleague_name}  ({len(_mteams)} teams)"):
+        import pandas as pd
+        _mrows = []
+        for t in _mteams:
+            _mlast = _minutes_last_updated.get(t["abbrev"], "Never")
+            _mrows.append({"Team": t["name"], "Last Downloaded": _mlast})
+
+        _mdf = pd.DataFrame(_mrows)
+        st.dataframe(
+            _mdf.style.map(
+                lambda val: "color: #FF6B6B" if val == "Never" else "",
+                subset=["Last Downloaded"]
+            ),
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        _mcol1, _mcol2 = st.columns([4, 1])
+        with _mcol1:
+            st.multiselect("Teams", options=[t["name"] for t in _mteams],
+                           key=f"msel_{_mleague_name}")
+        with _mcol2:
+            st.write("")
+            st.button(
+                "Select All",
+                key=f"mall_{_mleague_name}",
+                on_click=lambda names=_mteams, ln=_mleague_name: st.session_state.update(
+                    {f"msel_{ln}": [t["name"] for t in names]}
+                ),
+            )
+
+_mselected_teams = []
+for _mleague_name in leagues:
+    for _mname in st.session_state.get(f"msel_{_mleague_name}", []):
+        if _mname in _name_to_team:
+            _mselected_teams.append(_name_to_team[_mname])
+
+_mtotal = len(_mselected_teams)
+st.write(f"**{_mtotal} team{'s' if _mtotal != 1 else ''} selected**")
+
+_mcol_a, _mcol_b = st.columns([1, 1])
+with _mcol_a:
+    _mdl_selected = st.button(
+        "Download Selected", key="mdl_selected", type="primary",
+        disabled=not authenticated or not motherduck_configured or _mtotal == 0
+    )
+with _mcol_b:
+    _mdl_all = st.button(
+        "Download All Teams", key="mdl_all",
+        disabled=not authenticated or not motherduck_configured
+    )
+
+if _mdl_selected:
+    _run_minutes_downloads(_mselected_teams)
+if _mdl_all:
+    _run_minutes_downloads(list(_name_to_team.values()))
+
 
 # ── Database Maintenance ──────────────────────────────────────────────────────
 st.divider()

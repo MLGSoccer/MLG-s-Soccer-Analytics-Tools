@@ -168,9 +168,6 @@ if data_source == "Database":
             except Exception:
                 red_cards = []
 
-            if red_cards:
-                st.sidebar.info(f"Auto-detected {len(red_cards)} red card(s) from database")
-
             # Own goals — auto-populated from database where available
             try:
                 auto_ogs = get_own_goals_for_game(selected_game['game_id'])
@@ -178,10 +175,6 @@ if data_source == "Database":
                 auto_ogs = []
 
             st.sidebar.header("Own Goals")
-            if auto_ogs:
-                st.sidebar.info(f"Auto-detected {len(auto_ogs)} own goal(s) from database")
-            else:
-                st.sidebar.caption("Add any own goals not in the data")
 
             num_own_goals = st.sidebar.number_input(
                 "Number of own goals", min_value=0, max_value=5,
@@ -339,3 +332,25 @@ else:
 
     else:
         st.info("Upload a TruMedia Event Log CSV for a single match")
+
+        with st.expander("Required CSV columns"):
+            st.markdown("""
+            **TruMedia Event Log** (one row per event):
+
+            | Column | Required | Description |
+            |--------|----------|-------------|
+            | `Date` | Yes | Match date |
+            | `homeTeam` | Yes | Home team name |
+            | `awayTeam` | Yes | Away team name |
+            | `Team` | Yes | Team that took the shot |
+            | `shooter` | Yes | Player who shot |
+            | `xG` | Yes | Expected goals value |
+            | `playType` | Yes | Event type (Goal, AttemptSaved, Miss, Post, PenaltyGoal, etc.) |
+            | `gameClock` | Yes | Time of event in seconds |
+            | `Period` | Yes | Half (1 = first, 2 = second, 3/4 = extra time) |
+            | `homeFinalScore` | Recommended | Final score — used for score box |
+            | `awayFinalScore` | Recommended | Final score — used for score box |
+            | `newestTeamColor` | Optional | Hex color for the team |
+
+            **Note:** Own goals are not in TruMedia event data — add them manually in the sidebar after uploading.
+            """)

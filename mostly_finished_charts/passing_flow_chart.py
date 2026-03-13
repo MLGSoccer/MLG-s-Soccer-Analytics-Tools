@@ -133,6 +133,10 @@ def load_passing_data(df, team_name):
     if 'PassEndYDecimal' in df.columns:
         df['PassEndY'] = df['PassEndYDecimal']
 
+    for col in ['EventX', 'EventY', 'PassEndX', 'PassEndY']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+
     required = ['playType', 'Team', 'EventX', 'EventY', 'sequenceId', 'gameEventIndex']
     if not all(c in df.columns for c in required):
         return pd.DataFrame()

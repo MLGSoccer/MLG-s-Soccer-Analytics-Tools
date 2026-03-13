@@ -386,19 +386,31 @@ def calculate_rolling_average(values, window=10):
     return rolling
 
 
+def _year_from_season(season_str):
+    """Extract year portion from a season string, e.g. 'Premier League 2025/26' -> '2025/26'."""
+    import re
+    m = re.search(r'\d{4}[/-]\d{2,4}', season_str or '')
+    return m.group(0) if m else (season_str or '')
+
+
 def find_season_boundaries(matches):
-    """Find match indices where season changes.
+    """Find match indices where the season year changes.
+
+    Normalises season names to their year portion (e.g. '2025/26') so that
+    cross-competition data in the same year (PL + UCL) does not generate
+    spurious boundaries.
 
     Returns list of (match_number, season_name) tuples.
     First entry is always (1, first_season).
     """
     boundaries = []
-    current_season = None
+    current_year = None
     for i, match in enumerate(matches):
         season = match.get('season', '')
-        if season != current_season:
-            boundaries.append((i + 1, season))  # match_number is 1-indexed
-            current_season = season
+        year = _year_from_season(season)
+        if year != current_year:
+            boundaries.append((i + 1, year))  # match_number is 1-indexed
+            current_year = year
     return boundaries
 
 

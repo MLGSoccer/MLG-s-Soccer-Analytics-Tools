@@ -14,7 +14,7 @@ from mostly_finished_charts.player_rollingxg_chart import (
     create_individual_charts
 )
 from shared.motherduck import (
-    get_teams_by_league, get_shooters_for_team, get_player_game_log,
+    get_teams_by_league, get_players_with_minutes_for_team, get_player_game_log,
 )
 from pages.streamlit_utils import custom_title_inputs
 
@@ -156,25 +156,33 @@ if data_source == "Database":
     with col3:
         if selected_team:
             with st.spinner("Loading players..."):
-                shooters = get_shooters_for_team(selected_team['team_id'])
-            if shooters:
-                selected_player_name = st.selectbox("Player", options=[""] + shooters)
+                players_with_minutes = get_players_with_minutes_for_team(selected_team['team_id'])
+            if players_with_minutes:
+                player_name_options = [p["player_name"] for p in players_with_minutes]
+                selected_player_name = st.selectbox("Player", options=[""] + player_name_options)
             else:
-                st.selectbox("Player", options=["No players found"], disabled=True)
+                st.selectbox("Player", options=["No minutes data — download first"], disabled=True)
                 selected_player_name = None
         else:
             st.selectbox("Player", options=[], disabled=True)
             selected_player_name = None
 
-    if selected_player_name:
+    _player_id = None
+    if selected_player_name and selected_team:
+        _player_entry = next(
+            (p for p in players_with_minutes if p["player_name"] == selected_player_name), None
+        )
+        _player_id = _player_entry["player_id"] if _player_entry else None
+
+    if selected_player_name and _player_id:
         with st.spinner(f"Loading data for {selected_player_name}..."):
-            matches = get_player_game_log(selected_player_name)
+            matches = get_player_game_log(_player_id, selected_player_name)
 
         if not matches:
             st.warning(
                 f"No game log found for **{selected_player_name}**. "
-                "This usually means minutes data hasn't been fetched yet — "
-                "run the Data Manager to download player minutes."
+                "This usually means minutes data hasn't been downloaded yet — "
+                "run the Data Manager → Minutes & Cards Downloads."
             )
         else:
             # Derive team info from most recent match

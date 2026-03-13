@@ -783,7 +783,7 @@ def _draw_events_box(ax, goal_scorers, red_cards, team_info, own_goals=None):
         events.append((og['minute'], _trunc(label), _team_color(og['team']), 'circle'))
     for rc in red_cards:
         label = f"{rc['minute']}' {rc['player']}"
-        events.append((rc['minute'], _trunc(label), '#CC2222', 'card'))
+        events.append((rc['minute'], _trunc(label), _team_color(rc['team']), 'card'))
     events.sort(key=lambda x: x[0])
 
     BOX_BG   = '#EDF1F7'

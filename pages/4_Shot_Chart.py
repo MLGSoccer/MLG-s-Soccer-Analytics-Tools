@@ -20,7 +20,8 @@ from mostly_finished_charts.shot_chart import (
     SHOT_TYPES,
     GOAL_TYPES,
     HIGHLIGHT_CATEGORIES,
-    ensure_pitch_contrast
+    ensure_pitch_contrast,
+    color_distance,
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import (
@@ -73,6 +74,39 @@ def _load_multi_match(file_content, exclude_penalties):
 
 
 # ── Chart generation helpers ──────────────────────────────────────────────────
+
+_CONTRAST_PALETTE = [
+    '#E74C3C', '#3498DB', '#F39C12', '#9B59B6',
+    '#1ABC9C', '#E8D44D', '#E91E8C', '#FF6B35',
+]
+
+def _ensure_team_contrast(team1_name, team2_name, team_colors):
+    """If the two team colors are too similar, auto-replace team2's color with the
+    palette entry most distinct from team1's color. Returns (updated_team_colors, adjusted).
+    """
+    from shared.colors import TEAM_COLORS, fuzzy_match_team
+
+    def _resolve(name, tc):
+        if name in tc and tc[name]:
+            return ensure_pitch_contrast(tc[name])
+        for k, v in tc.items():
+            if name.lower() in k.lower() or k.lower() in name.lower():
+                return ensure_pitch_contrast(v)
+        c, _, _ = fuzzy_match_team(name, TEAM_COLORS)
+        return ensure_pitch_contrast(c) if c else '#888888'
+
+    c1 = _resolve(team1_name, team_colors)
+    c2 = _resolve(team2_name, team_colors)
+
+    if color_distance(c1, c2) >= 100:
+        return team_colors, False
+
+    best = max(_CONTRAST_PALETTE, key=lambda c: color_distance(c1, c))
+    updated = dict(team_colors)
+    updated[team1_name] = c1
+    updated[team2_name] = best
+    return updated, True
+
 
 def _generate_single_match_charts(shots_df, match_info, team_colors, chart_options,
                                    team1_name, team2_name, team1_player, team2_player,
@@ -356,6 +390,9 @@ if data_source == "Database":
 
                     from pages.streamlit_utils import check_team_colors
                     check_team_colors([team1_name, team2_name], team_colors)
+                    team_colors, _adjusted = _ensure_team_contrast(team1_name, team2_name, team_colors)
+                    if _adjusted:
+                        st.info("Team colors were automatically adjusted for visibility.")
 
                     # Player filters
                     team1_players = sorted(
@@ -532,6 +569,7 @@ if data_source == "Database":
                         player_filter = st.selectbox(
                             "Filter by Opponent Player",
                             options=["All Players"] + against_options,
+                            key="db_season_pfilter_against",
                         )
                         if player_filter != "All Players":
                             matched = player_team_df[
@@ -547,13 +585,17 @@ if data_source == "Database":
                         player_filter = st.selectbox(
                             "Filter by Player",
                             options=["All Players"] + player_list,
+                            key="db_season_pfilter_for",
                         )
                         selected_player = None if player_filter == "All Players" else player_filter
 
-                    # For Shots For: load all shots for this player across all teams
+                    # For Shots For with no competition filter: load all shots for this player
+                    # across all teams to handle mid-season transfers.
+                    # When a season filter IS active, respect it and use shots_df only.
                     player_full_shots = None
                     player_full_info = None
-                    if selected_player and not shots_against:
+                    _no_filter = selected_season_id is None
+                    if selected_player and not shots_against and _no_filter:
                         player_full_shots, player_full_info, _ = build_shots_for_player(selected_player)
                         if player_full_shots is not None and not player_full_shots.empty:
                             player_teams = sorted(player_full_shots['Team'].dropna().unique().tolist())
@@ -572,20 +614,22 @@ if data_source == "Database":
                             player_shots = shots_df[shots_df['shooter'] == selected_player]
                             if selected_player_team:
                                 player_shots = player_shots[player_shots['Team'] == selected_player_team]
-                        if shots_against:
-                            p_matches = player_shots['_match_id'].nunique()
-                        else:
-                            p_matches = get_player_game_count(selected_player) or player_shots['_match_id'].nunique()
                         p_shots = len(player_shots)
                         p_xg = player_shots['xG'].sum()
                         p_goals = len(player_shots[player_shots['playType'].isin(GOAL_TYPES)])
 
-                        # Try per-90 stats from player_minutes table (Shots For mode only)
+                        # Try per-90 stats from player_game_minutes (Shots For mode only).
+                        # Use selected_game_ids so minutes include games where player played
+                        # but didn't shoot, and p_matches reflects actual appearances.
+                        p_matches = player_shots['_match_id'].nunique()
                         p_minutes = None
                         if not shots_against:
                             try:
-                                p_game_ids = tuple(player_shots['_match_id'].dropna().unique().tolist())
-                                p_minutes = get_player_total_minutes(selected_player, p_game_ids)
+                                p_minutes, p_games = get_player_total_minutes(
+                                    selected_player, selected_game_ids
+                                )
+                                if p_games:
+                                    p_matches = p_games
                             except Exception:
                                 pass
 
@@ -609,7 +653,7 @@ if data_source == "Database":
                             chart_info = dict(multi_match_info)
 
                             if selected_player and player_full_shots is not None and not player_full_shots.empty:
-                                # Use the full cross-team data for this player
+                                # No competition filter active: use full cross-team shot data
                                 chart_shots = player_full_shots.copy()
                                 chart_info = dict(player_full_info)
                             elif selected_player:
@@ -746,6 +790,9 @@ else:
 
                     from pages.streamlit_utils import check_team_colors
                     check_team_colors([team1_name, team2_name], team_colors)
+                    team_colors, _adjusted = _ensure_team_contrast(team1_name, team2_name, team_colors)
+                    if _adjusted:
+                        st.info("Team colors were automatically adjusted for visibility.")
 
                     shooter_col = 'shooter' if 'shooter' in shots_df.columns else 'Player'
                     if shooter_col in shots_df.columns:

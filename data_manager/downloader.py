@@ -302,6 +302,7 @@ EVENT_LOG_SELECT = (
     "[PassEndY|EVENT] AS STAT('PassEndYDecimal', 'PassEndYDecimal', 'PassEndYDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
     "[PassEndX|EVENT] AS STAT('PassEndXDecimal', 'PassEndXDecimal', 'PassEndXDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
     "[xG|EVENT],[xA|EVENT],[ShotDist|EVENT],[BodyPart|EVENT],[ShotPlayStyle|EVENT],"
+    "if(event.q107 OR event.assistq107,'Throw-In',if(event.q6 OR event.assist_q6,'Corner',if(event.q124,'Goal Kick',''))) AS PassType,"
     "season.seasonId as seasonId,"
     "season.seasonName as seasonName"
 )
@@ -335,7 +336,7 @@ EVENTS_MD_COLS = [
     'opponent', 'opponentId',
     'EventXDecimal', 'EventYDecimal', 'PassEndXDecimal', 'PassEndYDecimal',
     'xG', 'xA', 'ShotDist', 'BodyPart', 'ShotPlayStyle',
-    'seasonId',
+    'seasonId', 'PassType',
 ]
 
 GAMES_DDL = """
@@ -409,7 +410,8 @@ CREATE TABLE IF NOT EXISTS events (
     ShotDist DOUBLE,
     BodyPart VARCHAR,
     ShotPlayStyle VARCHAR,
-    seasonId VARCHAR
+    seasonId VARCHAR,
+    PassType VARCHAR
 )
 """
 
@@ -454,6 +456,23 @@ CREATE TABLE IF NOT EXISTS cards (
 )
 """
 
+PLAYER_GAME_MINUTES_DDL = """
+CREATE TABLE IF NOT EXISTS player_game_minutes (
+    playerId VARCHAR,
+    gameId VARCHAR,
+    playerFullName VARCHAR,
+    player VARCHAR,
+    teamId VARCHAR,
+    teamAbbrevName VARCHAR,
+    teamFullName VARCHAR,
+    minutes INTEGER,
+    yellowCards INTEGER,
+    redCards INTEGER,
+    date VARCHAR,
+    PRIMARY KEY (playerId, gameId)
+)
+"""
+
 
 def get_motherduck_connection(token):
     """Open a connection to MotherDuck and ensure the database and tables exist."""
@@ -469,8 +488,10 @@ def get_motherduck_connection(token):
     con.execute(PLAYER_MINUTES_DDL)
     con.execute(OWN_GOALS_DDL)
     con.execute(CARDS_DDL)
+    con.execute(PLAYER_GAME_MINUTES_DDL)
     con.execute("ALTER TABLE games ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS PassType VARCHAR")
     return con
 
 
@@ -580,8 +601,8 @@ def compute_player_minutes(lineups_response, events_response):
             name = entry["player"]["name"]
             players[name] = {"teamName": team_name, "started": False, "minutes": 0}
 
-    if not players:
-        return [], [], []
+    # No lineup data -- player minutes will be empty, but still process events
+    # for cards and own goals which don't depend on lineup information.
 
     # Determine actual game duration (handles extra time)
     game_duration = 90
@@ -627,14 +648,21 @@ def compute_player_minutes(lineups_response, events_response):
             credited_team = next((t for t in team_names if t != scoring_team), scoring_team)
             own_goals_list.append({"minute": effective_minute, "credited_team": credited_team})
 
-        elif ev_type == "Card":
+        elif ev_type in ("Card", "Var"):
             detail = ev.get("detail", "")
-            # Normalize to consistent names
+            # Normalize to consistent names.
+            # "Var" events can carry red card upgrades (e.g. VAR-issued straight red).
+            # Skip Var events that aren't card-related (e.g. "Goal Disallowed").
             card_type = {
                 "Yellow Card": "yellow",
                 "Red Card": "red",
                 "Yellow Red Card": "second_yellow",
-            }.get(detail, detail.lower().replace(" ", "_"))
+            }.get(detail)
+            if card_type is None:
+                if ev_type == "Card":
+                    card_type = detail.lower().replace(" ", "_")
+                else:
+                    continue  # non-card Var event (goal disallowed, etc.)
             player_name = (ev.get("player") or {}).get("name", "")
             team_name = (ev.get("team") or {}).get("name", "")
             if player_name:
@@ -644,6 +672,19 @@ def compute_player_minutes(lineups_response, events_response):
                     "teamName": team_name,
                     "card_type": card_type,
                 })
+
+    # Deduplicate cards: API-Football emits both "Yellow Card" and "Red Card"
+    # events for a second-yellow dismissal at the same minute. Keep the most
+    # severe card per (minute, playerName) so the red isn't overwritten by the
+    # yellow when DuckDB processes the batch INSERT.
+    _severity = {"red": 3, "second_yellow": 2, "yellow": 1}
+    _cards_dedup = {}
+    for card in cards_list:
+        key = (card["minute"], card["playerName"])
+        existing = _cards_dedup.get(key)
+        if existing is None or _severity.get(card["card_type"], 0) > _severity.get(existing["card_type"], 0):
+            _cards_dedup[key] = card
+    cards_list = list(_cards_dedup.values())
 
     player_minutes_list = [
         {
@@ -951,6 +992,121 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
         con.register("_events_staging", events_df)
         con.execute("INSERT OR REPLACE INTO events SELECT * FROM _events_staging")
         con.unregister("_events_staging")
+    finally:
+        if own_con:
+            con.close()
+
+    return len(df)
+
+
+# ── Minutes & Cards ───────────────────────────────────────────────────────────
+
+MINUTES_SELECT = (
+    "SELECT playerId, fullName as playerFullName, abbrevName as player, "
+    "game.gameId, "
+    "team.game.teamId as teamId, "
+    "team.game.abbrevName AS teamAbbrevName, "
+    "team.game.fullName AS teamFullName, "
+    "[Min], [Yellow], [RedCardsTotal], "
+    "format('date','yyyy-MM-dd',game.gameDate) as date"
+)
+
+_MINUTES_MD_COLS = [
+    'playerId', 'gameId', 'playerFullName', 'player',
+    'teamId', 'teamAbbrevName', 'teamFullName',
+    'minutes', 'yellowCards', 'redCards', 'date',
+]
+
+
+def build_minutes_statement(team_id, season_ids):
+    """Build the SQL statement for a team Minutes & Cards download."""
+    season_id_str = ",".join(f"'{s}'" for s in season_ids)
+    return (
+        f"{MINUTES_SELECT} "
+        f"FROM player 'p' BY game "
+        f"WHERE (team.game.teamId='{team_id}') "
+        f"AND ((season.seasonId IN ({season_id_str}))) "
+        f"QUALIFY BY [GM] > 0 "
+        f"ORDER BY 'date' DESC "
+        f"LIMIT 100000 "
+        f"CALCULATE total"
+    )
+
+
+def download_minutes_and_cards(session, team_id, season_ids, output_path):
+    """Download a team Minutes & Cards CSV and save to output_path.
+
+    Returns (row_count, size_kb) on success.
+    Raises on auth failure, network error, or unexpected response.
+    """
+    statement = build_minutes_statement(team_id, season_ids)
+    payload = {
+        "format": "MIXED",
+        "statement": statement,
+        "export": "csv",
+        "pageDescriptorName": "pageSoccerTeamSquadInPossession",
+        "exportOptions": {"includeCalculations": False, "includeVideoData": False},
+    }
+
+    response = session.post(EXPORT_URL, json=payload, timeout=120)
+    if not response.ok:
+        raise ValueError(
+            f"HTTP {response.status_code} {response.reason}: {response.text[:500]}"
+        )
+
+    content = response.content
+
+    if b'<!DOCTYPE html>' in content[:500] or b'<html' in content[:500]:
+        raise ValueError(
+            "Received an HTML page instead of CSV data. "
+            "Your session has likely expired — paste a fresh cURL command."
+        )
+
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'wb') as f:
+        f.write(content)
+
+    row_count = max(0, content.count(b'\n') - 1)
+    size_kb = len(content) / 1024
+
+    return row_count, size_kb
+
+
+def upsert_minutes_to_motherduck(token, csv_path, con=None):
+    """Parse a team Minutes & Cards CSV and upsert into player_game_minutes.
+
+    If con is provided it is reused (caller manages lifecycle).
+    Returns row_count on success.
+    """
+    df = pd.read_csv(csv_path, encoding='utf-8')
+
+    df = df.rename(columns={
+        'Min': 'minutes',
+        'Yellow': 'yellowCards',
+        'RedCardsTotal': 'redCards',
+    })
+
+    for col in ['playerId', 'gameId', 'playerFullName', 'player',
+                'teamId', 'teamAbbrevName', 'teamFullName', 'date']:
+        if col not in df.columns:
+            df[col] = None
+
+    for col in ['minutes', 'yellowCards', 'redCards']:
+        if col not in df.columns:
+            df[col] = 0
+        else:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
+
+    df = df[[c for c in _MINUTES_MD_COLS if c in df.columns]]
+
+    own_con = con is None
+    if own_con:
+        con = get_motherduck_connection(token)
+
+    try:
+        con.register("_minutes_staging", df)
+        con.execute("INSERT OR REPLACE INTO player_game_minutes SELECT * FROM _minutes_staging")
+        con.unregister("_minutes_staging")
     finally:
         if own_con:
             con.close()

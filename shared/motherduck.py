@@ -550,91 +550,113 @@ def get_own_goals_for_game(game_id):
 
 
 @st.cache_data(ttl=3600)
-def get_player_total_minutes(player_name, game_ids_tuple):
-    """Return total minutes played by a player across the specified games.
+def get_players_with_minutes_for_team(team_id):
+    """Return players with minutes data for a team, from player_game_minutes.
 
-    game_ids_tuple must be a tuple (not list) for cache hashability.
-    Returns an int, or None if no minutes data found for any of the games.
+    Returns list of {"player_id": ..., "player_name": ...} sorted by name.
+    Returns empty list if no minutes data has been downloaded for this team.
     """
-    if not player_name or not game_ids_tuple:
-        return None
+    if not team_id:
+        return []
     con = get_connection()
-    placeholders = ",".join("?" * len(game_ids_tuple))
-    # Use fuzzy name match to handle API-Football vs TruMedia spelling differences.
-    # For each game, pick the player_minutes row whose name best matches, then sum.
-    row = con.execute(f"""
-        SELECT SUM(minutes)
-        FROM (
-            SELECT gameId, minutes,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY gameId
-                       ORDER BY jaro_winkler_similarity(lower(playerName), lower(?)) DESC
-                   ) AS rn,
-                   jaro_winkler_similarity(lower(playerName), lower(?)) AS name_sim
-            FROM player_minutes
-            WHERE gameId IN ({placeholders})
-        ) t
-        WHERE rn = 1 AND name_sim > 0.72
-    """, [player_name, player_name] + list(game_ids_tuple)).fetchone()
-    total = row[0] if row else None
-    return int(total) if total else None
+    rows = con.execute("""
+        SELECT DISTINCT playerId, playerFullName
+        FROM player_game_minutes
+        WHERE teamId = ?
+          AND playerFullName IS NOT NULL
+        ORDER BY playerFullName
+    """, [team_id]).fetchall()
+    return [{"player_id": r[0], "player_name": r[1]} for r in rows]
 
 
 @st.cache_data(ttl=3600)
-def get_player_game_log(player_name):
+def get_player_total_minutes(player_name, game_ids_tuple):
+    """Return (total_minutes, games_played) for a player across the specified games.
+
+    game_ids_tuple must be a tuple (not list) for cache hashability.
+    Looks up the player's TruMedia ID via events.shooterId, then sums from
+    player_game_minutes — no fuzzy name matching required.
+    Returns (int, int) or (None, None) if no minutes data found.
+    """
+    if not player_name or not game_ids_tuple:
+        return None, None
+    con = get_connection()
+    placeholders = ",".join("?" * len(game_ids_tuple))
+    row = con.execute(f"""
+        SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
+        FROM player_game_minutes pgm
+        WHERE pgm.gameId IN ({placeholders})
+          AND pgm.playerId IN (
+              SELECT DISTINCT shooterId
+              FROM events
+              WHERE shooter = ?
+                AND gameId IN ({placeholders})
+                AND shooterId IS NOT NULL
+          )
+    """, list(game_ids_tuple) + [player_name] + list(game_ids_tuple)).fetchone()
+    if not row or not row[0]:
+        return None, None
+    return int(row[0]), int(row[1])
+
+
+@st.cache_data(ttl=3600)
+def get_player_game_log(player_id, player_name):
     """Return per-game stats for a player joined with minutes played.
 
-    Joins events + games + player_minutes to build a complete per-game record.
+    Drives from player_game_minutes (keyed by playerId — no fuzzy matching) so
+    shot-free games are included (shown as 0 shots/xg/goals).
     Returns list of dicts matching the format expected by create_rolling_charts():
         {date, opponent, result, minutes, goals, xg, shots, season, team_name, team_color}
-    Only includes games where minutes data is available (player_minutes join).
+    Only includes games where minutes data is available in player_game_minutes.
     """
-    if not player_name:
+    if not player_id:
         return []
     con = get_connection()
-    # Use a fuzzy name match (jaro_winkler > 0.72) to bridge API-Football player
-    # names stored in player_minutes and TruMedia names stored in events.shooter.
-    # 0.72 chosen to handle "M. Salah" vs "Mohamed Salah" (score ~0.738) while
-    # still rejecting clearly wrong matches (typically < 0.60).
-    # The ranked_minutes CTE picks the best-matching player per game, so one
-    # slightly-different spelling doesn't produce duplicate or missing rows.
     rows = con.execute("""
-        WITH ranked_minutes AS (
-            SELECT gameId, minutes, name_sim
-            FROM (
-                SELECT gameId, minutes,
-                       jaro_winkler_similarity(lower(playerName), lower(?)) AS name_sim,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY gameId
-                           ORDER BY jaro_winkler_similarity(lower(playerName), lower(?)) DESC
-                       ) AS rn
-                FROM player_minutes
-            ) t
-            WHERE rn = 1
+        WITH shot_stats AS (
+            SELECT gameId,
+                   SUM(CASE WHEN playType IN ('Goal', 'PenaltyGoal') THEN 1 ELSE 0 END) AS goals,
+                   SUM(COALESCE(xG, 0)) AS xg,
+                   COUNT(*) AS shots
+            FROM events
+            WHERE shooterId = ?
+              AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post',
+                               'BlockedShot', 'ShotOnPost', 'OwnGoal')
+            GROUP BY gameId
+        ),
+        team_info AS (
+            SELECT gameId,
+                   ANY_VALUE(newestTeamColor) AS newestTeamColor,
+                   ANY_VALUE(opponent)        AS opponent
+            FROM events
+            WHERE toucherId = ?
+            GROUP BY gameId
         )
         SELECT
             g.Date,
-            e.opponent,
+            COALESCE(
+                ti.opponent,
+                CASE WHEN pgm.teamFullName = g.homeTeam THEN g.awayTeam
+                     WHEN pgm.teamFullName = g.awayTeam THEN g.homeTeam
+                     ELSE 'Unknown' END
+            ) AS opponent,
             g.homeFinalScore,
             g.awayFinalScore,
-            e.homeTeam,
-            e.teamFullName,
-            rm.minutes,
-            SUM(CASE WHEN e.playType IN ('Goal', 'PenaltyGoal') THEN 1 ELSE 0 END) AS goals,
-            SUM(COALESCE(e.xG, 0)) AS xg,
-            COUNT(*) AS shots,
-            e.newestTeamColor,
+            g.homeTeam,
+            pgm.teamFullName,
+            pgm.minutes,
+            COALESCE(ss.goals, 0) AS goals,
+            COALESCE(ss.xg,    0.0) AS xg,
+            COALESCE(ss.shots, 0) AS shots,
+            ti.newestTeamColor,
             g.seasonId
-        FROM events e
-        JOIN games g ON e.gameId = g.gameId
-        JOIN ranked_minutes rm ON e.gameId = rm.gameId AND rm.name_sim > 0.72
-        WHERE e.shooter = ?
-          AND e.playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post',
-                             'BlockedShot', 'ShotOnPost', 'OwnGoal')
-        GROUP BY g.Date, e.opponent, g.homeFinalScore, g.awayFinalScore,
-                 e.homeTeam, e.teamFullName, rm.minutes, e.newestTeamColor, g.seasonId
+        FROM player_game_minutes pgm
+        JOIN games g ON pgm.gameId = g.gameId
+        LEFT JOIN shot_stats ss ON pgm.gameId = ss.gameId
+        LEFT JOIN team_info ti ON pgm.gameId = ti.gameId
+        WHERE pgm.playerId = ?
         ORDER BY g.Date ASC
-    """, [player_name, player_name, player_name]).fetchall()
+    """, [player_id, player_id, player_id]).fetchall()
 
     season_names = _load_config().get('seasons', {})
 
@@ -735,6 +757,78 @@ def get_red_cards_for_game(game_id):
 
 
 @st.cache_data(ttl=3600)
+def get_team_rolling_xg_data(team_id, season_id=None):
+    """Return per-game xG data for a team, ready for the rolling xG chart.
+
+    Aggregates shot xG from the events table joined with games.
+    season_id=None returns all seasons; pass a specific season_id to filter.
+
+    Returns (matches, team_name, team_color) where matches is a list of dicts:
+        {date, opponent, is_home, xg_for, xg_against, goals_for, goals_against, season}
+    """
+    con = get_connection()
+    season_filter = "AND g.seasonId = ?" if season_id else ""
+    params = [team_id, team_id, team_id, team_id]
+    if season_id:
+        params.append(season_id)
+
+    rows = con.execute(f"""
+        SELECT
+            g.gameId, g.Date, g.homeTeam, g.awayTeam,
+            g.homeTeamId, g.awayTeamId,
+            g.homeFinalScore, g.awayFinalScore, g.seasonId,
+            SUM(CASE WHEN e.teamId = g.homeTeamId THEN COALESCE(e.xG, 0) ELSE 0 END) AS home_xg,
+            SUM(CASE WHEN e.teamId = g.awayTeamId THEN COALESCE(e.xG, 0) ELSE 0 END) AS away_xg,
+            MAX(CASE WHEN e.teamId = ? THEN e.newestTeamColor END) AS team_color,
+            MAX(CASE WHEN e.teamId = ? THEN e.teamFullName END) AS team_full_name
+        FROM games g
+        LEFT JOIN events e ON g.gameId = e.gameId
+            AND e.playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+        WHERE (g.homeTeamId = ? OR g.awayTeamId = ?)
+        {season_filter}
+        GROUP BY g.gameId, g.Date, g.homeTeam, g.awayTeam, g.homeTeamId, g.awayTeamId,
+                 g.homeFinalScore, g.awayFinalScore, g.seasonId
+        ORDER BY g.Date ASC
+    """, params).fetchall()
+
+    season_names = _load_config().get('seasons', {})
+    matches = []
+    team_name = None
+    team_color = None
+
+    for (game_id, date_str, home_team, away_team, home_team_id, away_team_id,
+         home_goals, away_goals, sid, home_xg, away_xg, color, full_name) in rows:
+        is_home = (home_team_id == team_id)
+        _, opp_clean, _ = fuzzy_match_team(
+            (away_team if is_home else home_team) or '', TEAM_COLORS
+        )
+        opponent = opp_clean or (away_team if is_home else home_team) or 'Unknown'
+        xg_for = float(home_xg or 0) if is_home else float(away_xg or 0)
+        xg_against = float(away_xg or 0) if is_home else float(home_xg or 0)
+        goals_for = int(home_goals or 0) if is_home else int(away_goals or 0)
+        goals_against = int(away_goals or 0) if is_home else int(home_goals or 0)
+        season_label = season_names.get(sid, '') if sid else ''
+
+        if color and not team_color:
+            team_color = color
+        if full_name and not team_name:
+            team_name = full_name
+
+        matches.append({
+            'date': date_str,
+            'opponent': opponent,
+            'is_home': is_home,
+            'xg_for': xg_for,
+            'xg_against': xg_against,
+            'goals_for': goals_for,
+            'goals_against': goals_against,
+            'season': season_label,
+        })
+
+    return matches, team_name, team_color
+
+
+@st.cache_data(ttl=3600)
 def get_shooters_for_team(team_id):
     """Return sorted list of distinct shooter names for a team.
 
@@ -753,3 +847,123 @@ def get_shooters_for_team(team_id):
         ORDER BY shooter
     """, [team_id]).fetchall()
     return [r[0] for r in rows]
+
+
+@st.cache_data(ttl=3600)
+def get_sequence_choke_data(game_ids_tuple, team_id):
+    """Return data for the Sequence Choke Point chart.
+
+    Two queries:
+      1. League-wide shot rate per pitch zone (5x4 = 20 zones, all teams).
+      2. Per-touch rows for the target team: player, coordinates, seq_key, has_shot.
+
+    game_ids_tuple must be a tuple (not list) for cache hashability.
+
+    Returns (team_df, zone_rates_df, match_info):
+      team_df columns: player, x, y, seq_key, has_shot
+      zone_rates_df columns: zone_x, zone_y, shot_rate
+      match_info dict: team_name, total_matches
+    """
+    import pandas as pd
+    if not game_ids_tuple:
+        return pd.DataFrame(), pd.DataFrame(), {}
+
+    con = get_connection()
+
+    # Query 1: league-wide zone shot rates (all teams, all games)
+    zone_rows = con.execute("""
+        WITH seq_info AS (
+            SELECT gameId, sequenceId,
+                   MAX(CASE WHEN playType IN ('Goal','PenaltyGoal','AttemptSaved','Miss','Post')
+                            THEN 1 ELSE 0 END) as has_shot
+            FROM events
+            GROUP BY gameId, sequenceId
+            HAVING COUNT(*) > 1
+        ),
+        touches AS (
+            SELECT e.gameId, e.sequenceId,
+                   FLOOR(LEAST(e.EventXDecimal, 99.9) / 20.0) AS zone_x,
+                   FLOOR(LEAST(e.EventYDecimal, 99.9) / 25.0) AS zone_y,
+                   s.has_shot
+            FROM events e
+            JOIN seq_info s ON e.gameId = s.gameId AND e.sequenceId = s.sequenceId
+            WHERE e.EventXDecimal IS NOT NULL AND e.EventYDecimal IS NOT NULL
+              AND e.EventXDecimal >= 0 AND e.EventYDecimal >= 0
+        ),
+        deduped AS (
+            SELECT DISTINCT gameId, sequenceId, zone_x, zone_y, has_shot
+            FROM touches
+        )
+        SELECT zone_x, zone_y,
+               SUM(has_shot) * 1.0 / COUNT(*) AS shot_rate
+        FROM deduped
+        GROUP BY zone_x, zone_y
+    """).fetchall()
+    zone_rates_df = pd.DataFrame(zone_rows, columns=['zone_x', 'zone_y', 'shot_rate'])
+
+    # Query 2: target team player touches with spatial coords and shot outcome
+    game_ids = list(game_ids_tuple)
+    ph = ','.join(['?'] * len(game_ids))
+    touch_rows = con.execute(f"""
+        WITH seq_info AS (
+            SELECT gameId, sequenceId,
+                   MAX(CASE WHEN playType IN ('Goal','PenaltyGoal','AttemptSaved','Miss','Post')
+                            THEN 1 ELSE 0 END) as has_shot
+            FROM events
+            WHERE teamId = ? AND gameId IN ({ph})
+            GROUP BY gameId, sequenceId
+            HAVING COUNT(*) > 1
+        ),
+        passer_t AS (
+            SELECT e.gameId, e.sequenceId, e.passer AS player,
+                   e.EventXDecimal AS x, e.EventYDecimal AS y
+            FROM events e
+            WHERE e.teamId = ? AND e.gameId IN ({ph})
+              AND e.passer IS NOT NULL AND e.passer != ''
+              AND e.EventXDecimal IS NOT NULL
+        ),
+        receiver_t AS (
+            SELECT e.gameId, e.sequenceId, e.receiver AS player,
+                   e.PassEndXDecimal AS x, e.PassEndYDecimal AS y
+            FROM events e
+            WHERE e.teamId = ? AND e.gameId IN ({ph})
+              AND e.receiver IS NOT NULL AND e.receiver != ''
+              AND e.PassEndXDecimal IS NOT NULL
+        ),
+        toucher_t AS (
+            SELECT e.gameId, e.sequenceId, e.toucher AS player,
+                   e.EventXDecimal AS x, e.EventYDecimal AS y
+            FROM events e
+            WHERE e.teamId = ? AND e.gameId IN ({ph})
+              AND e.toucher IS NOT NULL AND e.toucher != ''
+              AND e.EventXDecimal IS NOT NULL
+        ),
+        all_touches AS (
+            SELECT gameId, sequenceId, player, x, y FROM passer_t   UNION
+            SELECT gameId, sequenceId, player, x, y FROM receiver_t UNION
+            SELECT gameId, sequenceId, player, x, y FROM toucher_t
+        )
+        SELECT t.player, t.x, t.y,
+               t.gameId || '_' || CAST(t.sequenceId AS VARCHAR) AS seq_key,
+               s.has_shot
+        FROM all_touches t
+        JOIN seq_info s ON t.gameId = s.gameId AND t.sequenceId = s.sequenceId
+        WHERE t.x >= 0 AND t.y >= 0
+    """, [team_id] + game_ids + [team_id] + game_ids +
+         [team_id] + game_ids + [team_id] + game_ids).fetchall()
+
+    team_df = pd.DataFrame(touch_rows, columns=['player', 'x', 'y', 'seq_key', 'has_shot'])
+
+    # Fetch team name from events
+    name_row = con.execute(
+        "SELECT teamFullName FROM events WHERE teamId = ? AND teamFullName IS NOT NULL LIMIT 1",
+        [team_id]
+    ).fetchone()
+    team_name = name_row[0] if name_row else ''
+
+    match_info = {
+        'team_name': team_name,
+        'total_matches': len(game_ids_tuple),
+    }
+
+    return team_df, zone_rates_df, match_info
