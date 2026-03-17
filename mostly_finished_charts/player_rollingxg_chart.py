@@ -498,9 +498,22 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
                bbox_to_anchor=(0.5, -0.12), ncol=2)
 
     # Build subtitle with season info
-    unique_seasons = list(dict.fromkeys([m['season'] for m in matches]))  # Preserve order
-    if len(unique_seasons) > 1:
-        season_text = f"{unique_seasons[0]} - {unique_seasons[-1]}"
+    import re as _re
+    unique_season_names = list(dict.fromkeys(
+        [m.get('season_name') or m.get('season', '') for m in matches]
+    ))
+    unique_season_names = [s for s in unique_season_names if s]
+    if len(unique_season_names) > 1:
+        # Same league across multiple years → "2023-24 PL - 2024-25 PL"
+        # Different leagues → "2024-25 PL | 2024-25 UCL"
+        def _league(name):
+            return _re.sub(r'^\d{4}-\d{2}\s*', '', name).strip()
+        if len({_league(s) for s in unique_season_names}) == 1:
+            season_text = f"{unique_season_names[0]} - {unique_season_names[-1]}"
+        else:
+            season_text = " | ".join(unique_season_names)
+    elif unique_season_names:
+        season_text = unique_season_names[0]
     else:
         season_text = season
 
@@ -583,9 +596,22 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     season_boundaries = find_season_boundaries(matches)
 
     # Build subtitle with season info
-    unique_seasons = list(dict.fromkeys([m['season'] for m in matches]))  # Preserve order
-    if len(unique_seasons) > 1:
-        season_text = f"{unique_seasons[0]} - {unique_seasons[-1]}"
+    import re as _re
+    unique_season_names = list(dict.fromkeys(
+        [m.get('season_name') or m.get('season', '') for m in matches]
+    ))
+    unique_season_names = [s for s in unique_season_names if s]
+    if len(unique_season_names) > 1:
+        # Same league across multiple years → "2023-24 PL - 2024-25 PL"
+        # Different leagues → "2024-25 PL | 2024-25 UCL"
+        def _league(name):
+            return _re.sub(r'^\d{4}-\d{2}\s*', '', name).strip()
+        if len({_league(s) for s in unique_season_names}) == 1:
+            season_text = f"{unique_season_names[0]} - {unique_season_names[-1]}"
+        else:
+            season_text = " | ".join(unique_season_names)
+    elif unique_season_names:
+        season_text = unique_season_names[0]
     else:
         season_text = season
 

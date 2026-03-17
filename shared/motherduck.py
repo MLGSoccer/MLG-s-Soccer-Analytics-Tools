@@ -488,13 +488,6 @@ def build_shots_from_game(game_id):
             if period == 1:
                 first_half_end_minute = max(first_half_end_minute, minute)
 
-            if period == 2 and minute < 46:
-                minute += 45
-            elif period == 3 and minute < 91:
-                minute += 90
-            elif period == 4 and minute < 106:
-                minute += 105
-
             _, clean_name, _ = fuzzy_match_team(team_full_name or '', TEAM_COLORS)
             team_display = clean_name if clean_name else team_full_name
 
@@ -715,12 +708,6 @@ def get_goal_scorers_for_game(game_id):
         try:
             minute = int(float(game_clock or 0) / 60)
             period = int(period or 1)
-            if period == 2 and minute < 46:
-                minute += 45
-            elif period == 3 and minute < 91:
-                minute += 90
-            elif period == 4 and minute < 106:
-                minute += 105
             _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
             scorers.append({
                 'minute': minute,
