@@ -330,10 +330,20 @@ if data_source == "Database":
 
         # ── SINGLE MATCH ──────────────────────────────────────────────────────
         if mode == "Single Match":
-            game_labels = [g['label'] for g in games]
+            season_options = {}
+            for g in games:
+                if g.get('season_id') and g.get('season_name'):
+                    season_options[g['season_id']] = g['season_name']
+            filtered_games = games
+            if len(season_options) > 1:
+                season_labels = list(season_options.values())
+                selected_season_name = st.selectbox("Season", options=season_labels)
+                selected_season_id = next(k for k, v in season_options.items() if v == selected_season_name)
+                filtered_games = [g for g in games if g.get('season_id') == selected_season_id]
+            game_labels = [g['label'] for g in filtered_games]
             selected_game_label = st.selectbox("Game", options=[""] + game_labels)
             selected_game = next(
-                (g for g in games if g['label'] == selected_game_label), None
+                (g for g in filtered_games if g['label'] == selected_game_label), None
             )
 
             competition = st.text_input(

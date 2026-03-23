@@ -95,6 +95,12 @@ def get_teams_by_league():
     config = _load_config()
     league_teams = {league: [] for league in LEAGUE_ORDER}
 
+    # Build set of base names (with " Women" stripped) that conflict with a
+    # non-women's team — those need to keep "Women" to disambiguate.
+    all_names = [t['name'] for t in config['teams'] if t.get('team_id')]
+    base_names = {n.replace(' Women', '') for n in all_names if ' Women' not in n}
+    needs_women = {n for n in all_names if n.endswith(' Women') and n[:-6] in base_names}
+
     for team in config['teams']:
         team_id = team.get('team_id')
         if not team_id:
@@ -102,6 +108,8 @@ def get_teams_by_league():
         league = _get_team_league(team.get('season_ids', []))
         _, matched_name, _ = fuzzy_match_team(team['name'], TEAM_COLORS)
         display_name = matched_name if matched_name else team['name']
+        if display_name.endswith(' Women') and team['name'] not in needs_women:
+            display_name = display_name[:-6]
         league_teams[league].append({
             'team_id': team_id,
             'display_name': display_name,

@@ -120,6 +120,15 @@ if data_source == "Database":
         if selected_team:
             games = get_games_for_team(selected_team['team_id'])
             if games:
+                season_options = {}
+                for g in games:
+                    if g.get('season_id') and g.get('season_name'):
+                        season_options[g['season_id']] = g['season_name']
+                if len(season_options) > 1:
+                    season_labels = list(season_options.values())
+                    selected_season_name = st.selectbox("Season", options=season_labels)
+                    selected_season_id = next(k for k, v in season_options.items() if v == selected_season_name)
+                    games = [g for g in games if g.get('season_id') == selected_season_id]
                 game_labels = [g['label'] for g in games]
                 selected_game_label = st.selectbox("Game", options=[""] + game_labels)
                 selected_game = next(
