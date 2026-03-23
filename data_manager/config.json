@@ -27,6 +27,7 @@
     },
     "womens": {
       "seasons": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w",
         "1j63n4epyfznm99tlb7rlz8d0",
         "221phckhkd7y6rg3uyava3ifo",
@@ -118,10 +119,27 @@
       ]
     },
     {
+      "name": "Denver Summit Women",
+      "abbrev": "DEN",
+      "team_id": "b6ztd03z31b0yfcae0qovefpw",
+      "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250"
+      ]
+    },
+    {
+      "name": "Boston Legacy Women",
+      "abbrev": "BOS",
+      "team_id": "2yppf5jwqllc49s0qkbkchvkk",
+      "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250"
+      ]
+    },
+    {
       "name": "San Diego Wave Women",
       "abbrev": "SD",
       "team_id": "esvbnzqbyvxp2k570ez7h1a1g",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -182,6 +200,7 @@
       "abbrev": "WAS",
       "team_id": "f1ks82wpiewyqs6h3oz9v4hzj",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -258,6 +277,7 @@
       "abbrev": "GFC",
       "team_id": "bgkfdckqfqnfbmecbtz03n76d",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -343,6 +363,7 @@
       "abbrev": "ORLW",
       "team_id": "966pdxhsoxaib9qt5083h8uus",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -384,6 +405,7 @@
       "abbrev": "NC",
       "team_id": "b4fbmos00gxtk8qnaqsm392p5",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -392,6 +414,7 @@
       "abbrev": "PTHW",
       "team_id": "446mp88j1vpk9iwui9fiifrp8",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -477,6 +500,7 @@
       "abbrev": "KC",
       "team_id": "agxipc0vk4rtg09amjxv10nx0",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -527,6 +551,7 @@
       "abbrev": "HDAW",
       "team_id": "c3v2ohfuzoqmc8ljm65hi80sj",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -535,6 +560,7 @@
       "abbrev": "BAY",
       "team_id": "eka22bj7co8bw5qxa6qlbinf8",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -634,6 +660,7 @@
       "abbrev": "SREW",
       "team_id": "bl53jk6zlfe5f583pil7xzwi5",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -724,6 +751,7 @@
       "abbrev": "LA",
       "team_id": "6hbfgdczbi3yg4sdpqgtu6s",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -791,6 +819,7 @@
       "abbrev": "UTA",
       "team_id": "bn7w86uw8j61dga3xr5s0yiju",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -831,6 +860,7 @@
       "abbrev": "CSFW",
       "team_id": "dzxypx8djih58p668surbi4qm",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -1019,6 +1049,7 @@
       "abbrev": "LOU",
       "team_id": "dtucewmt49th1p4selfutmnmc",
       "season_ids": [
+        "4mrfrvsjf1xhltsvqyb6lx250",
         "3ducfa94ga849pfvx8bjjgt1w"
       ]
     },
@@ -3095,6 +3126,7 @@
     "dbxs75cag7zyip5re0ppsanmc": "Ligue 1 2025/26",
     "aegyls91smdw9kipjgbsu8tn8": "Liga MX 2025/26",
     "6i6n0jkbh9zzij6s8htfjh2j8": "MLS 2026",
+    "4mrfrvsjf1xhltsvqyb6lx250": "NWSL 2026",
     "3ducfa94ga849pfvx8bjjgt1w": "NWSL 2025",
     "221phckhkd7y6rg3uyava3ifo": "WSL 2025/26",
     "2mr0u0l78k2gdsm79q56tb2fo": "UEFA Champions League 2025/26",
