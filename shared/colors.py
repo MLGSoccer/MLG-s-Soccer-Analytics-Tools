@@ -245,6 +245,10 @@ TEAM_ALTERNATE_COLORS = {
     'RB Leipzig': '#FFFFFF',        # White
     'Eintracht Frankfurt': '#FFFFFF', # White
     'AFC Bournemouth': '#000000',   # Black
+    'Brentford': '#FFFFFF',         # White (away kit)
+    'Nottingham Forest': '#000000', # Black
+    'Southampton': '#000000',       # Black
+    'Osasuna': '#000000',           # Black
 
     # Blue teams (actual colors defined in league sections below)
     'Lazio': '#000080',             # Navy

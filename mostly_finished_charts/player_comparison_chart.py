@@ -956,12 +956,20 @@ def resolve_player_colors(player_rows, threshold=60):
                                 best_improvement = improvement
                                 best_fix = ('j', alt_j)
 
-                    # Apply best fix if found
+                    # Apply best fix if found; otherwise use fallback palette
                     if best_fix:
                         if best_fix[0] == 'i':
                             colors[i] = best_fix[1]
                         else:
                             colors[j] = best_fix[1]
+                    else:
+                        # No alternate available — pick from fallback palette
+                        _FALLBACKS = ['#0057A8', '#F5A623', '#00A070', '#9B59B6', '#1ABC9C', '#FFFFFF']
+                        for fb in _FALLBACKS:
+                            if all(color_distance(fb, colors[k]) >= threshold
+                                   for k in range(len(colors)) if k != j):
+                                colors[j] = fb
+                                break
 
         if not conflicts_found:
             break
