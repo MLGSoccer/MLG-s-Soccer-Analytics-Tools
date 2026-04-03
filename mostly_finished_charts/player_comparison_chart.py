@@ -246,13 +246,11 @@ def load_player_data(csv_path):
     df['npxG+xA'] = df['NPxG'] + df['xA']
 
     # Convert percentage strings to floats if needed
+    # Check for non-numeric dtype (covers both legacy 'object' and newer pandas StringDtype)
     for col in ['Pass%', 'TakeOn%', 'Tackle%', 'Duel%', 'Aerial%']:
-        if col in df.columns:
-            if df[col].dtype == object:
-                # Replace '-' and empty strings with NaN, then convert
-                df[col] = df[col].replace(['-', ''], np.nan)
-                # Only strip % if the values contain it
-                df[col] = pd.to_numeric(df[col].astype(str).str.rstrip('%'), errors='coerce')
+        if col in df.columns and not pd.api.types.is_numeric_dtype(df[col]):
+            df[col] = df[col].replace(['-', ''], np.nan)
+            df[col] = pd.to_numeric(df[col].astype(str).str.rstrip('%'), errors='coerce')
 
     return df
 
@@ -272,6 +270,7 @@ def get_player_value(player_row, metric_name, csv_column):
 
 def calculate_percentile(value, peer_values):
     """Calculate percentile rank of a value within peer values"""
+    peer_values = [v for v in peer_values if v is not None and not (isinstance(v, float) and np.isnan(v))]
     if len(peer_values) == 0:
         return 50
 
