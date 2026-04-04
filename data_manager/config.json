@@ -3116,6 +3116,198 @@
       "season_ids": [
         "24f2xd1kljmiu7o0xrpj30kd0"
       ]
+    },
+    {
+      "name": "Swansea City",
+      "abbrev": "SWA",
+      "team_id": "410jti6axb01yhvbc0axsp8li",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Coventry City",
+      "abbrev": "COV",
+      "team_id": "dacoc20k0n3fxu4zek8wufmko",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Millwall",
+      "abbrev": "MIL",
+      "team_id": "40d2qd8lr1tgsvmg5l1fzaf4o",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Derby County",
+      "abbrev": "DER",
+      "team_id": "3ptd7zlc5isrongig0wij2id4",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Wrexham",
+      "abbrev": "WRE",
+      "team_id": "206vnsjv8ho5kpf88y0u2gaic",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Preston North End",
+      "abbrev": "PNE",
+      "team_id": "5kq4izdz28qjaxoa6ujclwghj",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Ipswich Town",
+      "abbrev": "IPS",
+      "team_id": "8b523ujgl21tbc01me65q0aoh",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Charlton Athletic",
+      "abbrev": "CHA",
+      "team_id": "2ezfenuwk3y65p8jdbj55xqt0",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Queens Park Rangers",
+      "abbrev": "QPR",
+      "team_id": "72nmbktwvcj3wizfp37yjf0dp",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Birmingham City",
+      "abbrev": "BIR",
+      "team_id": "8kreqtde5jdktcib0kg7dknac",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Stoke City",
+      "abbrev": "STO",
+      "team_id": "4qioq44vcv619vnyy2rpovk4e",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Blackburn Rovers",
+      "abbrev": "BLA",
+      "team_id": "ep3im6aygoatju4u3ws8v3mog",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Middlesbrough",
+      "abbrev": "MID",
+      "team_id": "cq0jd5ztepqjjeikk5trb15vr",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Leicester City",
+      "abbrev": "LEI",
+      "team_id": "avxknfz4f6ob0rv9dbnxdzde0",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Bristol City",
+      "abbrev": "BRC",
+      "team_id": "c5485h5qulh4l0k0py5b9xug1",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Sheffield Wednesday",
+      "abbrev": "SHW",
+      "team_id": "1musyruv2ufjrjnj6gvdbr8kt",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Oxford United",
+      "abbrev": "OXF",
+      "team_id": "ahm0t06rup1bkd9z0mxl2lmph",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Sheffield United",
+      "abbrev": "SHU",
+      "team_id": "bws31egwjda253q9lvykgnivo",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Norwich City",
+      "abbrev": "NOR",
+      "team_id": "suz80crpy3anixyzccmu6jzp",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "West Bromwich Albion",
+      "abbrev": "WBA",
+      "team_id": "d1lhefp805y0rcbjqkpu4fq0n",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Portsmouth",
+      "abbrev": "POR",
+      "team_id": "80jtkz2echk6yyyb9e2595cxr",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Watford",
+      "abbrev": "WAT",
+      "team_id": "4t83rqbdbekinxl5fz2ygsyta",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Hull City",
+      "abbrev": "HUL",
+      "team_id": "f0figafm2v9h8ofo6slajj7xf",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
+    },
+    {
+      "name": "Southampton",
+      "abbrev": "SOU",
+      "team_id": "d5ydtvt96bv7fq04yqm2w2632",
+      "season_ids": [
+        "bmmk637l2a33h90zlu36kx8no"
+      ]
     }
   ],
   "seasons": {
@@ -3132,7 +3324,8 @@
     "2mr0u0l78k2gdsm79q56tb2fo": "UEFA Champions League 2025/26",
     "7ttpe5jzya3vjhjadiemjy7mc": "UEFA Europa League 2025/26",
     "7x2zp2hm4p6wuijwdw3h7a8t0": "UEFA Conference League 2025/26",
-    "24f2xd1kljmiu7o0xrpj30kd0": "UEFA Women's Champions League 2025/26"
+    "24f2xd1kljmiu7o0xrpj30kd0": "UEFA Women's Champions League 2025/26",
+    "bmmk637l2a33h90zlu36kx8no": "Championship 2025/26"
   },
   "secondary_seasons": [
     "2mr0u0l78k2gdsm79q56tb2fo",

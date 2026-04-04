@@ -15,6 +15,7 @@ from shared.colors import fuzzy_match_team, TEAM_COLORS
 # Season ID -> curated league bucket mapping
 _SEASON_TO_LEAGUE = {
     "51r6ph2woavlbbpk8f29nynf8": "Premier League",
+    "bmmk637l2a33h90zlu36kx8no": "Championship",
     "80zg2v1cuqcfhphn56u4qpyqc": "La Liga",
     "2bchmrj23l9u42d68ntcekob8": "Bundesliga",
     "emdmtfr1v8rey2qru3xzfwges": "Serie A",
@@ -28,6 +29,7 @@ _SEASON_TO_LEAGUE = {
 # Priority order -- first match wins for each team
 LEAGUE_ORDER = [
     "Premier League",
+    "Championship",
     "La Liga",
     "Bundesliga",
     "Serie A",
@@ -703,7 +705,7 @@ def get_goal_scorers_for_game(game_id):
         return []
     con = get_connection()
     rows = con.execute("""
-        SELECT gameClock, Period, shooter, teamFullName, playType
+        SELECT gameClock, Period, shooter, teamFullName, teamId, playType
         FROM events
         WHERE gameId = ?
           AND playType IN ('Goal', 'PenaltyGoal')
@@ -712,15 +714,15 @@ def get_goal_scorers_for_game(game_id):
     """, [game_id]).fetchall()
 
     scorers = []
-    for game_clock, period, shooter, team_full, play_type in rows:
+    for game_clock, period, shooter, team_full, team_id, play_type in rows:
         try:
             minute = int(float(game_clock or 0) / 60)
-            period = int(period or 1)
             _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
             scorers.append({
                 'minute': minute,
                 'player': shooter,
                 'team': clean_name if clean_name else team_full,
+                'team_id': team_id,
                 'pen': play_type == 'PenaltyGoal',
             })
         except (ValueError, TypeError):
@@ -962,3 +964,93 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
     }
 
     return team_df, zone_rates_df, match_info
+
+
+@st.cache_data(ttl=3600)
+def get_momentum_events(game_id):
+    """Return momentum events for a single game.
+
+    Returns (events_df, match_info) where events_df has columns:
+      minute (float), team_side ('home'/'away'), event_type ('shot'/'corner'/'final_third')
+
+    Coordinates are normalised attacking-direction so EventXDecimal > 66 = final third.
+    """
+    import pandas as pd
+    if not game_id:
+        return pd.DataFrame(), {}
+    con = get_connection()
+
+    rows = con.execute("""
+        SELECT
+            e.gameClock,
+            e.Period,
+            e.teamId,
+            e.newestTeamColor,
+            e.teamFullName,
+            g.homeTeamId,
+            g.awayTeamId,
+            g.homeTeam,
+            g.awayTeam,
+            g.homeFinalScore,
+            g.awayFinalScore,
+            g.Date,
+            CASE
+                WHEN e.playType IN ('AttemptSaved','Miss','Post','Goal','PenaltyGoal','OwnGoal')
+                     THEN 'shot'
+                WHEN e.PassType = 'Corner'
+                     THEN 'corner'
+                ELSE 'final_third'
+            END AS event_type
+        FROM events e
+        JOIN games g ON e.gameId = g.gameId
+        WHERE e.gameId = ?
+          AND (
+              e.playType IN ('AttemptSaved','Miss','Post','Goal','PenaltyGoal','OwnGoal')
+              OR e.PassType = 'Corner'
+              OR e.EventXDecimal > 66
+          )
+          AND e.Period IN (1, 2, 3, 4)
+        ORDER BY e.Period, e.gameClock
+    """, [game_id]).fetchall()
+
+    if not rows:
+        return pd.DataFrame(), {}
+
+    import pandas as _pd
+    cols = ['game_clock','period','team_id','color','team_name',
+            'home_team_id','away_team_id','home_team','away_team',
+            'home_score','away_score','date','event_type']
+    df = _pd.DataFrame(rows, columns=cols)
+
+    # gameClock is cumulative seconds across the whole match
+    df['minute'] = df['game_clock'] / 60.0
+    df['team_side'] = _pd.NA
+    df.loc[df['team_id'] == df['home_team_id'], 'team_side'] = 'home'
+    df.loc[df['team_id'] == df['away_team_id'], 'team_side'] = 'away'
+    df = df.dropna(subset=['team_side'])
+
+    # Team colors
+    home_color = df.loc[df['team_side'] == 'home', 'color'].dropna().iloc[0] if not df[df['team_side']=='home']['color'].dropna().empty else '#4A90D9'
+    away_color = df.loc[df['team_side'] == 'away', 'color'].dropna().iloc[0] if not df[df['team_side']=='away']['color'].dropna().empty else '#E05C5C'
+
+    r = df.iloc[0]
+    try:
+        date_str = str(r['date'])[:10]
+        from datetime import datetime as _dt
+        date_display = _dt.strptime(date_str, '%Y-%m-%d').strftime('%B %d, %Y')
+    except Exception:
+        date_display = str(r['date'])
+
+    match_info = {
+        'home_team':    r['home_team'],
+        'away_team':    r['away_team'],
+        'home_score':   int(r['home_score']) if r['home_score'] is not None else 0,
+        'away_score':   int(r['away_score']) if r['away_score'] is not None else 0,
+        'home_team_id': r['home_team_id'],
+        'away_team_id': r['away_team_id'],
+        'home_color':   home_color,
+        'away_color':   away_color,
+        'date':         date_display,
+    }
+
+    return df[['minute','team_side','event_type']].reset_index(drop=True), match_info

@@ -42,6 +42,10 @@ TRUMEDIA_TO_API_NAME = {
     "West Ham United": "West Ham",
     "Tottenham Hotspur": "Tottenham",
     "Leeds United": "Leeds",
+    # Championship — API-Football uses short names for these
+    "Queens Park Rangers": "QPR",
+    "West Bromwich Albion": "West Brom",
+    "Preston North End": "Preston",
     # Liga MX — API-Football uses different club names
     "Pumas UNAM": "U.N.A.M. - Pumas",
     "Juárez": "FC Juarez",
@@ -62,6 +66,7 @@ TRUMEDIA_TO_API_NAME = {
 # To find an unknown ID: GET /leagues?name=<name>&season=2025 on the API.
 SEASON_TO_API_LEAGUE = {
     "51r6ph2woavlbbpk8f29nynf8": 39,    # Premier League 2025/26
+    "bmmk637l2a33h90zlu36kx8no": 40,    # Championship 2025/26
     "80zg2v1cuqcfhphn56u4qpyqc": 140,   # La Liga 2025/26
     "2bchmrj23l9u42d68ntcekob8": 78,    # Bundesliga 2025/26
     "emdmtfr1v8rey2qru3xzfwges": 135,   # Serie A 2025/26
