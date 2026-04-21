@@ -215,6 +215,7 @@ TEAM_ABBREV = {
     'OLR': 'OL Reign',
     'ORL': 'Orlando Pride',
     'POR': 'Portland Thorns FC',
+    'SDG': 'San Diego FC',
     'SDW': 'San Diego Wave FC',
     'UTA': 'Utah Royals',
     'WAS': 'Washington Spirit',
@@ -416,6 +417,8 @@ TEAM_COLORS = {
     'Orlando Pride': '#5F249F',
     'Portland Thorns FC': '#93282C',
     'Portland Thorns': '#93282C',
+    'San Diego FC': '#193472',
+    'San Diego': '#193472',
     'San Diego Wave FC': '#041E42',
     'San Diego Wave': '#041E42',
     'Utah Royals': '#001E62',
@@ -787,6 +790,32 @@ def ensure_contrast_with_background(hex_color, bg_color='#1A2332', min_distance=
 
     # If still not enough, return a fairly light version
     return lighten_color(hex_color, 0.5)
+
+
+def ensure_label_color(hex_color, min_lightness=0.60):
+    """Ensure a color is bright enough to read as small text on a dark background.
+
+    Uses HLS lightness rather than RGB distance so dark blues get lifted to a
+    vivid lighter blue (not grey), and black gets lifted to a visible neutral.
+
+    Args:
+        hex_color: Hex color string
+        min_lightness: Minimum HLS lightness (0-1). Default 0.60 keeps colors
+                       recognisable while ensuring readability at small font sizes.
+
+    Returns:
+        Original color if already light enough, otherwise lightened version.
+    """
+    import colorsys
+    try:
+        r, g, b = hex_to_rgb(hex_color)  # returns 0-1 range
+        h, l, s = colorsys.rgb_to_hls(r, g, b)
+        if l >= min_lightness:
+            return hex_color
+        r2, g2, b2 = colorsys.hls_to_rgb(h, min_lightness, s)
+        return rgb_to_hex(int(r2 * 255), int(g2 * 255), int(b2 * 255))
+    except Exception:
+        return hex_color
 
 
 def check_colors_need_fix(color1, color2, team1, team2, threshold=50):
