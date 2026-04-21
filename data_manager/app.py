@@ -8,6 +8,8 @@ import json
 import os
 import sys
 import tempfile
+import subprocess
+import pandas as pd
 from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -17,7 +19,6 @@ from downloader import (
     download_event_log, upsert_events_to_motherduck,
     download_minutes_and_cards, upsert_minutes_to_motherduck,
     get_motherduck_connection, get_all_team_last_dates,
-    backfill_season_ids,
     fetch_and_store_fixture_data, get_games_missing_fixture_data,
 )
 
@@ -52,7 +53,6 @@ os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
 
 
 def load_last_updated():
-    """Load the last-updated timestamps for event log downloads."""
     if os.path.exists(LAST_UPDATED_PATH):
         with open(LAST_UPDATED_PATH) as f:
             return json.load(f)
@@ -60,7 +60,6 @@ def load_last_updated():
 
 
 def save_last_updated(data):
-    """Persist the last-updated timestamps."""
     with open(LAST_UPDATED_PATH, 'w') as f:
         json.dump(data, f, indent=2)
 
@@ -77,7 +76,7 @@ def save_minutes_last_updated(data):
         json.dump(data, f, indent=2)
 
 
-# ── League grouping (for Event Log UI) ───────────────────────────────────────
+# ── League grouping ───────────────────────────────────────────────────────────
 _secondary = set(config.get("secondary_seasons", []))
 _season_names = config.get("seasons", {})
 
@@ -246,70 +245,90 @@ if st.button("Download All Pools", type="primary", disabled=not authenticated):
 
 st.divider()
 
-# ── Event Log Downloads ────────────────────────────────────────────────────────
-st.header("Event Log Downloads")
-st.caption("Downloads event-by-event data for each team and upserts to MotherDuck.")
-
+# ── Downloads ─────────────────────────────────────────────────────────────────
+st.header("Downloads")
+st.caption("Downloads event logs and player minutes from TruMedia and upserts to MotherDuck. "
+           "Also fetches red card and own goal timing from API-Football for chart annotations.")
 
 TEST_DOWNLOAD_DIR = os.path.join(BASE_DIR, "data", "test_downloads")
 
 
-def _run_event_log_downloads(teams_to_download, incremental=True, download_only=False,
-                             fetch_player_minutes=True):
+def _run_downloads(teams_to_download, incremental=True, download_only=False,
+                   do_events=True, do_minutes=True, fetch_player_minutes=True):
     session = create_session(st.session_state["cookies"])
     progress = st.progress(0)
     status = st.empty()
     results = []
     n = len(teams_to_download)
     last_updated = load_last_updated()
+    minutes_lu = load_minutes_last_updated()
 
     con = None
     last_dates = {}
     if not download_only:
         con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        if incremental:
+        if incremental and do_events:
             last_dates = get_all_team_last_dates(con)
 
     if download_only:
         os.makedirs(TEST_DOWNLOAD_DIR, exist_ok=True)
 
     for i, team in enumerate(teams_to_download):
-        status.text(f"Downloading {team['name']}... ({i+1}/{n})")
-        tmp_path = None
-        try:
-            since = None
-            if incremental and team["team_id"] in last_dates:
-                last = last_dates[team["team_id"]]
-                since = str((datetime.strptime(last, "%Y-%m-%d") - timedelta(days=1)).date())
+        # ── Event log ──────────────────────────────────────────────────────
+        if do_events:
+            status.text(f"Downloading events: {team['name']}... ({i+1}/{n})")
+            tmp_path = None
+            try:
+                since = None
+                if incremental and team["team_id"] in last_dates:
+                    last = last_dates[team["team_id"]]
+                    since = str((datetime.strptime(last, "%Y-%m-%d") - timedelta(days=1)).date())
 
-            if download_only:
-                save_path = os.path.join(TEST_DOWNLOAD_DIR, f"{team['abbrev']}.csv")
-                rows, _ = download_event_log(
-                    session, team["team_id"], team["season_ids"], save_path, since_date=since
-                )
-                results.append((True, f"{team['name']}: {rows:,} rows saved to data/test_downloads/{team['abbrev']}.csv"))
-            else:
+                if download_only:
+                    save_path = os.path.join(TEST_DOWNLOAD_DIR, f"{team['abbrev']}.csv")
+                    rows, _ = download_event_log(
+                        session, team["team_id"], team["season_ids"], save_path, since_date=since
+                    )
+                    results.append((True, f"{team['name']} events: {rows:,} rows saved to data/test_downloads/{team['abbrev']}.csv"))
+                else:
+                    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+                        tmp_path = tmp.name
+                    rows, _ = download_event_log(
+                        session, team["team_id"], team["season_ids"], tmp_path, since_date=since
+                    )
+                    upsert_events_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
+                    last_updated[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+                    label = f"(since {since})" if since else "(full)"
+                    results.append((True, f"{team['name']} events: {rows:,} rows upserted {label}"))
+            except Exception as e:
+                results.append((False, f"{team['name']} events: {e}"))
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+
+        # ── Minutes & cards ────────────────────────────────────────────────
+        if do_minutes and not download_only:
+            status.text(f"Downloading minutes: {team['name']}... ({i+1}/{n})")
+            tmp_path = None
+            try:
                 with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
                     tmp_path = tmp.name
-
-                rows, _ = download_event_log(
-                    session, team["team_id"], team["season_ids"], tmp_path, since_date=since
+                rows, _ = download_minutes_and_cards(
+                    session, team["team_id"], team["season_ids"], tmp_path
                 )
-                upsert_events_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
-
-                last_updated[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
-                label = f"(since {since})" if since else "(full)"
-                results.append((True, f"{team['name']}: {rows:,} rows upserted {label}"))
-        except Exception as e:
-            results.append((False, f"{team['name']}: {e}"))
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+                upsert_minutes_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
+                minutes_lu[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+                results.append((True, f"{team['name']} minutes: {rows:,} player-game rows upserted"))
+            except Exception as e:
+                results.append((False, f"{team['name']} minutes: {e}"))
+            finally:
+                if tmp_path and os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
         progress.progress((i + 1) / n)
 
-    # After all team downloads, fetch player minutes/own goals/cards for any new games
-    if not download_only and fetch_player_minutes and apifootball_configured and con:
+    # ── API-Football: red cards + own goals for chart annotations ──────────
+    if not download_only and do_events and fetch_player_minutes and apifootball_configured and con:
         missing = get_games_missing_fixture_data(con)
         if missing:
             pm_matched = 0
@@ -336,32 +355,40 @@ def _run_event_log_downloads(teams_to_download, incremental=True, download_only=
     if con:
         con.close()
     if not download_only:
-        save_last_updated(last_updated)
+        if do_events:
+            save_last_updated(last_updated)
+        if do_minutes:
+            save_minutes_last_updated(minutes_lu)
     status.empty()
     progress.empty()
-    st.session_state["event_log_results"] = results
+    st.session_state["download_results"] = results
     st.rerun()
 
 
 # Display any results from last run
-if "event_log_results" in st.session_state:
-    for _success, _message in st.session_state.pop("event_log_results"):
+if "download_results" in st.session_state:
+    for _success, _message in st.session_state.pop("download_results"):
         if _success:
             st.success(_message)
         else:
             st.error(_message)
 
 last_updated_data = load_last_updated()
+minutes_last_updated_data = load_minutes_last_updated()
 _stale_cutoff = datetime.now() - timedelta(days=7)
 
 # Per-league expanders
 for _league_name, _teams in leagues.items():
     with st.expander(f"{_league_name}  ({len(_teams)} teams)"):
-        import pandas as pd
         _rows = []
         for t in _teams:
-            _last = last_updated_data.get(t["abbrev"], "Never")
-            _rows.append({"Team": t["name"], "Last Downloaded": _last})
+            _last_ev = last_updated_data.get(t["abbrev"], "Never")
+            _last_min = minutes_last_updated_data.get(t["abbrev"], "Never")
+            _rows.append({
+                "Team": t["name"],
+                "Events Last Downloaded": _last_ev,
+                "Minutes Last Downloaded": _last_min,
+            })
 
         def _highlight_stale(val):
             if val == "Never":
@@ -375,7 +402,7 @@ for _league_name, _teams in leagues.items():
 
         _df = pd.DataFrame(_rows)
         st.dataframe(
-            _df.style.map(_highlight_stale, subset=["Last Downloaded"]),
+            _df.style.map(_highlight_stale, subset=["Events Last Downloaded", "Minutes Last Downloaded"]),
             hide_index=True,
             use_container_width=True,
         )
@@ -405,363 +432,192 @@ for _league_name in leagues:
 _total = len(_selected_teams)
 st.write(f"**{_total} team{'s' if _total != 1 else ''} selected**")
 
-_incremental = st.checkbox("Incremental — only download since last update", value=True)
-_download_only = st.checkbox(
-    "Download to file only — skip database upsert",
-    value=False,
-    help=f"Saves CSVs to data/test_downloads/ for inspection. Does not update last-downloaded timestamps."
-)
-_fetch_pm = st.checkbox(
-    "Fetch player minutes, own goals & cards (API-Football)",
-    value=True,
-    disabled=not apifootball_configured,
-    help="After downloading, fetch lineups + match events for new games to compute player minutes, own goals, and cards."
-         + ("" if apifootball_configured else " (API_FOOTBALL_KEY not configured)"),
-)
+_opt_col1, _opt_col2, _opt_col3 = st.columns(3)
+with _opt_col1:
+    _do_events = st.checkbox("Download event logs", value=True)
+    _incremental = st.checkbox("Incremental (events only)", value=True,
+                               disabled=not _do_events,
+                               help="Only download events since last update")
+    _download_only = st.checkbox(
+        "Save to file only (skip DB upsert)",
+        value=False,
+        disabled=not _do_events,
+        help="Saves event CSVs to data/test_downloads/ for inspection"
+    )
+with _opt_col2:
+    _do_minutes = st.checkbox("Download minutes & cards", value=True)
+with _opt_col3:
+    _fetch_pm = st.checkbox(
+        "Fetch red cards & own goals (API-Football)",
+        value=True,
+        disabled=not apifootball_configured or not _do_events,
+        help="After downloading events, fetch red card timing and own goals for chart annotations."
+             + ("" if apifootball_configured else " (API_FOOTBALL_KEY not configured)"),
+    )
 
 _col_a, _col_b = st.columns([1, 1])
 with _col_a:
-    _dl_selected = st.button("Download Selected", type="primary",
-                             disabled=not authenticated or (not motherduck_configured and not _download_only) or _total == 0)
+    _dl_selected = st.button(
+        "Download Selected", type="primary",
+        disabled=not authenticated or (not motherduck_configured and not _download_only)
+                 or _total == 0 or (not _do_events and not _do_minutes)
+    )
 with _col_b:
-    _dl_all = st.button("Download All Teams",
-                        disabled=not authenticated or (not motherduck_configured and not _download_only))
+    _dl_all = st.button(
+        "Download All Teams",
+        disabled=not authenticated or (not motherduck_configured and not _download_only)
+                 or (not _do_events and not _do_minutes)
+    )
 
 if _dl_selected:
-    _run_event_log_downloads(_selected_teams, incremental=_incremental, download_only=_download_only,
-                             fetch_player_minutes=_fetch_pm and not _download_only)
+    _run_downloads(
+        _selected_teams,
+        incremental=_incremental,
+        download_only=_download_only,
+        do_events=_do_events,
+        do_minutes=_do_minutes and not _download_only,
+        fetch_player_minutes=_fetch_pm and not _download_only,
+    )
 if _dl_all:
-    _run_event_log_downloads(list(_name_to_team.values()), incremental=_incremental, download_only=_download_only,
-                             fetch_player_minutes=_fetch_pm and not _download_only)
+    _run_downloads(
+        list(_name_to_team.values()),
+        incremental=_incremental,
+        download_only=_download_only,
+        do_events=_do_events,
+        do_minutes=_do_minutes and not _download_only,
+        fetch_player_minutes=_fetch_pm and not _download_only,
+    )
 
-# ── Minutes & Cards Downloads ─────────────────────────────────────────────────
+# ── Sequence Model ────────────────────────────────────────────────────────────
 st.divider()
-st.header("Minutes & Cards Downloads")
-st.caption("Downloads per-player, per-game minutes and card data from TruMedia and upserts to MotherDuck. "
-           "Uses TruMedia player IDs so data joins directly to the events table with no name matching.")
+st.header("Sequence Model")
+st.caption("Extract features from MotherDuck and run model inference. Uses Python 3.12 + PyTorch.")
 
-if "minutes_results" in st.session_state:
-    for _success, _message in st.session_state.pop("minutes_results"):
-        if _success:
-            st.success(_message)
-        else:
-            st.error(_message)
+_ROOT_DIR = os.path.dirname(BASE_DIR)
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+from event_db.seasons import SEASONS
 
-_minutes_last_updated = load_minutes_last_updated()
+_EVENT_DB_DIR = os.path.join(os.path.dirname(BASE_DIR), "event_db")
+_MODEL_SUFFIX  = "_v21a"
+_MODEL_CKPT    = "One_Offs/seq_nn_model_v21a.pt"
 
+# Status table — which seasons have data / events parquets
+def _season_display_label(yr, info):
+    lbl = info["label"]
+    return lbl if lbl.startswith("Championship") else f"Big 5 {lbl}"
 
-def _run_minutes_downloads(teams_to_download):
-    session = create_session(st.session_state["cookies"])
-    progress = st.progress(0)
-    status = st.empty()
-    results = []
-    n = len(teams_to_download)
-    minutes_lu = load_minutes_last_updated()
+_status_rows = []
+for _yr, _info in SEASONS.items():
+    _data_path = os.path.join(_EVENT_DB_DIR, f"seq_nn_data_{_yr}{_MODEL_SUFFIX}.parquet")
+    _events_path = os.path.join(_EVENT_DB_DIR, f"seq_nn_events_{_yr}{_MODEL_SUFFIX}.parquet")
+    _data_str = (datetime.fromtimestamp(os.path.getmtime(_data_path)).strftime("%b %d  %H:%M")
+                 if os.path.exists(_data_path) else "—")
+    _events_str = (datetime.fromtimestamp(os.path.getmtime(_events_path)).strftime("%b %d  %H:%M")
+                   if os.path.exists(_events_path) else "—")
+    _status_rows.append({
+        "Season": _season_display_label(_yr, _info),
+        "Key": _yr,
+        f"Data parquet ({_MODEL_SUFFIX})": _data_str,
+        f"Events parquet ({_MODEL_SUFFIX})": _events_str,
+    })
 
-    con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+def _color_missing(val):
+    return "color: #FF6B6B" if val == "—" else ""
 
-    for i, team in enumerate(teams_to_download):
-        status.text(f"Downloading minutes for {team['name']}... ({i+1}/{n})")
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
-                tmp_path = tmp.name
+_status_df = pd.DataFrame(_status_rows).drop(columns=["Key"])
+st.dataframe(
+    _status_df.style.map(_color_missing,
+                         subset=[f"Data parquet ({_MODEL_SUFFIX})", f"Events parquet ({_MODEL_SUFFIX})"]),
+    hide_index=True,
+    use_container_width=True,
+)
 
-            rows, _ = download_minutes_and_cards(
-                session, team["team_id"], team["season_ids"], tmp_path
-            )
-            upsert_minutes_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
+_seq_col1, _seq_col2, _seq_col3 = st.columns(3)
+with _seq_col1:
+    _season_labels = {r["Key"]: r["Season"] for r in _status_rows}
+    _selected_season_label = st.selectbox(
+        "Season", options=list(_season_labels.values()), key="seq_season"
+    )
+    _selected_season_yr = next(k for k, v in _season_labels.items() if v == _selected_season_label)
+with _seq_col2:
+    _run_extract = st.checkbox("Extract (MotherDuck → parquet)", value=True, key="seq_extract")
+    _run_infer = st.checkbox("Infer (parquet → events + deltas)", value=True, key="seq_infer")
+    _run_upsert = st.checkbox("Upsert (events → MotherDuck model_delta)", value=True, key="seq_upsert")
+with _seq_col3:
+    _local_db = st.checkbox(
+        "Use local soccer.duckdb instead of MotherDuck",
+        value=False, key="seq_local",
+        help="Only applies to extract step. Useful if MotherDuck is unavailable.",
+        disabled=not _run_extract,
+    )
+    _incremental = st.checkbox(
+        "Incremental (new games only)",
+        value=True, key="seq_incremental",
+        help="Skip games already scored in model_delta. Recommended for routine updates.",
+        disabled=not _run_extract or _local_db,
+    )
 
-            minutes_lu[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
-            results.append((True, f"{team['name']}: {rows:,} player-game rows upserted"))
-        except Exception as e:
-            results.append((False, f"{team['name']}: {e}"))
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.remove(tmp_path)
+if st.button("Run", type="primary", key="seq_run",
+             disabled=not _run_extract and not _run_infer and not _run_upsert):
+    _root = os.path.dirname(BASE_DIR)
+    _output = st.empty()
+    _log_lines = []
 
-        progress.progress((i + 1) / n)
-
-    con.close()
-    save_minutes_last_updated(minutes_lu)
-    status.empty()
-    progress.empty()
-    st.session_state["minutes_results"] = results
-    st.rerun()
-
-
-# Per-league expanders for minutes
-for _mleague_name, _mteams in leagues.items():
-    with st.expander(f"{_mleague_name}  ({len(_mteams)} teams)"):
-        import pandas as pd
-        _mrows = []
-        for t in _mteams:
-            _mlast = _minutes_last_updated.get(t["abbrev"], "Never")
-            _mrows.append({"Team": t["name"], "Last Downloaded": _mlast})
-
-        _mdf = pd.DataFrame(_mrows)
-        st.dataframe(
-            _mdf.style.map(
-                lambda val: "color: #FF6B6B" if val == "Never" else "",
-                subset=["Last Downloaded"]
-            ),
-            hide_index=True,
-            use_container_width=True,
+    def _stream_cmd(cmd, label):
+        _log_lines.append(f"\n$ {' '.join(cmd)}\n")
+        _output.code("".join(_log_lines))
+        proc = subprocess.Popen(
+            cmd, cwd=_root,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, encoding="utf-8", errors="replace",
         )
+        for line in proc.stdout:
+            _log_lines.append(line)
+            _output.code("".join(_log_lines))
+        proc.wait()
+        return proc.returncode
 
-        _mcol1, _mcol2 = st.columns([4, 1])
-        with _mcol1:
-            st.multiselect("Teams", options=[t["name"] for t in _mteams],
-                           key=f"msel_{_mleague_name}")
-        with _mcol2:
-            st.write("")
-            st.button(
-                "Select All",
-                key=f"mall_{_mleague_name}",
-                on_click=lambda names=_mteams, ln=_mleague_name: st.session_state.update(
-                    {f"msel_{ln}": [t["name"] for t in names]}
-                ),
-            )
-
-_mselected_teams = []
-for _mleague_name in leagues:
-    for _mname in st.session_state.get(f"msel_{_mleague_name}", []):
-        if _mname in _name_to_team:
-            _mselected_teams.append(_name_to_team[_mname])
-
-_mtotal = len(_mselected_teams)
-st.write(f"**{_mtotal} team{'s' if _mtotal != 1 else ''} selected**")
-
-_mcol_a, _mcol_b = st.columns([1, 1])
-with _mcol_a:
-    _mdl_selected = st.button(
-        "Download Selected", key="mdl_selected", type="primary",
-        disabled=not authenticated or not motherduck_configured or _mtotal == 0
-    )
-with _mcol_b:
-    _mdl_all = st.button(
-        "Download All Teams", key="mdl_all",
-        disabled=not authenticated or not motherduck_configured
-    )
-
-if _mdl_selected:
-    _run_minutes_downloads(_mselected_teams)
-if _mdl_all:
-    _run_minutes_downloads(list(_name_to_team.values()))
-
-
-# ── Database Maintenance ──────────────────────────────────────────────────────
-st.divider()
-st.header("Database Maintenance")
-
-st.caption("Backfill season IDs for existing games that predate season tracking.")
-if st.button("Backfill Season IDs", disabled=not motherduck_configured):
-    try:
-        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        updated, skipped, skipped_details = backfill_season_ids(con, config)
-        con.close()
-        st.session_state["backfill_result"] = (True, updated, skipped, skipped_details)
-    except Exception as e:
-        st.session_state["backfill_result"] = (False, str(e), 0, [])
-    st.rerun()
-
-if "backfill_result" in st.session_state:
-    success, val1, val2, details = st.session_state.pop("backfill_result")
-    if success:
-        st.success(f"Done — {val1} games updated, {val2} skipped.")
-        if details:
-            import pandas as pd
-            st.dataframe(pd.DataFrame(details), use_container_width=True, hide_index=True)
-    else:
-        st.error(f"Backfill failed: {val1}")
-
-# ── Fix Missing API-Football Data ─────────────────────────────────────────────
-st.divider()
-st.header("Fix Missing API-Football Data")
-st.caption("Games with no player minutes, own goals, or cards data in the database.")
-
-if not motherduck_configured or not apifootball_configured:
-    st.info("Requires both MotherDuck and API-Football to be configured.")
-else:
-    # League filter — uses the same season name list as the rest of the app
-    _pm_league_filter = st.multiselect(
-        "Filter by league (leave blank for all)",
-        options=sorted(_season_names.values()),
-        key="pm_league_filter",
-    )
-    _pm_season_ids = (
-        [sid for sid, name in _season_names.items() if name in _pm_league_filter]
-        if _pm_league_filter else None
-    )
-
-    def _query_missing_and_failed(season_ids):
-        """Return (missing_list, failed_list) filtered by season_ids (None = all)."""
-        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        missing = get_games_missing_fixture_data(con, season_ids=season_ids)
-        if season_ids:
-            _ph = ",".join("?" * len(season_ids))
-            failed_rows = con.execute(f"""
-                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, gf.fetch_status, g.seasonId
-                FROM games g
-                JOIN game_fixtures gf ON g.gameId = gf.gameId
-                WHERE gf.fetch_status != 'matched'
-                  AND g.seasonId IN ({_ph})
-                ORDER BY g.Date DESC
-            """, season_ids).fetchall()
-        else:
-            failed_rows = con.execute("""
-                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, gf.fetch_status, g.seasonId
-                FROM games g
-                JOIN game_fixtures gf ON g.gameId = gf.gameId
-                WHERE gf.fetch_status != 'matched'
-                ORDER BY g.Date DESC
-            """).fetchall()
-        con.close()
-        failed = [
-            {"gameId": r[0], "Date": r[1], "homeTeam": r[2], "awayTeam": r[3],
-             "status": r[4], "seasonId": r[5]}
-            for r in failed_rows
+    _ok = True
+    if _run_extract:
+        _extract_cmd = [
+            "py", "-3.12", "event_db/extract.py",
+            "--season-year", _selected_season_yr,
+            "--output-suffix", _MODEL_SUFFIX,
         ]
-        return missing, failed
+        if not _local_db:
+            _extract_cmd.append("--motherduck")
+        if _incremental and not _local_db:
+            _extract_cmd.append("--incremental")
+        _rc = _stream_cmd(_extract_cmd, "Extract")
+        if _rc != 0:
+            st.error("Extract failed — see output above.")
+            _ok = False
 
-    def _run_backfill(games_to_fetch, label=""):
-        """Fetch player minutes for a list of game dicts. Shows inline progress."""
-        total = len(games_to_fetch)
-        if total == 0:
-            st.info("Nothing to fetch.")
-            return
-        progress = st.progress(0)
-        status = st.empty()
-        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        pm_matched = pm_not_found = pm_errors = 0
-        for i, g in enumerate(games_to_fetch, 1):
-            status.text(f"{label}Fetching {i}/{total}:  {g['homeTeam']} vs {g['awayTeam']}  ({g['Date']})")
-            s = fetch_and_store_fixture_data(
-                api_key=API_FOOTBALL_KEY, token=MOTHERDUCK_TOKEN,
-                game_id=g["gameId"], date=g["Date"],
-                home=g["homeTeam"], away=g["awayTeam"], con=con,
-                season_id=g.get("seasonId"),
-                fixture_id=g.get("fixture_id"),
-            )
-            if s == "matched":
-                pm_matched += 1
-            elif s == "not_found":
-                pm_not_found += 1
-            else:
-                pm_errors += 1
-            progress.progress(i / total)
-        con.close()
-        status.empty()
-        progress.empty()
-        parts = [f"{pm_matched} matched"]
-        if pm_not_found:
-            parts.append(f"{pm_not_found} not found")
-        if pm_errors:
-            parts.append(f"{pm_errors} errors")
-        st.success(f"Done — {', '.join(parts)}")
-        st.session_state.pop("missing_games", None)
-        st.session_state.pop("failed_games", None)
-
-    def _query_matched(season_ids):
-        """Return all games already matched in game_fixtures (to allow force re-fetch).
-        Includes the stored fixture_id so the re-fetch can skip the API lookup."""
-        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        if season_ids:
-            _ph = ",".join("?" * len(season_ids))
-            rows = con.execute(f"""
-                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId, gf.fixture_id
-                FROM games g
-                JOIN game_fixtures gf ON g.gameId = gf.gameId
-                WHERE gf.fetch_status = 'matched'
-                  AND g.seasonId IN ({_ph})
-                ORDER BY g.Date DESC
-            """, season_ids).fetchall()
-        else:
-            rows = con.execute("""
-                SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId, gf.fixture_id
-                FROM games g
-                JOIN game_fixtures gf ON g.gameId = gf.gameId
-                WHERE gf.fetch_status = 'matched'
-                ORDER BY g.Date DESC
-            """).fetchall()
-        con.close()
-        return [
-            {"gameId": r[0], "Date": r[1], "homeTeam": r[2], "awayTeam": r[3],
-             "seasonId": r[4], "fixture_id": r[5]}
-            for r in rows
+    if _ok and _run_infer:
+        _infer_cmd = [
+            "py", "-3.12", "event_db/infer.py",
+            "--season-year", _selected_season_yr,
+            "--data-suffix", _MODEL_SUFFIX,
+            "--suffix", _MODEL_SUFFIX,
+            "--model-path", _MODEL_CKPT,
         ]
+        _rc = _stream_cmd(_infer_cmd, "Infer")
+        if _rc != 0:
+            st.error("Infer failed — see output above.")
+            _ok = False
 
-    _btn_col1, _btn_col2, _btn_col3 = st.columns([1, 1, 1])
-    with _btn_col1:
-        if st.button("Check missing games", key="check_missing"):
-            missing, failed = _query_missing_and_failed(_pm_season_ids)
-            st.session_state["missing_games"] = missing
-            st.session_state["failed_games"] = failed
-    with _btn_col2:
-        _fetch_label = (
-            f"Fetch for {', '.join(_pm_league_filter)}" if _pm_league_filter else "Fetch All Missing"
-        )
-        if st.button(_fetch_label, type="primary", key="fetch_missing_now"):
-            missing, failed = _query_missing_and_failed(_pm_season_ids)
-            all_games = missing + [
-                {"gameId": g["gameId"], "Date": g["Date"],
-                 "homeTeam": g["homeTeam"], "awayTeam": g["awayTeam"]}
-                for g in failed
-            ]
-            _run_backfill(all_games)
-            st.rerun()
-    with _btn_col3:
-        _refetch_label = (
-            f"Re-fetch Matched ({', '.join(_pm_league_filter)})" if _pm_league_filter else "Re-fetch All Matched"
-        )
-        if st.button(_refetch_label, key="refetch_matched_now",
-                     help="Re-download API-Football data for already-matched games (e.g. to backfill cards)"):
-            matched = _query_matched(_pm_season_ids)
-            _run_backfill(matched, label="Re-fetching: ")
-            st.rerun()
-
-    if "missing_games" in st.session_state:
-        import pandas as pd
-        missing = st.session_state["missing_games"]
-        failed = st.session_state.get("failed_games", [])
-
-        st.write(f"**{len(missing)}** games never attempted  •  **{len(failed)}** previously failed")
-
-        if missing or failed:
-            retry_col, _ = st.columns([1, 3])
-            with retry_col:
-                if st.button("Fetch Shown Games", type="primary", key="retry_all_missing"):
-                    all_games = missing + [
-                        {"gameId": g["gameId"], "Date": g["Date"],
-                         "homeTeam": g["homeTeam"], "awayTeam": g["awayTeam"]}
-                        for g in failed
-                    ]
-                    _run_backfill(all_games)
-                    st.rerun()
-
-            if missing:
-                st.subheader("Never attempted")
-                st.dataframe(
-                    pd.DataFrame([{
-                        "League": _season_names.get(g.get("seasonId"), "Unknown"),
-                        "Date": g["Date"],
-                        "Home": g["homeTeam"],
-                        "Away": g["awayTeam"],
-                    } for g in missing]),
-                    hide_index=True, use_container_width=True,
-                )
-            if failed:
-                st.subheader("Previously failed")
-                st.dataframe(
-                    pd.DataFrame([{
-                        "League": _season_names.get(g.get("seasonId"), "Unknown"),
-                        "Date": g["Date"],
-                        "Home": g["homeTeam"],
-                        "Away": g["awayTeam"],
-                        "Status": g["status"],
-                    } for g in failed]),
-                    hide_index=True, use_container_width=True,
-                )
+    if _ok and _run_upsert:
+        _upsert_cmd = [
+            "py", "-3.12", "event_db/upsert_model_delta.py",
+            "--season-year", _selected_season_yr,
+            "--suffix", _MODEL_SUFFIX,
+        ]
+        _rc = _stream_cmd(_upsert_cmd, "Upsert")
+        if _rc != 0:
+            st.error("Upsert failed — see output above.")
+        else:
+            st.success("Done.")
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.divider()
