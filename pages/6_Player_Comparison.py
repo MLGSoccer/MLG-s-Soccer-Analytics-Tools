@@ -127,14 +127,17 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
 
     # Apply current team name and color from MotherDuck if available
     overrides = {name: (team, color) for name, team, color in color_overrides}
-    for pname, (team_name, color) in overrides.items():
-        if pname in player_rows:
-            player_rows[pname] = player_rows[pname].copy()
+    for i, row in enumerate(player_rows):
+        pname = row.get('playerFullName', row.get('Player', ''))
+        if pname in overrides:
+            team_name, color = overrides[pname]
+            row = row.copy()
             if team_name:
-                player_rows[pname]['newestTeam'] = team_name
-                player_rows[pname]['teamName'] = team_name
+                row['newestTeam'] = team_name
+                row['teamName'] = team_name
             if color:
-                player_rows[pname]['newestTeamColor'] = color
+                row['newestTeamColor'] = color
+            player_rows[i] = row
 
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
