@@ -9,6 +9,8 @@ import tempfile
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.transforms import blended_transform_factory
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -18,8 +20,9 @@ from shared.motherduck import (
     get_goal_scorers_for_game, get_own_goals_for_game, get_red_cards_for_game,
 )
 from shared.styles import (
-    BG_COLOR, SPINE_COLOR, CBS_BLUE,
+    BG_COLOR, SPINE_COLOR,
     TEXT_PRIMARY, TEXT_SECONDARY,
+    add_cbs_footer, BROADCAST_FIGSIZE,
 )
 from shared.colors import ensure_contrast_with_background, check_colors_need_fix
 from pages.streamlit_utils import custom_title_inputs
@@ -112,6 +115,17 @@ def _parse_momentum_csv(file_content):
     else:
         df["minute"] = 0.0
 
+    # ── Half-time minute ──────────────────────────────────────────────────────
+    # Real HT = last Period 1 event's minute. Default 45.0 if no Period column
+    # or no Period 1 events (e.g., partial CSV).
+    if "Period" in df.columns:
+        p1_minutes = pd.to_numeric(
+            df.loc[df["Period"] == 1, "minute"], errors="coerce"
+        ).dropna()
+        ht_minute = float(p1_minutes.max()) if len(p1_minutes) else 45.0
+    else:
+        ht_minute = 45.0
+
     events_df = df[["minute", "team_side", "event_type"]].reset_index(drop=True)
 
     # ── Goal scorers ──────────────────────────────────────────────────────────
@@ -143,6 +157,7 @@ def _parse_momentum_csv(file_content):
         "home_color":   home_color,
         "away_color":   away_color,
         "date":         date_display,
+        "ht_minute":    ht_minute,
     }
 
     return events_df, match_info, goal_scorers
@@ -198,116 +213,36 @@ def _compute_momentum(events_df, w_shots, w_corners, w_ft, window=5):
     return momentum
 
 
-# ── Chart rendering ────────────────────────────────────────────────────────────
+# ── Chart rendering ─────────────────────────────────────────────────────────────────────────
 
-def _draw_momentum_chart(momentum, match_info, goal_scorers,
-                         own_goals=None, red_cards=None,
-                         competition="", custom_title=None, custom_subtitle=None):
-    home_name    = match_info["home_team"]
-    away_name    = match_info["away_team"]
-    home_team_id = match_info.get("home_team_id")
-    away_team_id = match_info.get("away_team_id")
-    home_score = match_info["home_score"]
-    away_score = match_info["away_score"]
-    home_color = ensure_contrast_with_background(match_info["home_color"], BG_COLOR)
-    away_color = ensure_contrast_with_background(match_info["away_color"], BG_COLOR)
+# Goal/RC label vertical levels (axes fraction). Labels stack here when minutes
+# would otherwise collide horizontally.
+_Y_LEVELS = (1.04, 1.12, 1.20)
+_NEAR_EDGE = 6     # prefer left side if within this many minutes of chart end
+_LABEL_W = 12      # estimated label width in minutes (matches xG race spec)
+_RC_COLOR = "#E53935"
 
-    # If both team colors are too similar to each other, apply an alternate
-    fix = check_colors_need_fix(home_color, away_color, home_name, away_name)
-    if fix["needs_fix"] and fix["suggested_fix"]:
-        sf = fix["suggested_fix"]
-        if sf["team"] == home_name:
-            home_color = sf["color"]
-        else:
-            away_color = sf["color"]
 
-    date       = match_info["date"]
-
-    mins = np.array(momentum.index, dtype=float)
-    vals = np.array(momentum.values, dtype=float)
-
-    fig, ax = plt.subplots(figsize=(14, 6), facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.74, bottom=0.10, left=0.07, right=0.98)
-    ax.set_facecolor(BG_COLOR)
-
-    # Filled areas
-    ax.fill_between(mins, vals, 50,
-                    where=(vals >= 50), color=home_color, alpha=0.45,
-                    interpolate=True, linewidth=0)
-    ax.fill_between(mins, vals, 50,
-                    where=(vals <= 50), color=away_color, alpha=0.45,
-                    interpolate=True, linewidth=0)
-    ax.plot(mins, vals, color="white", linewidth=2.0, alpha=0.9)
-
-    # Reference lines
-    ax.axhline(50, color=SPINE_COLOR, linewidth=1.2)
-    ax.axvline(45, color=SPINE_COLOR, linewidth=0.8, linestyle="--", alpha=0.45)
-    ax.text(45 / max(mins), 1.01, "HT", transform=ax.transAxes,
-            color=TEXT_SECONDARY, fontsize=8, ha="center", va="bottom", alpha=0.7)
-
-    import difflib as _dl
-    def _is_home(team_name, team_id=None):
-        """Compare by team_id when available, fall back to fuzzy name match."""
-        if team_id and home_team_id:
-            return str(team_id) == str(home_team_id)
-        hs = _dl.SequenceMatcher(None, (team_name or "").lower(), home_name.lower()).ratio()
-        as_ = _dl.SequenceMatcher(None, (team_name or "").lower(), away_name.lower()).ratio()
-        return hs >= as_
-
-    # Build running score across all goals (regular + own) sorted by minute
-    _all_goals = []
-    for g in (goal_scorers or []):
-        _all_goals.append({"minute": g["minute"], "team": g["team"],
-                           "team_id": g.get("team_id"),
-                           "label": g["player"] + (" (P)" if g.get("pen") else ""),
-                           "og": False})
-    for og in (own_goals or []):
-        _all_goals.append({"minute": og["minute"], "team": og["team"],
-                           "team_id": None,
-                           "label": "OG", "og": True})
-    _all_goals.sort(key=lambda x: x["minute"])
-
-    _h, _a = 0, 0
-    for ev in _all_goals:
-        if _is_home(ev["team"], ev.get("team_id")):
-            _h += 1
-            ev["side"] = "home"
-        else:
-            _a += 1
-            ev["side"] = "away"
-        ev["score"] = f"{_h}-{_a}"
-
-    # Goal markers — all labels above the chart, shared stagger pool for both sides
-    from matplotlib.transforms import blended_transform_factory
-    _label_transform = blended_transform_factory(ax.transData, ax.transAxes)
-
-    _Y_LEVELS = [1.04, 1.12, 1.20]  # axes fraction above chart
-    _NEAR_EDGE = 6   # prefer left side if within this many minutes of chart end
-    _W = 10          # estimated label width in minutes (used for overlap detection)
-    _chart_max = float(max(mins))
-
-    def _label_range(minute, x_side):
-        return (minute, minute + _W) if x_side == "right" else (minute - _W, minute)
+def _place_event_labels(events, chart_max):
+    """Assign x_side ('left'/'right') and y_level (0/1/2) to each event so
+    labels don't collide. Mutates events in place. Mirrors xG race's
+    collision-avoidance logic.
+    """
+    def _label_range(minute, side):
+        return (minute, minute + _LABEL_W) if side == "right" else (minute - _LABEL_W, minute)
 
     def _overlaps(m_new, s_new, placed):
         lo_new, hi_new = _label_range(m_new, s_new)
-        for m_p, s_p, lv_p in placed:
+        for m_p, s_p, _lv in placed:
             lo_p, hi_p = _label_range(m_p, s_p)
             if max(lo_new, lo_p) < min(hi_new, hi_p):
                 return True
         return False
 
-    _placed = []  # (minute, x_side, level) for all placed labels
-
-    for i, ev in enumerate(_all_goals):
-        is_home    = ev["side"] == "home"
-        side_color = home_color if is_home else away_color
-
-        near_right = (_chart_max - ev["minute"]) < _NEAR_EDGE
-        near_left  = ev["minute"] < _NEAR_EDGE
-
-        # Side preference: left-first near right edge, right-first otherwise.
-        # Near left edge: right only (avoids running off chart or over team names).
+    placed = []  # (minute, x_side, level)
+    for ev in events:
+        near_right = (chart_max - ev["minute"]) < _NEAR_EDGE
+        near_left = ev["minute"] < _NEAR_EDGE
         if near_left:
             sides = ["right"]
         elif near_right:
@@ -315,32 +250,25 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
         else:
             sides = ["right", "left"]
 
-        # Candidates: exhaust both sides at each level before elevating.
-        candidates = [(s, lv) for lv in range(len(_Y_LEVELS)) for s in sides]
-
-        def _free_at(m, s, lv):
-            return not _overlaps(m, s, [(mp, sp, lp) for mp, sp, lp in _placed if lp == lv])
-
-        # Step 1: try level 0 directly.
         chosen_side, chosen_level = None, None
+        # Step 1: try level 0
         for s in sides:
-            if _free_at(ev["minute"], s, 0):
+            same_lv = [(mp, sp, lp) for mp, sp, lp in placed if lp == 0]
+            if not _overlaps(ev["minute"], s, same_lv):
                 chosen_side, chosen_level = s, 0
                 break
 
-        # Step 2: before elevating, try flipping an already-placed level-0 label
-        # to its other side — repositions the earlier goal so both stay at level 0.
-        # Store the flip target so it can be applied after placement is confirmed.
+        # Step 2: try flipping a placed level-0 label
         flip_target = None
         if chosen_side is None and not near_left:
-            for j, (mp, sp, lp) in enumerate(_placed):
+            for j, (mp, sp, lp) in enumerate(placed):
                 if lp != 0:
                     continue
                 alt_s = "left" if sp == "right" else "right"
-                others_lv0 = [(mk, sk, lk) for k, (mk, sk, lk) in enumerate(_placed)
-                               if k != j and lk == 0]
+                others_lv0 = [(mk, sk, lk) for k, (mk, sk, lk) in enumerate(placed)
+                              if k != j and lk == 0]
                 if _overlaps(mp, alt_s, others_lv0):
-                    continue  # flip would conflict with another placed label
+                    continue
                 tentative = others_lv0 + [(mp, alt_s, 0)]
                 for s in sides:
                     if not _overlaps(ev["minute"], s, tentative):
@@ -350,108 +278,235 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
                 if chosen_side is not None:
                     break
 
-        # Step 3: fall back to higher levels.
+        # Step 3: elevate to higher levels
         if chosen_side is None:
-            for s, lv in candidates:
-                if _free_at(ev["minute"], s, lv):
-                    chosen_side, chosen_level = s, lv
+            for lv in range(1, len(_Y_LEVELS)):
+                for s in sides:
+                    same_lv = [(mp, sp, lp) for mp, sp, lp in placed if lp == lv]
+                    if not _overlaps(ev["minute"], s, same_lv):
+                        chosen_side, chosen_level = s, lv
+                        break
+                if chosen_side is not None:
                     break
 
         if chosen_side is None:
-            chosen_side, chosen_level = candidates[-1]
+            chosen_side, chosen_level = sides[0], len(_Y_LEVELS) - 1
 
-        # Apply any repositioning of an earlier label before appending.
         if flip_target is not None:
             j, mp, alt_s = flip_target
-            _placed[j] = (mp, alt_s, 0)
-            _all_goals[j]["x_side"] = alt_s   # update render side for that goal
+            placed[j] = (mp, alt_s, 0)
+            events[j]["x_side"] = alt_s
 
-        _placed.append((ev["minute"], chosen_side, chosen_level))
-        ev["x_side"]  = chosen_side
+        placed.append((ev["minute"], chosen_side, chosen_level))
+        ev["x_side"] = chosen_side
         ev["y_level"] = chosen_level
 
-    # ── Render all goal labels (after placement is fully resolved) ─────────────
-    import colorsys as _cs
 
-    def _readable_label_color(hex_color):
-        """Return white for dark colors — text just needs to be readable;
-        the goal line and marker already identify the team."""
-        try:
-            r, g, b = int(hex_color[1:3],16)/255, int(hex_color[3:5],16)/255, int(hex_color[5:7],16)/255
-            _, l, _ = _cs.rgb_to_hls(r, g, b)
-            return "white" if l < 0.60 else hex_color
-        except Exception:
-            return hex_color
+def _draw_momentum_chart(momentum, match_info, goal_scorers,
+                         own_goals=None, red_cards=None,
+                         competition="", custom_title=None, custom_subtitle=None):
+    home_name = match_info["home_team"]
+    away_name = match_info["away_team"]
+    home_team_id = match_info.get("home_team_id")
+    home_score = match_info["home_score"]
+    away_score = match_info["away_score"]
+    home_color = ensure_contrast_with_background(match_info["home_color"], BG_COLOR)
+    away_color = ensure_contrast_with_background(match_info["away_color"], BG_COLOR)
 
-    for ev in _all_goals:
-        is_home    = ev["side"] == "home"
-        side_color = home_color if is_home else away_color
-        flip_left  = ev["x_side"] == "left"
-        label_y    = _Y_LEVELS[ev["y_level"]]
-        label_x    = ev["minute"] - 0.4 if flip_left else ev["minute"] + 0.4
-        label_ha   = "right"             if flip_left else "left"
+    # Apply alternate color if the two team colors clash
+    fix = check_colors_need_fix(home_color, away_color, home_name, away_name)
+    if fix["needs_fix"] and fix["suggested_fix"]:
+        sf = fix["suggested_fix"]
+        if sf["team"] == home_name:
+            home_color = sf["color"]
+        else:
+            away_color = sf["color"]
 
-        ax.axvline(ev["minute"], color=side_color, linewidth=1.2, linestyle=":", alpha=0.8)
-        ax.plot(ev["minute"], 1.005, "o",
-                transform=_label_transform, color=side_color,
-                markersize=8, markeredgecolor="white", markeredgewidth=1.2,
-                clip_on=False, zorder=5)
-        text = f"{ev['label']} ({ev['minute']}')\n{ev['score']}"
-        ax.text(label_x, label_y, text,
-                transform=_label_transform,
-                color=_readable_label_color(side_color),
-                fontsize=9, va="bottom", ha=label_ha, alpha=0.9,
-                fontstyle="italic" if ev["og"] else "normal",
-                clip_on=False)
+    ht_minute = float(match_info.get("ht_minute", 45.0))
+    date = match_info["date"]
 
-    # Red card markers
+    mins = np.array(momentum.index, dtype=float)
+    vals = np.array(momentum.values, dtype=float)
+    chart_max = float(max(max(mins) if len(mins) else 90, 90))
+
+    # ── Figure + axes ────────────────────────────────────────────────────────────────
+    fig, ax = plt.subplots(figsize=BROADCAST_FIGSIZE, facecolor=BG_COLOR)
+    fig.subplots_adjust(top=0.72, bottom=0.10, left=0.06, right=0.98)
+    ax.set_facecolor(BG_COLOR)
+
+    # ── Header (xG race conventions) ──────────────────────────────────────────────
+    fig.text(0.5, 0.973, "MATCH MOMENTUM", fontsize=11, fontweight="bold",
+             color=TEXT_SECONDARY, ha="center", va="center")
+
+    score_title = f"{home_name.upper()} {home_score}-{away_score} {away_name.upper()}"
+    title_text = custom_title or score_title
+    title_obj = fig.text(0.5, 0.942, title_text, fontsize=22, fontweight="bold",
+                         color=TEXT_PRIMARY, ha="center", va="center")
+
+    # Accent bar matched to title text width — same approach as xG race so
+    # the bar always anchors under the title regardless of name length.
+    fig.canvas.draw()
+    sb = title_obj.get_window_extent(renderer=fig.canvas.get_renderer())
+    sb_fig = sb.transformed(fig.transFigure.inverted())
+    bar_y = 0.912
+    bar_h = 0.005
+    mid = sb_fig.x0 + sb_fig.width / 2
+    fig.patches.append(mpatches.Rectangle(
+        (sb_fig.x0, bar_y), sb_fig.width / 2, bar_h,
+        transform=fig.transFigure, facecolor=home_color,
+        edgecolor='none', zorder=10, figure=fig))
+    fig.patches.append(mpatches.Rectangle(
+        (mid, bar_y), sb_fig.width / 2, bar_h,
+        transform=fig.transFigure, facecolor=away_color,
+        edgecolor='none', zorder=10, figure=fig))
+
+    subtitle_parts = [p for p in [competition.upper() if competition else "", date] if p]
+    auto_subtitle = " | ".join(subtitle_parts)
+    display_subtitle = custom_subtitle or auto_subtitle
+    if display_subtitle:
+        fig.text(0.5, 0.885, display_subtitle, ha="center",
+                 color=TEXT_SECONDARY, fontsize=11)
+
+    # ── Filled momentum areas + white trajectory line ────────────────────────────────────────
+    ax.fill_between(mins, vals, 50, where=(vals >= 50),
+                    color=home_color, alpha=0.55, interpolate=True, linewidth=0)
+    ax.fill_between(mins, vals, 50, where=(vals <= 50),
+                    color=away_color, alpha=0.55, interpolate=True, linewidth=0)
+    ax.plot(mins, vals, color="white", linewidth=2.0, alpha=0.9)
+
+    # 50-line + HT marker (real half-time, not hardcoded 45)
+    ax.axhline(50, color=SPINE_COLOR, linewidth=1.0, alpha=0.6)
+    ax.axvline(ht_minute, color=SPINE_COLOR, linewidth=0.8,
+               linestyle="--", alpha=0.45)
+    ax.text(ht_minute / chart_max, 1.005, "HT", transform=ax.transAxes,
+            color=TEXT_SECONDARY, fontsize=8, ha="center", va="bottom",
+            alpha=0.75)
+
+    # ── Build all events (goals + own goals + red cards) ───────────────────────────────────
+    import difflib as _dl
+
+    def _is_home(team_name, team_id=None):
+        if team_id and home_team_id:
+            return str(team_id) == str(home_team_id)
+        hs = _dl.SequenceMatcher(None, (team_name or "").lower(), home_name.lower()).ratio()
+        as_ = _dl.SequenceMatcher(None, (team_name or "").lower(), away_name.lower()).ratio()
+        return hs >= as_
+
+    all_events = []
+    for g in (goal_scorers or []):
+        all_events.append({
+            "type": "goal", "minute": g["minute"], "team": g["team"],
+            "team_id": g.get("team_id"),
+            "label": g["player"] + (" (P)" if g.get("pen") else ""),
+            "og": False,
+        })
+    for og in (own_goals or []):
+        all_events.append({
+            "type": "goal", "minute": og["minute"], "team": og["team"],
+            "team_id": None, "label": "OG", "og": True,
+        })
     for rc in (red_cards or []):
-        rc_color = home_color if rc["team"] == home_name else away_color
-        ax.axvline(rc["minute"], color="#E53935", linewidth=1.0, linestyle="-.", alpha=0.7)
-        rc_y = np.interp(rc["minute"], mins, vals)
-        ax.text(rc["minute"] + 0.4, rc_y, "\u2b1b",
-                color="#E53935", fontsize=7, va="center", alpha=0.85)
+        if rc.get("card_type") and rc.get("card_type") not in ("red", "second_yellow"):
+            continue
+        all_events.append({
+            "type": "rc", "minute": rc["minute"], "team": rc["team"],
+            "team_id": rc.get("team_id"),
+            "label": rc.get("player", ""),
+        })
+    all_events.sort(key=lambda x: x["minute"])
 
-    # Team labels
-    ax.text(0.01, 0.97, home_name, transform=ax.transAxes,
-            color=home_color, fontsize=10, fontweight="bold", va="top")
-    ax.text(0.01, 0.03, away_name, transform=ax.transAxes,
-            color=away_color, fontsize=10, fontweight="bold", va="bottom")
+    h, a = 0, 0
+    for ev in all_events:
+        side = "home" if _is_home(ev["team"], ev.get("team_id")) else "away"
+        ev["side"] = side
+        if ev["type"] == "goal":
+            if side == "home":
+                h += 1
+            else:
+                a += 1
+            ev["score"] = f"{h}-{a}"
 
-    # Axes
-    for spine in ax.spines.values():
-        spine.set_color(SPINE_COLOR)
+    _place_event_labels(all_events, chart_max)
+
+    # ── Render events (goals, OGs, red cards) ────────────────────────────────────────────
+    label_transform = blended_transform_factory(ax.transData, ax.transAxes)
+
+    for ev in all_events:
+        flip_left = ev["x_side"] == "left"
+        label_y = _Y_LEVELS[ev["y_level"]]
+        label_x = ev["minute"] - 0.6 if flip_left else ev["minute"] + 0.6
+        label_ha = "right" if flip_left else "left"
+        side_color = home_color if ev["side"] == "home" else away_color
+
+        if ev["type"] == "goal":
+            ax.axvline(ev["minute"], color=side_color, linewidth=1.2,
+                       linestyle=":", alpha=0.8)
+            if ev["og"]:
+                ax.plot(ev["minute"], 1.005, "o", transform=label_transform,
+                        markerfacecolor='none', markeredgecolor=side_color,
+                        markersize=8, markeredgewidth=1.6,
+                        clip_on=False, zorder=5)
+            else:
+                ax.plot(ev["minute"], 1.005, "o", transform=label_transform,
+                        color=side_color, markersize=8,
+                        markeredgecolor="white", markeredgewidth=1.2,
+                        clip_on=False, zorder=5)
+            text = f"{ev['label']} ({ev['minute']}')\n{ev['score']}"
+            ax.text(label_x, label_y, text, transform=label_transform,
+                    color=side_color, fontsize=13, fontweight="bold",
+                    va="bottom", ha=label_ha,
+                    fontstyle="italic" if ev["og"] else "normal",
+                    clip_on=False)
+
+        else:  # rc
+            ax.axvline(ev["minute"], color=_RC_COLOR, linewidth=1.0,
+                       linestyle="-.", alpha=0.7)
+            # Card-shaped marker: vertical red rectangle at chart top edge,
+            # ~1:1.5 ratio, distinct from circular goal markers.
+            card_w_min = 0.7
+            card_h_axes = 0.028
+            card = mpatches.Rectangle(
+                (ev["minute"] - card_w_min / 2, 1.0),
+                card_w_min, card_h_axes,
+                facecolor=_RC_COLOR, edgecolor='white', linewidth=1.5,
+                transform=label_transform, clip_on=False, zorder=6,
+            )
+            ax.add_patch(card)
+            player = ev.get("label", "")
+            text = (f"{player} ({ev['minute']}')\nRED CARD"
+                    if player else f"RED CARD ({ev['minute']}')")
+            ax.text(label_x, label_y, text, transform=label_transform,
+                    color=side_color, fontsize=13, fontweight="bold",
+                    va="bottom", ha=label_ha, clip_on=False)
+
+    # ── Team labels at top-left and bottom-left of plot ─────────────────────────────────────
+    ax.text(0.005, 0.96, home_name.upper(), transform=ax.transAxes,
+            color=home_color, fontsize=12, fontweight="bold", va="top",
+            alpha=0.95)
+    ax.text(0.005, 0.04, away_name.upper(), transform=ax.transAxes,
+            color=away_color, fontsize=12, fontweight="bold", va="bottom",
+            alpha=0.95)
+
+    # ── Axes ───────────────────────────────────────────────────────────────────
+    for spine_name, spine in ax.spines.items():
+        if spine_name in ("top", "right"):
+            spine.set_visible(False)
+        else:
+            spine.set_color(SPINE_COLOR)
+            spine.set_linewidth(0.8)
+    ax.set_yticks([0, 25, 50, 75, 100])
     ax.tick_params(axis="both", colors=TEXT_SECONDARY, labelsize=9)
     ax.set_xlabel("Minute", color=TEXT_SECONDARY, fontsize=10)
     ax.set_ylabel("Momentum", color=TEXT_SECONDARY, fontsize=10)
     ax.set_ylim(-2, 102)
-    ax.set_xlim(0, max(mins))
-    ax.yaxis.set_ticks([0, 25, 50, 75, 100])
+    ax.set_xlim(0, chart_max)
     ax.yaxis.grid(True, color=SPINE_COLOR, alpha=0.18, linewidth=0.5)
     ax.set_axisbelow(True)
 
-    # CBS-style header
-    score_str  = f"{home_score} - {away_score}"
-    auto_title = f"{home_name.upper()}  {score_str}  {away_name.upper()}"
-    display_title = custom_title or auto_title
-    fig.text(0.5, 0.97, display_title,
-             color=TEXT_PRIMARY, fontsize=14, fontweight="bold", ha="center", va="top")
-    fig.text(0.5, 0.925, "MATCH MOMENTUM",
-             color=TEXT_SECONDARY, fontsize=9, fontweight="bold", ha="center", va="top")
-    subtitle_parts = [p for p in [competition, date] if p]
-    auto_subtitle = "  |  ".join(subtitle_parts)
-    display_subtitle = custom_subtitle or auto_subtitle
-    if display_subtitle:
-        fig.text(0.5, 0.895, display_subtitle,
-                 color=TEXT_SECONDARY, fontsize=9, ha="center", va="top")
-
-    fig.text(0.02, 0.01, "CBS SPORTS", color=CBS_BLUE,
-             fontsize=10, fontweight="bold")
-    fig.text(0.98, 0.01, "DATA: OPTA/STATS PERFORM",
-             color=TEXT_SECONDARY, fontsize=8, ha="right")
+    # ── Footer (standard convention) ──────────────────────────────────────────────
+    add_cbs_footer(fig)
 
     return fig
-
 
 # ── Page ───────────────────────────────────────────────────────────────────────
 

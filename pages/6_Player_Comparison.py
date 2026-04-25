@@ -102,7 +102,7 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
-        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']
         for category in categories:
             if category in results:
                 cat_slug = category.lower().replace(' ', '_')
@@ -147,7 +147,7 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
-        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']
         for category in categories:
             cat_slug = category.lower().replace(' ', '_')
             cat_path = os.path.join(tmp_dir, f"multi_{cat_slug}.png")

@@ -228,39 +228,174 @@ TEAM_ABBREV = {
 # Alternate colors for teams with common primary color conflicts
 # Used when two teams have similar primary colors
 TEAM_ALTERNATE_COLORS = {
-    # Red teams - need alternates for when they play each other
-    'Arsenal': '#F0BC42',           # Gold/yellow (away kit)
-    'Liverpool': '#00A398',         # Teal (third kit vibe)
-    'Manchester United': '#FFE500', # Yellow (away kit)
-    'Bayern Munich': '#0066B2',     # Blue (away kit)
-    'AC Milan': '#000000',          # Black (third kit)
-    'Roma': '#F5A623',              # Orange/gold (away kit)
-    'Atletico Madrid': '#272E61',   # Navy blue (away kit)
-    'Sevilla': '#000000',           # Black
-    'Athletic Bilbao': '#FFFFFF',   # White
-    'Monaco': '#FFFFFF',            # White
-    'Benfica': '#FFFFFF',           # White
-    'Lille': '#0A2240',             # Navy
-    'Lyon': '#FFFFFF',              # White
-    'Bayer Leverkusen': '#000000',  # Black
-    'RB Leipzig': '#FFFFFF',        # White
+    # ─── La Liga ─────────────────────────────────────────────────────────
+    'Real Madrid': '#000000',         # Black (gold primary in our db)
+    'Barcelona': '#004D98',           # Blue (alternate to burgundy)
+    'Atletico Madrid': '#272E61',     # Navy
+    'Sevilla': '#000000',             # Black
+    'Athletic Bilbao': '#FFFFFF',     # White
+    'Osasuna': '#000000',             # Black
+    'Valencia': '#FFFFFF',            # White
+    'Villarreal': '#1F2D5C',          # Navy (alternate to yellow)
+    'Real Sociedad': '#C8102E',       # Red
+    'Real Betis': '#FFFFFF',          # White
+    'Celta Vigo': '#C8102E',          # Red
+    'Getafe': '#C8102E',              # Red
+
+    # ─── Premier League ─────────────────────────────────────────────────
+    'Arsenal': '#F0BC42',             # Gold/yellow (away kit)
+    'Liverpool': '#00A398',           # Teal (third kit vibe)
+    'Manchester United': '#FFE500',   # Yellow (away kit)
+    'Manchester City': '#000000',     # Black third
+    'Chelsea': '#FFCC00',             # Yellow (away kit)
+    'Tottenham Hotspur': '#FFFFFF',   # White
+    'Tottenham': '#FFFFFF',           # alias
+    'Newcastle': '#FFFFFF',           # White
+    'Aston Villa': '#000000',         # Black
+    'West Ham': '#FFCC00',            # Yellow
+    'Leicester City': '#FFFFFF',      # White
+    'Everton': '#FFFFFF',             # White (away kit)
+    'Leeds United': '#1F2D5C',        # Navy
+    'Wolves': '#000000',              # Black (away)
+    'Wolverhampton Wanderers': '#000000',  # alias
+    'Brighton': '#FFC72C',            # Yellow
+    'Brighton and Hove Albion': '#FFC72C', # alias
+    'Crystal Palace': '#FFFFFF',      # White
+    'AFC Bournemouth': '#000000',     # Black
+    'Brentford': '#FFFFFF',           # White (away kit)
+    'Nottingham Forest': '#000000',   # Black
+    'Southampton': '#000000',         # Black
+    'Fulham': '#000000',              # Black
+    'Ipswich Town': '#FFFFFF',        # White
+
+    # ─── Serie A ──────────────────────────────────────────────────────────
+    'Juventus': '#FFFFFF',            # White (black primary)
+    'Inter Milan': '#FFFFFF',         # White
+    'Internazionale': '#FFFFFF',      # alias
+    'AC Milan': '#000000',            # Black (third kit)
+    'Napoli': '#FFFFFF',              # White
+    'Roma': '#F5A623',                # Orange/gold (away)
+    'AS Roma': '#F5A623',             # alias
+    'Lazio': '#000080',               # Navy
+    'Hellas Verona': '#1B3B82',       # Navy (vs yellow primary)
+    'Atalanta': '#FFFFFF',            # White
+    'Fiorentina': '#FFFFFF',          # White
+    'Como': '#FFFFFF',                # White
+
+    # ─── Bundesliga ─────────────────────────────────────────────────────
+    'Bayern Munich': '#0066B2',       # Blue
+    'Bayern Munchen': '#0066B2',      # alias
+    'Borussia Dortmund': '#000000',   # Black (yellow primary)
+    'RB Leipzig': '#FFFFFF',          # White
+    'Bayer Leverkusen': '#000000',    # Black
     'Eintracht Frankfurt': '#FFFFFF', # White
-    'AFC Bournemouth': '#000000',   # Black
-    'Brentford': '#FFFFFF',         # White (away kit)
-    'Nottingham Forest': '#000000', # Black
-    'Southampton': '#000000',       # Black
-    'Osasuna': '#000000',           # Black
+    'Wolfsburg': '#FFFFFF',           # White
+    'Schalke': '#FFFFFF',             # White
+    'Borussia Monchengladbach': '#C8102E', # Red
+    'FC Koln': '#FFFFFF',             # White
 
-    # Blue teams (actual colors defined in league sections below)
-    'Lazio': '#000080',             # Navy
-    'PSG': '#E30613',               # Red
-    'Paris Saint-Germain': '#E30613', # Red
+    # ─── Ligue 1 ──────────────────────────────────────────────────────────
+    'PSG': '#E30613',                 # Red
+    'Paris Saint-Germain': '#E30613', # alias
+    'Marseille': '#000000',           # Black
+    'Olympique de Marseille': '#000000',  # alias
+    'Olympique Marseille': '#000000', # alias
+    'Lyon': '#FFFFFF',                # White
+    'Olympique Lyonnais': '#FFFFFF',  # alias
+    'Monaco': '#FFFFFF',              # White
+    'Lille': '#0A2240',               # Navy
 
-    # Other common conflicts
-    'Borussia Dortmund': '#000000', # Black (yellow primary)
-    'Real Madrid': '#000000',       # Black (gold primary in our db)
-    'Barcelona': '#004D98',         # Blue (alternate to burgundy)
-    'Juventus': '#FFFFFF',          # White (black primary)
+    # ─── EFL Championship ──────────────────────────────────────────────
+    'Coventry City': '#FFFFFF',
+    'Sunderland': '#000000',
+    'Hull City': '#1F2D5C',
+    'Preston North End': '#000000',
+    'Sheffield Wednesday': '#FFFFFF',
+    'Plymouth Argyle': '#FFFFFF',
+    'Derby County': '#000000',
+    'Oxford United': '#1F2D5C',
+    'Bristol City': '#FFFFFF',
+    'Millwall': '#FFFFFF',
+    'Barnsley': '#000000',
+    'Rotherham United': '#FFFFFF',
+    'Birmingham City': '#FFFFFF',
+    'Wrexham': '#000000',
+    'Charlton Athletic': '#FFFFFF',
+    'Burnley': '#FFFFFF',
+    'Norwich City': '#000000',
+    'Watford': '#1F2D5C',
+    'Luton Town': '#1F2D5C',
+    'Sheffield United': '#FFFFFF',
+    'Middlesbrough': '#FFFFFF',
+    'Stoke City': '#FFFFFF',
+    'Swansea City': '#000000',
+    'Cardiff City': '#FFFFFF',
+    'Queens Park Rangers': '#FFFFFF',
+    'West Brom': '#FFCC00',
+    'Blackburn': '#C8102E',
+    'Blackpool': '#000000',
+    'Portsmouth': '#FFFFFF',
+    'Huddersfield': '#FFFFFF',
+    'Reading': '#FFFFFF',
+
+    # ─── MLS ────────────────────────────────────────────────────────────
+    # MLS teams may not have entries in TEAM_COLORS — home color comes from
+    # CSV in that case — but the alt entry still resolves clashes.
+    'Atlanta United': '#000000',
+    'Austin FC': '#000000',
+    'CF Montreal': '#FFFFFF',
+    'CF Montréal': '#FFFFFF',
+    'Charlotte FC': '#FFFFFF',
+    'Chicago Fire': '#FFFFFF',
+    'Colorado Rapids': '#FFFFFF',
+    'Columbus Crew': '#000000',
+    'D.C. United': '#FFFFFF',
+    'DC United': '#FFFFFF',
+    'FC Cincinnati': '#FFFFFF',
+    'FC Dallas': '#FFFFFF',
+    'Houston Dynamo': '#000000',
+    'Inter Miami': '#000000',
+    'LA Galaxy': '#000000',
+    'Los Angeles FC': '#FFFFFF',
+    'LAFC': '#FFFFFF',
+    'Minnesota United': '#FFFFFF',
+    'Nashville SC': '#FFFFFF',
+    'New England Revolution': '#FFFFFF',
+    'New York City FC': '#000000',
+    'NYCFC': '#000000',
+    'New York Red Bulls': '#000000',
+    'Orlando City': '#FFFFFF',
+    'Philadelphia Union': '#FFFFFF',
+    'Portland Timbers': '#FFFFFF',
+    'Real Salt Lake': '#FFFFFF',
+    'San Diego FC': '#FFFFFF',
+    'San Jose Earthquakes': '#FFFFFF',
+    'Seattle Sounders': '#FFFFFF',
+    'Sporting Kansas City': '#FFFFFF',
+    'St. Louis City SC': '#FFFFFF',
+    'Toronto FC': '#FFFFFF',
+    'Vancouver Whitecaps': '#000000',
+
+    # ─── NWSL ───────────────────────────────────────────────────────────
+    'Angel City FC': '#FFFFFF',
+    'Bay FC': '#FFFFFF',
+    'Chicago Red Stars': '#FFFFFF',
+    'Houston Dash': '#FFFFFF',
+    'Kansas City Current': '#FFFFFF',
+    'Racing Louisville FC': '#000000',
+    'NJ/NY Gotham FC': '#000000',
+    'North Carolina Courage': '#FFFFFF',
+    'OL Reign': '#FFFFFF',
+    'Orlando Pride': '#FFFFFF',
+    'Portland Thorns FC': '#FFFFFF',
+    'Portland Thorns': '#FFFFFF',
+    'San Diego Wave FC': '#FFFFFF',
+    'San Diego Wave': '#FFFFFF',
+    'Utah Royals': '#FFFFFF',
+    'Washington Spirit': '#FFFFFF',
+
+    # ─── Other ──────────────────────────────────────────────────────────
+    'Benfica': '#FFFFFF',             # White
 }
 
 # Built-in team color database

@@ -1,3 +1,10 @@
+# Betting dashboard
+betting_dashboard/model_cache.json
+betting_dashboard/fixtures_cache.json
+betting_dashboard/agree_threshold.json
+betting_dashboard/model_params.json
+betting_dashboard/bets.csv
+
 # Python
 __pycache__/
 *.py[cod]
@@ -29,3 +36,8 @@ team_abbrevs.json
 
 # Streamlit secrets (credentials)
 .streamlit/secrets.toml
+
+# Double Pivot — local only, never deploy
+dp_app.py
+dp_pages/
+dp_mostly_finished_charts/

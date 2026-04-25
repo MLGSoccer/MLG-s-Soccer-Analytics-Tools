@@ -603,6 +603,32 @@ def get_player_total_minutes(player_name, game_ids_tuple):
 
 
 @st.cache_data(ttl=3600)
+def get_player_all_minutes(player_name):
+    """Return (total_minutes, games_played) for a player across all games in the DB.
+
+    Used for multi-team players where the selected team's game_ids don't capture
+    the player's full playing time (e.g. a mid-season transfer showing shots for
+    both clubs). Matches the scope of build_shots_for_player().
+    """
+    if not player_name:
+        return None, None
+    con = get_connection()
+    row = con.execute("""
+        SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
+        FROM player_game_minutes pgm
+        WHERE pgm.playerId IN (
+            SELECT DISTINCT shooterId
+            FROM events
+            WHERE shooter = ?
+              AND shooterId IS NOT NULL
+        )
+    """, [player_name]).fetchone()
+    if not row or not row[0]:
+        return None, None
+    return int(row[0]), int(row[1])
+
+
+@st.cache_data(ttl=3600)
 def get_player_game_log(player_id, player_name):
     """Return per-game stats for a player joined with minutes played.
 
@@ -1041,6 +1067,11 @@ def get_momentum_events(game_id):
     except Exception:
         date_display = str(r['date'])
 
+    # Real half-time minute = last Period 1 event's gameClock in minutes.
+    # Default 45.0 if no Period 1 events found.
+    p1 = df[df['period'] == 1]
+    ht_minute = float(p1['minute'].max()) if not p1.empty else 45.0
+
     match_info = {
         'home_team':    r['home_team'],
         'away_team':    r['away_team'],
@@ -1051,6 +1082,7 @@ def get_momentum_events(game_id):
         'home_color':   home_color,
         'away_color':   away_color,
         'date':         date_display,
+        'ht_minute':    ht_minute,
     }
 
     return df[['minute','team_side','event_type']].reset_index(drop=True), match_info

@@ -12,6 +12,7 @@ GRID_COLOR = '#556B7F'
 
 # CBS branding
 CBS_BLUE = '#00325B'
+CBS_BLUE_LIGHT = '#2D5B8A'  # Readable on dark background — use for footer/accent text
 
 # Text colors
 TEXT_PRIMARY = '#FFFFFF'
@@ -21,6 +22,19 @@ TEXT_SUBTLE = '#999999'
 
 # Accent colors
 POSITIVE_COLOR = '#2ECC71'  # Green for positive values
+
+
+# ─── Canonical figure sizes ──────────────────────────────────────────────────
+# Use these constants for new charts and when auditing existing ones. Each
+# size matches the dominant use case for that chart category.
+BROADCAST_FIGSIZE = (16, 9)   # 16:9 — single-match overviews, time series.
+                              # Matches HD/4K broadcast and standard digital
+                              # surfaces (Twitter cards, YouTube, web hero).
+PITCH_FIGSIZE     = (12, 9)   # ~4:3 — pitch-based charts (shot chart,
+                              # passing flow). Pitch is roughly 1.5:1 so a
+                              # square-ish frame avoids wasted margin.
+DASHBOARD_FIGSIZE = (16, 10)  # 4-panel dashboards — slightly taller than
+                              # 16:9 to give each panel vertical room.
 
 
 def style_axis(ax):
@@ -48,7 +62,7 @@ def style_axis_full_grid(ax):
 
 def add_cbs_footer(fig, data_source='Opta/Stats Perform'):
     """Add CBS Sports branding footer to figure."""
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
     if data_source:
-        fig.text(0.98, 0.01, f'DATA: {data_source.upper()}', fontsize=8,
-                color=TEXT_SUBTLE, ha='right')
+        fig.text(0.98, 0.01, f'DATA: {data_source.upper()}', fontsize=9,
+                color=TEXT_MUTED, ha='right')

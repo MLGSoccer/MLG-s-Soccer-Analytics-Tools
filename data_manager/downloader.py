@@ -994,8 +994,23 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
         con.execute("INSERT OR REPLACE INTO games SELECT * FROM _games_staging")
         con.unregister("_games_staging")
 
+        # Wipe THIS TEAM'S contribution for these games before inserting fresh.
+        # Each team's TruMedia event-log export contains only that team's own
+        # events for that team's matches -- the opposing team contributes its
+        # events via a separate download. A re-fetch can re-number
+        # gameEventIndex (the tail half of eventGuid), so INSERT OR REPLACE
+        # alone can't dedupe: new rows land under different PKs and layer on
+        # top of the old. We scope the DELETE to (gameId, teamId) so a team's
+        # re-upload only replaces its own contribution, preserving whatever
+        # rows the opposing team's download contributed.
         con.register("_events_staging", events_df)
-        con.execute("INSERT OR REPLACE INTO events SELECT * FROM _events_staging")
+        con.execute("""
+            DELETE FROM events
+            WHERE (gameId, teamId) IN (
+                SELECT DISTINCT gameId, teamId FROM _events_staging
+            )
+        """)
+        con.execute("INSERT INTO events SELECT * FROM _events_staging")
         con.unregister("_events_staging")
     finally:
         if own_con:

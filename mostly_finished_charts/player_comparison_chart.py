@@ -14,11 +14,11 @@ import unicodedata
 # Add parent directory for shared imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer
+from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer, BROADCAST_FIGSIZE
 from shared.file_utils import get_file_path, get_output_folder
 from shared.colors import (
     TEAM_COLORS, fuzzy_match_team, check_colors_need_fix,
-    lighten_color, darken_color, color_distance, get_team_abbrev,
+    color_distance, get_team_abbrev,
     normalize_team_name
 )
 
@@ -189,10 +189,10 @@ METRICS = {
     'PASSING': [
         ('Passes', 'PsAtt', False, True),
         ('Pass %', 'Pass%', True, True),
-        ('Prog. Passes', 'ProgPass', False, True),
         ('Final 3rd Passes', 'PsIntoA3rd', False, True),
     ],
-    'DRIBBLING': [
+    'PROGRESSION': [
+        ('Prog. Passes', 'ProgPass', False, True),
         ('Prog. Carries', 'ProgCarry', False, True),
         ('Take-Ons', 'TakeOn', False, True),
         ('Take-On %', 'TakeOn%', True, True),
@@ -371,9 +371,26 @@ def get_player_percentiles(df, player_name, min_minutes=900, compare_position=No
 # =============================================================================
 # VISUALIZATION
 # =============================================================================
+from matplotlib.colors import LinearSegmentedColormap
+
+# Saturated traffic-light colormap tuned for the CBS dark navy background.
+# Preserves the red=bad / yellow=mid / green=good semantic that sports
+# viewers expect, but with anchors crisp enough to stay legible as thin
+# slivers at the low end (matplotlib's default RdYlGn interpolates through
+# muddy maroon that disappears on dark navy).
+_PERCENTILE_CMAP = LinearSegmentedColormap.from_list(
+    'cbs_traffic',
+    [
+        (0.00, '#E63946'),   # bright red
+        (0.50, '#F4D03F'),   # warm yellow
+        (1.00, '#2ECC71'),   # bright green
+    ],
+)
+
+
 def get_color_from_percentile(pct):
-    """Get color from RdYlGn colormap"""
-    return plt.cm.RdYlGn(pct / 100)
+    """Get color from the CBS traffic-light colormap."""
+    return _PERCENTILE_CMAP(pct / 100)
 
 
 def create_category_chart(category_name, metrics, player_row, peer_count, output_path, comparison_position=None):
@@ -512,7 +529,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
         bar_start_x = 0.25
         bg_rect = mpatches.FancyBboxPatch((bar_start_x, y_pos - 0.025), bar_width, 0.05,
                                            boxstyle="round,pad=0.005",
-                                           facecolor='#2a3a4a', edgecolor='none',
+                                           facecolor='#3A4A5C', edgecolor='none',
                                            transform=ax.transAxes)
         ax.add_patch(bg_rect)
 
@@ -533,7 +550,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
         # Percentile text
         pct_x = val_x + 0.08
         ax.text(pct_x, y_pos, f'{percentile:.0f}%', fontsize=11, fontweight='bold',
-                color=color, transform=ax.transAxes, va='center', ha='left')
+                color='white', transform=ax.transAxes, va='center', ha='left')
 
         y_pos -= row_height
 
@@ -595,8 +612,8 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     player_minutes = player_row.get('Min', player_row.get('minutes', 0))
     nineties_played = player_minutes / 90 if player_minutes else 0
 
-    # Create figure
-    fig = plt.figure(figsize=(14, 9))
+    # Create figure (single-match / single-feature analytical chart → 16:9)
+    fig = plt.figure(figsize=BROADCAST_FIGSIZE)
     fig.patch.set_facecolor(BG_COLOR)
 
     ax = fig.add_axes([0, 0, 1, 1])
@@ -711,7 +728,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
             bar_start_x = start_x + 0.15
             bg_rect = mpatches.FancyBboxPatch((bar_start_x, y_pos - 0.014), bar_width, 0.028,
                                                boxstyle="round,pad=0.005",
-                                               facecolor='#2a3a4a', edgecolor='none',
+                                               facecolor='#3A4A5C', edgecolor='none',
                                                transform=ax.transAxes)
             ax.add_patch(bg_rect)
 
@@ -732,7 +749,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
             # Percentile text
             pct_x = val_x + 0.05
             ax.text(pct_x, y_pos, f'{percentile:.0f}%', fontsize=10, fontweight='bold',
-                    color=color, transform=ax.transAxes, va='center', ha='left')
+                    color='white', transform=ax.transAxes, va='center', ha='left')
 
             y_pos -= row_height
 
@@ -761,7 +778,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
 
     # Draw right column (Dribbling, Defensive)
     y_right = y_start
-    for cat in ['DRIBBLING', 'DEFENSIVE']:
+    for cat in ['PROGRESSION', 'DEFENSIVE']:
         y_right = draw_category(cat, results[cat], right_col_x, y_right)
 
     # Abbreviation legend (lower right, above percentile scale)
@@ -823,66 +840,6 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
 # =============================================================================
 # MULTI-PLAYER COMPARISON FUNCTIONS
 # =============================================================================
-def get_bar_color_for_percentile(base_color, percentile):
-    """Get color intensity based on percentile.
-
-    Low percentile = lighter (faded), high percentile = darker (more saturated).
-    Middle percentile (50) = base color.
-
-    Args:
-        base_color: Team's hex color
-        percentile: 0-100 percentile value
-
-    Returns:
-        Modified hex color string
-    """
-    if percentile < 50:
-        # Lower percentile = lighter color (faded)
-        factor = (50 - percentile) / 100  # 0-0.5 range
-        return lighten_color(base_color, factor)
-    elif percentile > 50:
-        # Higher percentile = slightly darker/more saturated
-        factor = (percentile - 50) / 200  # 0-0.25 range (subtle darkening)
-        return darken_color(base_color, factor)
-    return base_color
-
-
-# Fixed color families for multi-player comparison
-# Each player gets a distinct hue, with light→dark showing low→high percentile
-# Format: (light_color, dark_color) - light for 0%, dark for 100%
-PLAYER_COLOR_FAMILIES = [
-    ('#a8d5ff', '#0055a5'),  # Player 1: Blue family (light blue → dark blue)
-    ('#ffb3a8', '#c93a2a'),  # Player 2: Red/Orange family (light coral → dark red)
-    ('#a8e6cf', '#1a7a4c'),  # Player 3: Green/Teal family (light mint → dark green)
-]
-
-
-def get_percentile_color_for_player(percentile, player_index):
-    """Get color based on percentile using player-specific color family.
-
-    Each player has their own color family so bars are visually distinct.
-    Light = low percentile (bad), Dark = high percentile (good).
-
-    Args:
-        percentile: 0-100 percentile value
-        player_index: 0, 1, or 2 (which player)
-
-    Returns:
-        Hex color string
-    """
-    light_color, dark_color = PLAYER_COLOR_FAMILIES[player_index % len(PLAYER_COLOR_FAMILIES)]
-
-    # Interpolate between light and dark based on percentile
-    light_rgb = [int(light_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)]
-    dark_rgb = [int(dark_color.lstrip('#')[i:i+2], 16) for i in (0, 2, 4)]
-
-    # Linear interpolation: 0% = light, 100% = dark
-    t = percentile / 100
-    result_rgb = [int(light_rgb[i] + (dark_rgb[i] - light_rgb[i]) * t) for i in range(3)]
-
-    return f'#{result_rgb[0]:02x}{result_rgb[1]:02x}{result_rgb[2]:02x}'
-
-
 def resolve_player_colors(player_rows, threshold=60):
     """Resolve colors for multiple players, ensuring all are visually distinct.
 
@@ -1190,64 +1147,41 @@ def draw_player_info_strips(ax, fig, player_rows, player_colors, start_y, strip_
 
 
 def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, bar_x, start_y,
-                      bar_width=0.25, bar_height=0.018, row_spacing=0.07, use_colormaps=False,
+                      bar_width=0.25, bar_height=0.018, row_spacing=0.07,
                       label_fontsize=9):
     """Draw grouped horizontal bars for multiple players per metric.
 
-    Args:
-        ax: Matplotlib axis
-        metrics_data: List of dicts with metric info for each player
-                      Format: [{'name': 'Goals', 'players': [{value, percentile, value_str}, ...]}]
-        player_colors: List of base colors for each player (used if use_colormaps=False)
-        player_names: List of player names
-        label_x: X position for metric labels (left side)
-        bar_x: X position to start bars
-        start_y: Y position to start (top of first metric)
-        bar_width: Maximum bar width
-        bar_height: Height of each bar
-        row_spacing: Vertical spacing between metrics
-        use_colormaps: If True, use per-player colormaps instead of team colors
-        label_fontsize: Font size for metric labels
-
-    Returns:
-        Final y position after drawing all metrics
+    Bar fill is the player's team color at full saturation. Player identity is
+    carried by color; rank vs peers is carried by bar length + the white
+    percentile number. No intensity modulation — that channel was redundant
+    with bar length and broken for light-colored teams.
     """
     y_pos = start_y
     num_players = len(player_names)
-    bar_gap = 0.003  # Gap between bars within a metric
+    bar_gap = 0.003
     group_height = num_players * (bar_height + bar_gap)
 
     for metric in metrics_data:
         metric_name = metric['name']
-
-        # Calculate center of this metric's bar group
         group_center_y = y_pos - group_height / 2
 
-        # Metric name label (left of bars)
         ax.text(label_x, group_center_y, metric_name, fontsize=label_fontsize, color='white',
                 transform=ax.transAxes, va='center', ha='left')
 
-        # Draw bar for each player
         for i, player_data in enumerate(metric['players']):
             bar_y = y_pos - (i * (bar_height + bar_gap)) - bar_height / 2
             percentile = player_data['percentile']
             value_str = player_data['value_str']
 
-            # Background bar
             bg_rect = mpatches.FancyBboxPatch(
                 (bar_x, bar_y), bar_width, bar_height,
                 boxstyle="round,pad=0.002",
-                facecolor='#2a3a4a', edgecolor='none',
+                facecolor='#3A4A5C', edgecolor='none',
                 transform=ax.transAxes
             )
             ax.add_patch(bg_rect)
 
-            # Filled bar - use colormap or team color based on setting
-            if use_colormaps:
-                fill_color = get_percentile_color_for_player(percentile, i)
-            else:
-                fill_color = get_bar_color_for_percentile(player_colors[i], percentile)
-
+            fill_color = player_colors[i]
             fill_width = bar_width * (percentile / 100)
             fill_rect = mpatches.FancyBboxPatch(
                 (bar_x, bar_y), max(fill_width, 0.005), bar_height,
@@ -1257,14 +1191,13 @@ def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, ba
             )
             ax.add_patch(fill_rect)
 
-            # Value and percentile text (right of bars)
             val_x = bar_x + bar_width + 0.01
             ax.text(val_x, bar_y + bar_height / 2, value_str, fontsize=8, color='white',
                     transform=ax.transAxes, va='center', ha='left')
 
             pct_x = val_x + 0.04
             ax.text(pct_x, bar_y + bar_height / 2, f'{percentile:.0f}%', fontsize=8, fontweight='bold',
-                    color=fill_color, transform=ax.transAxes, va='center', ha='left')
+                    color='white', transform=ax.transAxes, va='center', ha='left')
 
         y_pos -= row_spacing
 
@@ -1330,13 +1263,10 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
             pname = pname[:max_len - 2] + '..'
 
         # Draw name centered above this player's strip
+        # No separator between names — players are peer-equivalent on the same axis,
+        # not head-to-head; "vs" framing was misleading.
         fig.text(strip_center, names_y, f"{pname} ({team_abbrev})".upper(),
                  ha='center', fontsize=name_fontsize, fontweight='bold', color='white')
-
-        # Draw "vs" between players (except after the last one)
-        if i < num_players - 1:
-            vs_x = strip_x + strip_width + gap / 2
-            fig.text(vs_x, names_y, 'vs', ha='center', fontsize=12, color='#8BA3B8')
 
     # Player info strips (height/weight/90s in team colors)
     strips_bottom = draw_player_info_strips(ax, fig, player_rows, player_colors, start_y=strips_y)
@@ -1407,8 +1337,7 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
         metrics = prepare_category_metrics(category)
         final_y = draw_grouped_bars(ax, metrics, player_colors, player_names,
                                      label_x, bar_x, y_pos, bar_width=bar_width,
-                                     bar_height=bar_height, row_spacing=row_spacing,
-                                     use_colormaps=False)
+                                     bar_height=bar_height, row_spacing=row_spacing)
         return final_y - category_gap  # Gap before next category
 
     # Draw left column (Scoring, Chance Creation, Passing)
@@ -1420,25 +1349,36 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
 
     # Draw right column (Dribbling, Defensive)
     y_right = y_start
-    for cat in ['DRIBBLING', 'DEFENSIVE']:
+    for cat in ['PROGRESSION', 'DEFENSIVE']:
         y_right = draw_category_section(cat, right_label_x, right_bar_x, y_right)
 
-    # Lower right info box - all elements stacked vertically, right-aligned
-    # Spaced out to avoid any overlap
-    info_x = 0.98  # Right edge
-    legend_y = 0.09
-    note_y = 0.065
-    brand_y = 0.038
-    data_y = 0.015
+    # ── Abbreviations box (mid-right, consistency with single-player) ────
+    abbrev_x = 0.68
+    abbrev_y = 0.13
+    ax.text(abbrev_x, abbrev_y + 0.02, 'ABBREVIATIONS', fontsize=8,
+            fontweight='bold', color='#556B7F', transform=ax.transAxes)
+    for i, (ab, full) in enumerate([
+        ('xG/Shot', 'Expected Goals per Shot'),
+        ('xA',      'Expected Assists'),
+        ('npxG+xA', 'Non-Penalty xG + xA'),
+    ]):
+        y = abbrev_y - (i * 0.018)
+        ax.text(abbrev_x, y, ab, fontsize=7, color='white', fontweight='bold',
+                transform=ax.transAxes, va='center')
+        ax.text(abbrev_x + 0.06, y, f'= {full}', fontsize=7, color='#888888',
+                transform=ax.transAxes, va='center')
 
-    # Player legend row
-    for i, (pname, color) in enumerate(reversed(list(zip(player_names, player_colors)))):
-        idx = num_players - 1 - i
-        display_name = player_rows[idx]['playerFullName'] if 'playerFullName' in player_rows[idx].index else player_rows[idx].get('Player', '')
+    # ── Compact player legend (bottom-left) ──────────────────────────────
+    # Reinforces "color = player" as a backup to the team-colored info strips
+    legend_y = 0.04
+    legend_start_x = 0.04
+    for i, (pname, color) in enumerate(zip(player_names, player_colors)):
+        item_x = legend_start_x + i * 0.13
+        display_name = (player_rows[i]['playerFullName']
+                        if 'playerFullName' in player_rows[i].index
+                        else player_rows[i].get('Player', ''))
         if len(display_name) > 18:
             display_name = display_name[:16] + '..'
-        # Position from right
-        item_x = info_x - (i + 1) * 0.15
         swatch = mpatches.Rectangle((item_x, legend_y), 0.012, 0.012,
                                      facecolor=color, edgecolor='none',
                                      transform=ax.transAxes)
@@ -1446,18 +1386,13 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
         ax.text(item_x + 0.015, legend_y + 0.006, display_name,
                 fontsize=8, color='white', transform=ax.transAxes, va='center')
 
-    # Color intensity note
-    ax.text(info_x, note_y, 'Bar intensity reflects percentile (lighter = lower, darker = higher)',
-            fontsize=7, color='#556B7F', transform=ax.transAxes, va='center', ha='right')
-
-    # Data attribution
+    # ── Footer ───────────────────────────────────────────────────────────
+    info_x = 0.98
     league_category = get_league_category(player_rows[0].get('newestLeague', ''))
     footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s'
-    fig.text(info_x, brand_y, footer_right,
+    fig.text(info_x, 0.038, footer_right,
              fontsize=8, color='#666666', ha='right')
-
-    # CBS SPORTS branding (bottom)
-    fig.text(info_x, data_y, 'CBS SPORTS', fontsize=10, fontweight='bold',
+    fig.text(info_x, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
              color=CBS_BLUE, ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -1546,7 +1481,7 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
     # Draw grouped bars
     draw_grouped_bars(ax, metrics, player_colors, player_names,
                       label_x, bar_x, bars_start_y, bar_width=bar_width, bar_height=0.028,
-                      row_spacing=row_spacing, use_colormaps=False, label_fontsize=15)
+                      row_spacing=row_spacing, label_fontsize=15)
 
     # Footer
     league_category = get_league_category(player_rows[0].get('newestLeague', ''))
@@ -1617,7 +1552,7 @@ def run(config):
 
         # Individual category charts
         print("\nGenerating individual category charts...")
-        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+        categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']
         for category in categories:
             cat_slug = category.lower().replace(' ', '_')
             cat_output_path = os.path.join(output_folder, f"player_comparison_multi_{safe_names}_{cat_slug}.png")
@@ -1676,7 +1611,7 @@ def run(config):
 
     # Individual category charts
     print("\nGenerating individual category charts...")
-    categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+    categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']
     for category in categories:
         cat_slug = category.lower().replace(' ', '_')
         cat_output_path = os.path.join(output_folder, f"player_comparison_{safe_name}_{cat_slug}.png")
@@ -1787,7 +1722,7 @@ def main():
 
     # Individual category charts
     print("\nGenerating individual category charts...")
-    categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'DRIBBLING', 'DEFENSIVE']
+    categories = ['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']
     for category in categories:
         cat_slug = category.lower().replace(' ', '_')
         cat_output_path = os.path.join(output_folder, f"player_comparison_{safe_name}_{cat_slug}.png")

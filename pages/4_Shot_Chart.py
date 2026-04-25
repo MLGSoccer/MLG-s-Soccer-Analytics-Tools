@@ -22,12 +22,14 @@ from mostly_finished_charts.shot_chart import (
     HIGHLIGHT_CATEGORIES,
     ensure_pitch_contrast,
     color_distance,
+    compute_pen_stats,
+    reconcile_team_goals,
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team,
     build_shot_chart_single, build_shot_chart_multi, build_shots_for_player,
-    get_player_game_count, get_player_total_minutes,
+    get_player_game_count, get_player_total_minutes, get_player_all_minutes,
 )
 from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
@@ -75,36 +77,38 @@ def _load_multi_match(file_content, exclude_penalties):
 
 # ── Chart generation helpers ──────────────────────────────────────────────────
 
-_CONTRAST_PALETTE = [
-    '#E74C3C', '#3498DB', '#F39C12', '#9B59B6',
-    '#1ABC9C', '#E8D44D', '#E91E8C', '#FF6B35',
-]
-
 def _ensure_team_contrast(team1_name, team2_name, team_colors):
-    """If the two team colors are too similar, auto-replace team2's color with the
-    palette entry most distinct from team1's color. Returns (updated_team_colors, adjusted).
+    """If the two team colors are too similar, swap one team to its
+    team-specific alternate color (from shared TEAM_ALTERNATE_COLORS).
+    Returns (updated_team_colors, adjusted).
     """
-    from shared.colors import TEAM_COLORS, fuzzy_match_team
+    from shared.colors import TEAM_COLORS, fuzzy_match_team, check_color_similarity
 
-    def _resolve(name, tc):
+    def _resolve_raw(name, tc):
         if name in tc and tc[name]:
-            return ensure_pitch_contrast(tc[name])
+            return tc[name]
         for k, v in tc.items():
             if name.lower() in k.lower() or k.lower() in name.lower():
-                return ensure_pitch_contrast(v)
+                return v
         c, _, _ = fuzzy_match_team(name, TEAM_COLORS)
-        return ensure_pitch_contrast(c) if c else '#888888'
+        return c if c else '#888888'
 
-    c1 = _resolve(team1_name, team_colors)
-    c2 = _resolve(team2_name, team_colors)
+    c1_raw = _resolve_raw(team1_name, team_colors)
+    c2_raw = _resolve_raw(team2_name, team_colors)
 
-    if color_distance(c1, c2) >= 100:
+    # check_color_similarity returns (color1, color2, use_different_line_styles);
+    # in non-interactive mode it swaps one team to its alternate if too similar.
+    c1_fixed, c2_fixed, _ = check_color_similarity(
+        c1_raw, c2_raw, team1_name, team2_name, threshold=50, interactive=False
+    )
+
+    adjusted = (c1_fixed != c1_raw) or (c2_fixed != c2_raw)
+    if not adjusted:
         return team_colors, False
 
-    best = max(_CONTRAST_PALETTE, key=lambda c: color_distance(c1, c))
     updated = dict(team_colors)
-    updated[team1_name] = c1
-    updated[team2_name] = best
+    updated[team1_name] = c1_fixed
+    updated[team2_name] = c2_fixed
     return updated, True
 
 
@@ -138,10 +142,22 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
     team1_final_score = match_info.get('home_score', 0)
     team2_final_score = match_info.get('away_score', 0)
 
-    team1_shot_goals = len(team1_shots[team1_shots['playType'].isin(GOAL_TYPES)])
-    team2_shot_goals = len(team2_shots[team2_shots['playType'].isin(GOAL_TYPES)])
-    team1_own_goals = max(0, team1_final_score - team1_shot_goals)
-    team2_own_goals = max(0, team2_final_score - team2_shot_goals)
+    # Reconcile each team's shot goals with the scoreline (handles OG + pen).
+    pen_map = match_info.get('pen_stats_by_team') or {}
+    t1_breakdown = reconcile_team_goals(
+        team1_shots, team1_final_score,
+        pen_map.get(team1_name) or compute_pen_stats(team1_shots),
+        exclude_penalties,
+    )
+    t2_breakdown = reconcile_team_goals(
+        team2_shots, team2_final_score,
+        pen_map.get(team2_name) or compute_pen_stats(team2_shots),
+        exclude_penalties,
+    )
+    team1_shot_goals = t1_breakdown.shot_goals
+    team2_shot_goals = t2_breakdown.shot_goals
+    team1_own_goals = t1_breakdown.own_goals
+    team2_own_goals = t2_breakdown.own_goals
 
     shooter_col = 'shooter' if 'shooter' in shots_df.columns else 'Player'
     player1_name = None
@@ -624,20 +640,28 @@ if data_source == "Database":
                             player_shots = shots_df[shots_df['shooter'] == selected_player]
                             if selected_player_team:
                                 player_shots = player_shots[player_shots['Team'] == selected_player_team]
+                        # Match the chart's filter so page metrics and chart stats agree.
+                        if exclude_penalties and 'ShotPlayStyle' in player_shots.columns:
+                            player_shots = player_shots[player_shots['ShotPlayStyle'] != 'Penalty']
                         p_shots = len(player_shots)
                         p_xg = player_shots['xG'].sum()
                         p_goals = len(player_shots[player_shots['playType'].isin(GOAL_TYPES)])
 
                         # Try per-90 stats from player_game_minutes (Shots For mode only).
-                        # Use selected_game_ids so minutes include games where player played
-                        # but didn't shoot, and p_matches reflects actual appearances.
+                        # For multi-team players (player_full_shots populated) the shot totals
+                        # span every team they played for, so minutes must too -- use
+                        # get_player_all_minutes. Otherwise scope minutes to the selected
+                        # team's games so they line up with the displayed shots.
                         p_matches = player_shots['_match_id'].nunique()
                         p_minutes = None
                         if not shots_against:
                             try:
-                                p_minutes, p_games = get_player_total_minutes(
-                                    selected_player, selected_game_ids
-                                )
+                                if player_full_shots is not None and not player_full_shots.empty:
+                                    p_minutes, p_games = get_player_all_minutes(selected_player)
+                                else:
+                                    p_minutes, p_games = get_player_total_minutes(
+                                        selected_player, selected_game_ids
+                                    )
                                 if p_games:
                                     p_matches = p_games
                             except Exception:
@@ -673,6 +697,11 @@ if data_source == "Database":
                                 chart_info['total_matches'] = chart_shots['_match_id'].nunique()
                             else:
                                 chart_shots = shots_df
+
+                            # Prefer games-played over games-with-shots so the chart's
+                            # "Matches" stat lines up with the minutes denominator.
+                            if selected_player and p_matches:
+                                chart_info['total_matches'] = p_matches
 
                             if chart_shots.empty:
                                 st.error(f"No shots found for {selected_player or team_name}")

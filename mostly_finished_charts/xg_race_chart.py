@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
-from matplotlib import patheffects
+from matplotlib.transforms import blended_transform_factory
+from colorsys import rgb_to_hls, hls_to_rgb
 import numpy as np
 import os
 from datetime import datetime
@@ -13,7 +14,61 @@ from shared.colors import (
     hex_to_rgb, color_distance, check_color_similarity, fuzzy_match_team,
     prompt_ambiguous_choice
 )
-from shared.styles import BG_COLOR
+from shared.styles import (
+    BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+    add_cbs_footer, BROADCAST_FIGSIZE,
+)
+
+
+# ── Color contrast helpers (ported from xG race mockup) ─────────────────────
+
+def _luminance(hex_color):
+    """sRGB relative luminance per WCAG 2.x.
+
+    Note: shared.colors.hex_to_rgb returns channels already in 0-1 range
+    (unlike shot_chart.colors.hex_to_rgb which returns 0-255). Don't
+    re-normalize here or luminance collapses to ~0 for everything.
+    """
+    r, g, b = hex_to_rgb(hex_color)
+    def _ch(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+
+def _wcag_contrast(c1, c2):
+    L1, L2 = _luminance(c1), _luminance(c2)
+    return (max(L1, L2) + 0.05) / (min(L1, L2) + 0.05)
+
+
+def _lighten_hsl(hex_color, l_delta=0.08):
+    """Raise HSL lightness, preserving hue and saturation.
+
+    Avoids the desaturation problem of RGB-channel-add lightening (which
+    pushes dark blues toward washed-out sky blue instead of 'brighter blue').
+    shared.colors.hex_to_rgb already returns 0-1 channels, so no /255 here.
+    """
+    r, g, b = hex_to_rgb(hex_color)
+    h, l, s = rgb_to_hls(r, g, b)
+    l = min(1.0, l + l_delta)
+    r, g, b = hls_to_rgb(h, l, s)
+    return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+
+def _ensure_line_contrast(color, min_ratio=3.5):
+    """Return a variant of `color` with WCAG contrast >= min_ratio against BG.
+
+    Thin chart lines need more perceptual contrast than text; the shot-chart
+    text check at RGB distance 100 misses muddy dark-hue-on-dark-BG cases.
+    Lightens in HSL space to preserve brand hue/saturation.
+    """
+    if _wcag_contrast(color, BG_COLOR) >= min_ratio:
+        return color
+    current = color
+    for _ in range(10):
+        current = _lighten_hsl(current, 0.08)
+        if _wcag_contrast(current, BG_COLOR) >= min_ratio:
+            return current
+    return '#FFFFFF'
 
 # Try to import web scraping libraries
 try:
@@ -158,36 +213,6 @@ def fetch_fbref_data(url):
     except Exception as e:
         print(f"⚠ Error parsing data: {e}")
         return None
-
-def parse_shot_data_manual():
-    """Get shot data from user input (manual method)"""
-    print("\n" + "="*60)
-    print("PASTE YOUR SHOT DATA")
-    print("="*60)
-    print("Paste the formatted shot list, then press Enter twice:\n")
-    print("Example format:")
-    print("shots = [")
-    print('    (22, "Real Madrid", 0.54, "Goal"),')
-    print('    (38, "Barcelona", 0.36, "Goal"),')
-    print("]")
-    print("\nPaste here:")
-
-    lines = []
-    while True:
-        line = input()
-        if line == "":
-            break
-        lines.append(line)
-
-    # Parse the pasted data
-    full_text = '\n'.join(lines)
-
-    # Execute the pasted code to extract the shots list
-    local_vars = {}
-    exec(full_text, {}, local_vars)
-    shots = local_vars.get('shots', [])
-
-    return shots, None
 
 def parse_trumedia_csv(file_path):
     """Parse TruMedia event log CSV to extract shot data"""
@@ -732,515 +757,482 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
     }
 
 
-def _draw_events_box(ax, goal_scorers, red_cards, team_info, own_goals=None):
-    """Draw goal scorers, own goals, and red cards in a box in the upper-left corner.
+# ── Step-line geometry helpers ──────────────────────────────────────────────
 
-    goal_scorers: list of {minute, player, team, pen} dicts
-    red_cards:    list of {minute, player, team, card_type} dicts
-    own_goals:    list of {minute, team} dicts (team = credited team)
+def _cumulative_xg(shots, team_name):
+    """Build (xs, ys, total_xg) for a team's cumulative xG step line.
+
+    Each shot contributes two points at the same minute: (m, before) and
+    (m, after). Step-post rendering uses these to produce the vertical jump
+    at each shot.
     """
-    import difflib
-
-    own_goals = own_goals or []
-    if not goal_scorers and not red_cards and not own_goals:
-        return
-
-    team1_name = team_info['team1']['name']
-    team1_color = team_info['team1']['color']
-    team2_name = team_info['team2']['name']
-    team2_color = team_info['team2']['color']
-
-    def _team_color(team_name):
-        if not team_name:
-            return '#555555'
-        s1 = difflib.SequenceMatcher(None, team_name.lower(), team1_name.lower()).ratio()
-        s2 = difflib.SequenceMatcher(None, team_name.lower(), team2_name.lower()).ratio()
-        return team1_color if s1 >= s2 else team2_color
-
-    def _trunc(s, max_chars=24):
-        return s if len(s) <= max_chars else s[:max_chars - 1] + '\u2026'
-
-    # Merge goals and cards into one chronological list: (minute, text, color, marker)
-    # marker is 'circle' for goals, 'card' for red cards
-    events = []
-    for gs in goal_scorers:
-        label = f"{gs['minute']}' {gs['player']}"
-        if gs.get('pen'):
-            label += ' (P)'
-        events.append((gs['minute'], _trunc(label), _team_color(gs['team']), 'circle'))
-    for og in own_goals:
-        label = f"{og['minute']}' Own Goal"
-        events.append((og['minute'], _trunc(label), _team_color(og['team']), 'circle'))
-    for rc in red_cards:
-        label = f"{rc['minute']}' {rc['player']}"
-        events.append((rc['minute'], _trunc(label), _team_color(rc['team']), 'card'))
-    events.sort(key=lambda x: x[0])
-
-    BOX_BG   = '#EDF1F7'
-    BOX_EDGE = '#C4D0DF'
-    CBS_BLUE = '#00325B'
-    FONT     = 'Segoe UI'
-
-    box_top = 0.97
-
-    line_h   = 0.062
-    pad      = 0.013
-    accent_h = 0.014
-    header_h = 0.065
-    box_x    = 0.01
-    marker_x = box_x + pad + 0.011   # centre x of marker symbol
-    text_x   = box_x + pad + 0.028   # text starts after marker area
-
-    # Box width fitted to longest label (fontsize=10, Segoe UI, ~16" wide axes)
-    CHAR_W = 0.0048   # axes units per character at this font/figure size
-    longest = max((len(t) for _, t, _, _ in events), default=10)
-    box_w = text_x - box_x + longest * CHAR_W + pad
-    box_w = max(box_w, 0.14)  # floor so header always fits
-
-    box_h = accent_h + header_h + pad + len(events) * line_h + pad
-
-    # Outer box
-    ax.add_patch(mpatches.FancyBboxPatch(
-        (box_x, box_top - box_h), box_w, box_h,
-        boxstyle='round,pad=0.005',
-        facecolor=BOX_BG, edgecolor=BOX_EDGE, linewidth=1.0,
-        transform=ax.transAxes, zorder=10, alpha=0.96, clip_on=False,
-    ))
-    # CBS blue accent bar at top
-    ax.add_patch(mpatches.FancyBboxPatch(
-        (box_x, box_top - accent_h), box_w, accent_h,
-        boxstyle='round,pad=0.003',
-        facecolor=CBS_BLUE, edgecolor='none',
-        transform=ax.transAxes, zorder=11, clip_on=False,
-    ))
-    # "KEY EVENTS" header - letter-spaced
-    ax.text(
-        box_x + pad, box_top - accent_h - header_h / 2,
-        '\u2009'.join('KEY') + '  ' + '\u2009'.join('EVENTS'),
-        transform=ax.transAxes, fontsize=8.5, fontweight='bold',
-        fontfamily=FONT, color='#1A2D42', va='center', zorder=12, clip_on=False,
+    pts = sorted(
+        [(float(m), float(xg)) for (m, t, xg, _o) in shots if t == team_name],
+        key=lambda x: x[0],
     )
-    # Hairline separator
-    sep_y = box_top - accent_h - header_h - 0.004
-    ax.plot([box_x + pad, box_x + box_w - pad], [sep_y, sep_y],
-            color=BOX_EDGE, linewidth=0.8,
-            transform=ax.transAxes, zorder=11, clip_on=False)
-
-    y = sep_y - pad
-    for _, text, color, marker in events:
-        cy = y - line_h * 0.36   # visual midline of each row
-
-        if marker == 'circle':
-            ax.plot([marker_x], [cy], 'o',
-                    color=color, markersize=7,
-                    markeredgecolor=BOX_BG, markeredgewidth=0.8,
-                    transform=ax.transAxes, zorder=12, clip_on=False)
-        elif marker == 'card':
-            card_w, card_h = 0.007, 0.016
-            ax.add_patch(mpatches.FancyBboxPatch(
-                (marker_x - card_w / 2, cy - card_h / 2),
-                card_w, card_h,
-                boxstyle='round,pad=0.001',
-                facecolor='#CC2222', edgecolor='#991111', linewidth=0.5,
-                transform=ax.transAxes, zorder=12, clip_on=False,
-            ))
-
-        ax.text(
-            text_x, cy, text,
-            transform=ax.transAxes,
-            fontsize=10.0, fontfamily=FONT,
-            fontweight='semibold', color=color,
-            va='center', zorder=11, clip_on=False,
-        )
-        y -= line_h
+    xs = [0.0]
+    ys = [0.0]
+    running = 0.0
+    for m, xg in pts:
+        xs.append(m)
+        ys.append(running)
+        running += xg
+        xs.append(m)
+        ys.append(running)
+    return xs, ys, running
 
 
-def create_gradient_background(ax, color1='#FFFFFF', color2='#F0F0F0'):
-    """Create a glossy gradient background with shine effect"""
-    gradient = np.linspace(0, 1, 512).reshape(512, 1)
-    gradient = np.hstack((gradient, gradient))
-    
-    rgb1 = hex_to_rgb(color1)
-    rgb2 = hex_to_rgb(color2)
-    
-    # Create color array with glossy curve
-    colors = np.zeros((512, 2, 3))
-    for i in range(3):
-        # Add a glossy curve to the gradient
-        glossy_curve = gradient ** 0.7  # Makes it more glossy
-        colors[:, :, i] = rgb1[i] + (rgb2[i] - rgb1[i]) * glossy_curve
-    
-    ax.imshow(colors, extent=[ax.get_xlim()[0], ax.get_xlim()[1], 
-                              ax.get_ylim()[0], ax.get_ylim()[1]], 
-              aspect='auto', zorder=0, alpha=0.5)
+def _xg_at_minute(xs, ys, minute):
+    """Return the step-line y-value at a given minute.
+
+    Matches the 'post' step semantics: for a minute at which a shot occurs,
+    returns the post-step (after-shot) value because the duplicate (m, after)
+    point follows the (m, before) point in the xs/ys sequence.
+    """
+    last = 0.0
+    for x, y in zip(xs, ys):
+        if x <= minute:
+            last = y
+        else:
+            break
+    return last
+
+
+def _precise_goal_minute(shots, team, int_min):
+    """Resolve an integer goal minute to the precise float minute of the shot.
+
+    goal_scorers carries integer minutes (floor of gameClock/60) but shots
+    carry the exact float — we need the float so a goal marker lands on the
+    TOP of its step, not on the pre-step line value.
+    """
+    for m, t, _xg, outcome in shots:
+        if t == team and int(m) == int_min and outcome == 'Goal':
+            return m
+    return float(int_min)
+
+
+# Y-axis fractions (axes coords) at which goal labels can stack above the
+# plot. Level 0 is closest to the plot; later levels sit further up.
+GOAL_LABEL_Y_LEVELS = (1.04, 1.13, 1.22)
+
+
+def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
+    """Assign each goal an (x_side, y_level) so labels don't collide.
+
+    Mutates each goal dict in place, adding:
+      - 'x_side': 'left' or 'right' — which side of the minute marker to
+        anchor the label text.
+      - 'y_level': int index into GOAL_LABEL_Y_LEVELS — which stacking row
+        the label occupies.
+
+    Placement rules:
+      - Near-left goals (< near_edge minutes in) prefer right-side labels
+        so they don't run off the chart.
+      - Near-right goals (within near_edge of chart_max) prefer left-side.
+      - Prefer level 0 (closest to plot) on the natural side first.
+      - If level 0 conflicts, try flipping an earlier level-0 label's side
+        so both stay at the bottom stack instead of elevating this one.
+      - Fall back to higher y-levels only if flipping can't resolve.
+    """
+    def _label_range(minute, side):
+        if side == 'right':
+            return (minute, minute + label_width)
+        return (minute - label_width, minute)
+
+    def _overlaps(m_new, s_new, placed):
+        lo_new, hi_new = _label_range(m_new, s_new)
+        for m_p, s_p, _lv in placed:
+            lo_p, hi_p = _label_range(m_p, s_p)
+            if max(lo_new, lo_p) < min(hi_new, hi_p):
+                return True
+        return False
+
+    placed = []  # (minute, x_side, level)
+    for ev in goals:
+        near_right = (chart_max - ev['minute']) < near_edge
+        near_left = ev['minute'] < near_edge
+        if near_left:
+            sides = ['right']
+        elif near_right:
+            sides = ['left', 'right']
+        else:
+            sides = ['right', 'left']
+
+        def _free_at(m, s, lv, placed=placed):
+            return not _overlaps(m, s, [(mp, sp, lp) for mp, sp, lp in placed if lp == lv])
+
+        chosen_side, chosen_level = None, None
+        # Step 1: natural side, level 0
+        for s in sides:
+            if _free_at(ev['minute'], s, 0):
+                chosen_side, chosen_level = s, 0
+                break
+
+        # Step 2: try flipping an earlier level-0 label to keep both at bottom
+        flip_target = None
+        if chosen_side is None and not near_left:
+            for j, (mp, sp, lp) in enumerate(placed):
+                if lp != 0:
+                    continue
+                alt_s = 'left' if sp == 'right' else 'right'
+                others_lv0 = [(mk, sk, lk) for k, (mk, sk, lk) in enumerate(placed)
+                              if k != j and lk == 0]
+                if _overlaps(mp, alt_s, others_lv0):
+                    continue
+                tentative = others_lv0 + [(mp, alt_s, 0)]
+                for s in sides:
+                    if not _overlaps(ev['minute'], s, tentative):
+                        flip_target = (j, mp, alt_s)
+                        chosen_side, chosen_level = s, 0
+                        break
+                if chosen_side is not None:
+                    break
+
+        # Step 3: elevate to higher y-levels
+        if chosen_side is None:
+            for lv in range(len(GOAL_LABEL_Y_LEVELS)):
+                for s in sides:
+                    if _free_at(ev['minute'], s, lv):
+                        chosen_side, chosen_level = s, lv
+                        break
+                if chosen_side is not None:
+                    break
+
+        if chosen_side is None:
+            chosen_side, chosen_level = sides[0], len(GOAL_LABEL_Y_LEVELS) - 1
+
+        if flip_target is not None:
+            j, mp, alt_s = flip_target
+            placed[j] = (mp, alt_s, 0)
+            goals[j]['x_side'] = alt_s
+
+        placed.append((ev['minute'], chosen_side, chosen_level))
+        ev['x_side'] = chosen_side
+        ev['y_level'] = chosen_level
+
+
+def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count):
+    """Draw the endpoint marker plus paired xG + shot-count labels.
+
+    If label_y != xg_val, a small leader line connects the marker on the
+    line to the offset label (used when the two teams' endpoint xG values
+    are close enough to collide vertically).
+    """
+    ax.plot(last_min, xg_val, marker='o', markersize=7,
+            markerfacecolor=color, markeredgecolor=BG_COLOR,
+            markeredgewidth=1.5, zorder=5)
+    if label_y != xg_val:
+        ax.plot([last_min, last_min + 1.0], [xg_val, label_y],
+                color=color, linewidth=0.8, alpha=0.55, zorder=4)
+    ax.text(last_min + 1.5, label_y, f'{xg_val:.2f}',
+            color=color, fontsize=14, fontweight='bold',
+            va='bottom', ha='left')
+    ax.text(last_min + 1.5, label_y, f'{shots_count} shots',
+            color=color, fontsize=11, alpha=0.9,
+            va='top', ha='left')
+
 
 def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goals=None):
-    """Create the xG race chart with CBS Sports styling and enhancements"""
-    # Separate shots by team
-    team1_name = team_info['team1']['name']
-    team2_name = team_info['team2']['name']
+    """Create the xG race chart.
 
-    # Check if we need to use different line styles for similar colors
-    use_different_styles = team_info.get('different_line_styles', False)
-    team2_linestyle = '--' if use_different_styles else '-'
+    Design: mockup port from mockups/xg_race_redesign_mockup.py.
+      - Dark CBS theme, kicker + centered score title + team-color accent bar
+      - Goal labels above the plot with 3-level collision-avoidance stagger
+      - Running score in each goal label
+      - Red cards as dash-dot line stopping at the affected team's step
+      - Endpoint xG + shot count at each line's end
+      - HALF TIME marker
+      - No redundant bottom stats row
+    """
+    goal_scorers = goal_scorers or []
+    red_cards = red_cards or []
+    # team_info carries own_goals (benefiting-team format) from get_team_info;
+    # prefer that over any passed-in list so callers that have both stay consistent.
+    own_goals = team_info.get('own_goals', own_goals or [])
 
-    team1_shots = sorted([(m, xg, outcome) for m, team, xg, outcome in shots if team == team1_name], key=lambda x: x[0])
-    team2_shots = sorted([(m, xg, outcome) for m, team, xg, outcome in shots if team == team2_name], key=lambda x: x[0])
-    
-    # SAFETY CHECK: Handle teams with zero shots
-    if not team1_shots and not team2_shots:
-        print("\n⚠ Error: No shots found for either team!")
-        print("This might be due to team name mismatch.")
-        print(f"Expected: {team1_name} and {team2_name}")
-        print(f"Found in data: {list(set(shot[1] for shot in shots))}")
+    # ── Resolve team identity + colors ──────────────────────────────────────
+    home = team_info['team1']['name']
+    away = team_info['team2']['name']
+    raw_home = team_info['team1']['color']
+    raw_away = team_info['team2']['color']
+
+    # Swap one side to its alternate if the two primaries clash, then apply
+    # WCAG-based lightening so both lines read against the dark background.
+    swapped_home, swapped_away, _ = check_color_similarity(
+        raw_home, raw_away, home, away, threshold=50, interactive=False
+    )
+    home_color = _ensure_line_contrast(swapped_home)
+    away_color = _ensure_line_contrast(swapped_away)
+
+    # ── Split shots by team, build step-line data ───────────────────────────
+    home_x, home_y, home_xg = _cumulative_xg(shots, home)
+    away_x, away_y, away_xg = _cumulative_xg(shots, away)
+
+    # Safety: a match with zero shots on a side shouldn't crash
+    home_shots = [s for s in shots if s[1] == home]
+    away_shots = [s for s in shots if s[1] == away]
+    if not home_shots and not away_shots:
+        print("No shots found for either team -- cannot render xG race")
         return None
-    
-    # Handle case where one team has no shots (rare but possible)
-    if not team1_shots:
-        print(f"\n⚠ Warning: {team1_name} has ZERO shots in this match!")
-        team1_shots = [(0, 0.0, "None")]  # Dummy shot to prevent crashes
-    if not team2_shots:
-        print(f"\n⚠ Warning: {team2_name} has ZERO shots in this match!")
-        team2_shots = [(0, 0.0, "None")]  # Dummy shot to prevent crashes
-    
-    # Calculate cumulative xG
-    team1_minutes = [0] + [shot[0] for shot in team1_shots]
-    team1_xg_cumulative = [0]
-    for shot in team1_shots:
-        team1_xg_cumulative.append(team1_xg_cumulative[-1] + shot[1])
-    
-    team2_minutes = [0] + [shot[0] for shot in team2_shots]
-    team2_xg_cumulative = [0]
-    for shot in team2_shots:
-        team2_xg_cumulative.append(team2_xg_cumulative[-1] + shot[1])
-    
-    # Count goals and calculate final xG
-    team1_goals = sum(1 for shot in team1_shots if shot[2] == "Goal")
-    team2_goals = sum(1 for shot in team2_shots if shot[2] == "Goal")
-    
-    # Add own goals to goal count
-    own_goals = team_info.get('own_goals', [])
-    for og in own_goals:
-        if og['team'] == team1_name:
-            team1_goals += 1
-        elif og['team'] == team2_name:
-            team2_goals += 1
-    
-    final_xg1 = team1_xg_cumulative[-1]
-    final_xg2 = team2_xg_cumulative[-1]
-    
-    # Determine x-axis limit based on extra time and actual shot data
+
+    # Extend lines to end of regulation / extra time
     has_extra_time = team_info.get('extra_time', False)
-
-    # Find the latest shot minute from actual data
-    all_shot_minutes = [shot[0] for shot in team1_shots] + [shot[0] for shot in team2_shots]
+    all_shot_minutes = [s[0] for s in shots]
     max_shot_minute = max(all_shot_minutes) if all_shot_minutes else 0
-
     if has_extra_time:
-        x_limit = 125  # Extra time extends to ~120 minutes
-        print("✓ Chart adjusted for extra time (0-125 minutes)")
+        last_min = 125
     elif max_shot_minute > 95:
-        # Extend for late stoppage time shots
-        x_limit = max_shot_minute + 3
-        print(f"✓ Chart extended for stoppage time (0-{x_limit} minutes)")
+        last_min = int(max_shot_minute) + 3
     else:
-        x_limit = 95  # Regular time
-    
-    # Extend lines to end of match
-    team1_minutes.append(x_limit)
-    team1_xg_cumulative.append(final_xg1)
-    team2_minutes.append(x_limit)
-    team2_xg_cumulative.append(final_xg2)
-    
-    # SAFETY CHECK: Ensure reasonable y-axis scaling
-    max_xg = max(final_xg1, final_xg2)
-    if max_xg < 0.1:
-        # Very low xG match - set minimum y-axis to 0.5 for readability
-        y_limit = 0.5
-        print("✓ Chart adjusted for low xG match (minimum y-axis: 0.5)")
-    else:
-        y_limit = max_xg * 1.15
-    
-    # CBS Sports styling setup
-    fig, ax = plt.subplots(figsize=(16, 9))
-    fig.patch.set_facecolor('#1A2332')  # Darker cinematic outer
-    ax.set_facecolor('#FFFFFF')  # Pure white inner for contrast
-    
-    # Set axis limits first for gradient
-    ax.set_xlim(0, x_limit)
-    ax.set_ylim(0, y_limit)
-    
-    # CINEMATIC EFFECT 1: Rich gradient background
-    create_gradient_background(ax, '#F8FBFF', '#D5E5F5')
-    
-    # Vignette effect rectangles adjusted for dynamic x_limit
-    from matplotlib.patches import Rectangle
-    # Top vignette
-    for i in range(20):
-        alpha = 0.015 * (i / 20)
-        rect = Rectangle((0, ax.get_ylim()[1] * (1 - i/40)), x_limit, ax.get_ylim()[1] * (i/40),
-                        facecolor='#1A2332', alpha=alpha, zorder=0.3, transform=ax.transData)
-        ax.add_patch(rect)
-    # Bottom vignette
-    for i in range(20):
-        alpha = 0.015 * (i / 20)
-        rect = Rectangle((0, 0), x_limit, ax.get_ylim()[1] * (i/40),
-                        facecolor='#1A2332', alpha=alpha, zorder=0.3, transform=ax.transData)
-        ax.add_patch(rect)
-    # Left vignette
-    for i in range(15):
-        alpha = 0.02 * (i / 15)
-        rect = Rectangle((0, 0), i*2, ax.get_ylim()[1],
-                        facecolor='#1A2332', alpha=alpha, zorder=0.3, transform=ax.transData)
-        ax.add_patch(rect)
-    # Right vignette
-    for i in range(15):
-        alpha = 0.02 * (i / 15)
-        rect = Rectangle((x_limit - i*2, 0), i*2, ax.get_ylim()[1],
-                        facecolor='#1A2332', alpha=alpha, zorder=0.3, transform=ax.transData)
-        ax.add_patch(rect)
-    
-    # Add subtle radial glow from top center
-    y_vals = np.linspace(0, ax.get_ylim()[1], 100)
-    for i, y in enumerate(y_vals[:40]):
-        alpha = 0.015 * (40 - i) / 40
-        ax.axhspan(y, y + (ax.get_ylim()[1] / 100), color='white', alpha=alpha, zorder=0.5)
-    
-    # CINEMATIC EFFECT 3: Inner glow effect (darker edges, lighter center)
-    # Draw darker outer edge first
-    ax.step(team1_minutes, team1_xg_cumulative, where='post',
-            color='#000000', linewidth=8, linestyle='-',
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.25, zorder=2.3)
-    ax.step(team2_minutes, team2_xg_cumulative, where='post',
-            color='#000000', linewidth=8, linestyle=team2_linestyle,
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.25, zorder=2.3)
+        last_min = 95
+    home_x.append(float(last_min)); home_y.append(home_xg)
+    away_x.append(float(last_min)); away_y.append(away_xg)
 
-    # Draw slightly lighter middle layer
-    ax.step(team1_minutes, team1_xg_cumulative, where='post',
-            color=team_info['team1']['color'], linewidth=7, linestyle='-',
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.6, zorder=2.5)
-    ax.step(team2_minutes, team2_xg_cumulative, where='post',
-            color=team_info['team2']['color'], linewidth=7, linestyle=team2_linestyle,
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.6, zorder=2.5)
-
-    # CINEMATIC EFFECT 4: Bright center glow for inner glow effect
-    # Brightest center layer (creates the "inner glow")
-    ax.step(team1_minutes, team1_xg_cumulative, where='post',
-            color=team_info['team1']['color'], linewidth=4, linestyle='-',
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.9, zorder=2.7)
-    ax.step(team2_minutes, team2_xg_cumulative, where='post',
-            color=team_info['team2']['color'], linewidth=4, linestyle=team2_linestyle,
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.9, zorder=2.7)
-
-    # Thin bright highlight in the very center
-    ax.step(team1_minutes, team1_xg_cumulative, where='post',
-            color='white', linewidth=1.5, linestyle='-',
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.4, zorder=2.8)
-    ax.step(team2_minutes, team2_xg_cumulative, where='post',
-            color='white', linewidth=1.5, linestyle=team2_linestyle,
-            solid_capstyle='round', solid_joinstyle='round',
-            alpha=0.4, zorder=2.8)
-    
-    # Plot the main xG lines on top
-    line1 = ax.step(team1_minutes, team1_xg_cumulative, where='post',
-            color=team_info['team1']['color'], linewidth=6,
-            linestyle='-',
-            solid_capstyle='round', solid_joinstyle='round',
-            label=team1_name.upper(), zorder=3, antialiased=True)
-    line2 = ax.step(team2_minutes, team2_xg_cumulative, where='post',
-            color=team_info['team2']['color'], linewidth=6,
-            linestyle=team2_linestyle,
-            solid_capstyle='round', solid_joinstyle='round',
-            label=team2_name.upper(), zorder=3, antialiased=True)
-    
-    # CINEMATIC EFFECT 5: Enhanced goal markers with dramatic glow
-    for shot in team1_shots:
-        if shot[2] == "Goal":
-            idx = team1_shots.index(shot) + 1
-            # Dramatic multi-layer glow
-            ax.plot(team1_minutes[idx], team1_xg_cumulative[idx], 
-                   'o', color=team_info['team1']['color'], markersize=40, 
-                   alpha=0.08, zorder=4)
-            ax.plot(team1_minutes[idx], team1_xg_cumulative[idx], 
-                   'o', color=team_info['team1']['color'], markersize=32, 
-                   alpha=0.15, zorder=4.1)
-            ax.plot(team1_minutes[idx], team1_xg_cumulative[idx], 
-                   'o', color=team_info['team1']['color'], markersize=24, 
-                   alpha=0.35, zorder=4.2)
-            # Main goal marker with thick glossy border
-            ax.plot(team1_minutes[idx], team1_xg_cumulative[idx], 
-                   'o', color=team_info['team1']['color'], markersize=16, 
-                   markeredgecolor='white', markeredgewidth=4, zorder=5)
-            # Glossy highlight - larger and more prominent
-            ax.plot(team1_minutes[idx], team1_xg_cumulative[idx], 
-                   'o', color='white', markersize=7, 
-                   alpha=0.8, zorder=5.5)
-    
-    for shot in team2_shots:
-        if shot[2] == "Goal":
-            idx = team2_shots.index(shot) + 1
-            # Dramatic multi-layer glow
-            ax.plot(team2_minutes[idx], team2_xg_cumulative[idx], 
-                   'o', color=team_info['team2']['color'], markersize=40, 
-                   alpha=0.08, zorder=4)
-            ax.plot(team2_minutes[idx], team2_xg_cumulative[idx], 
-                   'o', color=team_info['team2']['color'], markersize=32, 
-                   alpha=0.15, zorder=4.1)
-            ax.plot(team2_minutes[idx], team2_xg_cumulative[idx], 
-                   'o', color=team_info['team2']['color'], markersize=24, 
-                   alpha=0.35, zorder=4.2)
-            # Main goal marker with thick glossy border
-            ax.plot(team2_minutes[idx], team2_xg_cumulative[idx], 
-                   'o', color=team_info['team2']['color'], markersize=16, 
-                   markeredgecolor='white', markeredgewidth=4, zorder=5)
-            # Glossy highlight
-            ax.plot(team2_minutes[idx], team2_xg_cumulative[idx], 
-                   'o', color='white', markersize=7, 
-                   alpha=0.8, zorder=5.5)
-    
-    # Mark own goals with dramatic glossy square markers
+    # ── Derive score from goals + own goals ─────────────────────────────────
+    home_score = sum(1 for g in goal_scorers if g.get('team') == home)
+    away_score = sum(1 for g in goal_scorers if g.get('team') == away)
     for og in own_goals:
-        minute = og['minute']
-        team = og['team']
-        
-        # Determine which team's line to mark and what color to use
-        if team == team1_name:
-            # Find xG value at this minute on team1's line
-            xg_at_minute = team1_xg_cumulative[0]
-            for i, m in enumerate(team1_minutes[1:], 1):
-                if m <= minute:
-                    xg_at_minute = team1_xg_cumulative[i]
-            color = team_info['team1']['color']
+        # own_goals['team'] is BENEFITING team (get_team_info convention)
+        if og.get('team') == home:
+            home_score += 1
+        elif og.get('team') == away:
+            away_score += 1
+
+    # ── Figure + axes ───────────────────────────────────────────────────────
+    fig = plt.figure(figsize=BROADCAST_FIGSIZE)
+    fig.patch.set_facecolor(BG_COLOR)
+    ax = fig.add_axes([0.07, 0.13, 0.88, 0.58])
+    ax.set_facecolor(BG_COLOR)
+
+    ax.grid(axis='y', color=SPINE_COLOR, alpha=0.25, linewidth=0.6, zorder=0)
+    ax.grid(axis='x', color=SPINE_COLOR, alpha=0.12, linewidth=0.5, zorder=0)
+    for side in ('top', 'right'):
+        ax.spines[side].set_visible(False)
+    for side in ('left', 'bottom'):
+        ax.spines[side].set_color(SPINE_COLOR)
+        ax.spines[side].set_linewidth(0.8)
+    ax.tick_params(colors=TEXT_SECONDARY, labelsize=10)
+
+    # HT line (plain dashed; red cards use dash-dot for visual distinction)
+    ht_minute = team_info.get('first_half_end_minute', 45) or 45
+    ax.axvline(ht_minute, color=SPINE_COLOR, linestyle='--', linewidth=0.8,
+               alpha=0.5, zorder=1)
+
+    # Step lines
+    ax.step(home_x, home_y, where='post', color=home_color, linewidth=2.9,
+            solid_capstyle='round', zorder=3, label=home)
+    ax.step(away_x, away_y, where='post', color=away_color, linewidth=2.9,
+            solid_capstyle='round', zorder=3, label=away)
+
+    # ── Endpoint totals: xG + shot count, offset if the two teams' final
+    # xG values are close enough to collide vertically ──────────────────────
+    sep_threshold = max(home_xg, away_xg, 0.5) * 0.07
+    if abs(home_xg - away_xg) < sep_threshold:
+        delta = sep_threshold
+        if home_xg >= away_xg:
+            home_label_y = home_xg + delta / 2
+            away_label_y = away_xg - delta / 2
         else:
-            # Find xG value at this minute on team2's line
-            xg_at_minute = team2_xg_cumulative[0]
-            for i, m in enumerate(team2_minutes[1:], 1):
-                if m <= minute:
-                    xg_at_minute = team2_xg_cumulative[i]
-            color = team_info['team2']['color']
-        
-        # Dramatic multi-layer glow for own goal
-        ax.plot(minute, xg_at_minute, 's', color=color, markersize=40, 
-               alpha=0.08, zorder=4)
-        ax.plot(minute, xg_at_minute, 's', color=color, markersize=32, 
-               alpha=0.15, zorder=4.1)
-        ax.plot(minute, xg_at_minute, 's', color=color, markersize=24, 
-               alpha=0.35, zorder=4.2)
-        # Main own goal marker with thick glossy border
-        ax.plot(minute, xg_at_minute, 's', color=color, markersize=16, 
-               markeredgecolor='white', markeredgewidth=4, zorder=5)
-        # Glossy highlight
-        ax.plot(minute, xg_at_minute, 's', color='white', markersize=7, 
-               alpha=0.8, zorder=5.5)
-    
-    # ENHANCEMENT 3: Half-time marker with cinematic style (dynamic position)
-    ht_minute = team_info.get('first_half_end_minute', 45)
-    ax.axvline(x=ht_minute, color='#00325B', linestyle='--', linewidth=2.5,
-               alpha=0.4, zorder=1)
-    # Add glow to HT marker
-    ax.axvline(x=ht_minute, color='white', linestyle='--', linewidth=1,
-               alpha=0.2, zorder=1.1)
-    ax.text(ht_minute, ax.get_ylim()[1] * 0.98, 'HT', ha='center', va='top',
-           fontsize=11, fontweight='bold', color='#00325B',
-           bbox=dict(boxstyle='round,pad=0.4', facecolor='white', 
-                    edgecolor='#00325B', linewidth=2, alpha=0.95))
-    
-    # CBS Sports axis styling - brighter for visibility
-    ax.set_xlabel('MINUTE', fontsize=14, fontweight='bold', 
-                 color='#FFFFFF', fontfamily='sans-serif', labelpad=10)
-    ax.set_ylabel('CUMULATIVE xG', fontsize=14, fontweight='bold', 
-                 color='#FFFFFF', fontfamily='sans-serif', labelpad=10)
-    
-    # CBS Sports title structure
-    # Main title with score - WHITE for contrast against dark background
-    auto_title = f'{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}'
-    display_title = team_info.get('custom_title') or auto_title
-    fig.text(0.5, 0.97, display_title,
-            ha='center', fontsize=24, fontweight='bold',
-            color='#FFFFFF', fontfamily='sans-serif',
-            path_effects=[patheffects.withStroke(linewidth=3, foreground='#1A2332')])
-
-    # Chart type label
-    fig.text(0.5, 0.94, 'xG RACE CHART',
-            ha='center', fontsize=12, fontweight='normal',
-            color='#8BA3B8', fontfamily='sans-serif', style='italic')
-
-    # Subtitle with competition, date, and xG totals - Light gray for readability
-    if team_info.get('custom_subtitle'):
-        display_subtitle = team_info['custom_subtitle']
-    elif team_info.get('date'):
-        display_subtitle = f'{team_info["competition"]} | {team_info["date"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
+            home_label_y = home_xg - delta / 2
+            away_label_y = away_xg + delta / 2
     else:
-        display_subtitle = f'{team_info["competition"]} | xG: {final_xg1:.2f} - {final_xg2:.2f}'
-    fig.text(0.5, 0.915, display_subtitle,
-            ha='center', fontsize=13, color='#B8C5D6',
-            fontfamily='sans-serif')
-    
-    # CBS Sports grid - REMOVED for cleaner picture-like aesthetic
-    # Grid removed entirely
-    ax.set_axisbelow(True)
-    
-    # Team key - part of the header package, drawn in figure space below the subtitle
-    fig.text(0.47, 0.876, '\u25CF  ' + team1_name.upper(),
-             color=team_info['team1']['color'], ha='right', fontsize=11,
-             fontweight='bold', fontfamily='sans-serif')
-    fig.text(0.50, 0.876, '|',
-             color='#556B7F', ha='center', fontsize=11, fontfamily='sans-serif')
-    fig.text(0.53, 0.876, '\u25CF  ' + team2_name.upper(),
-             color=team_info['team2']['color'], ha='left', fontsize=11,
-             fontweight='bold', fontfamily='sans-serif')
-    # Marker key - only shown when own goals are present (circle = goal, square = own goal)
-    if own_goals:
-        fig.text(0.98, 0.876, '\u25CB  goal     \u25A1  own goal',
-                 color='#8BA3B8', ha='right', fontsize=9,
-                 fontfamily='sans-serif')
+        home_label_y = home_xg
+        away_label_y = away_xg
 
-    # Events info box - goal scorers, own goals, and red cards (upper-left corner)
-    if goal_scorers or red_cards or own_goals:
-        _draw_events_box(ax, goal_scorers or [], red_cards or [],
-                         team_info, own_goals=own_goals or [])
+    _draw_endpoint(ax, last_min, home_xg, home_label_y, home_color, len(home_shots))
+    _draw_endpoint(ax, last_min, away_xg, away_label_y, away_color, len(away_shots))
 
-    # CBS Sports branding footer
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10,
-            fontweight='bold', color='#00325B', fontfamily='sans-serif')
+    # ── Goal / own-goal / red-card labels above the plot ────────────────
+    # All match events share the events row at chart top and the same
+    # collision-avoidance pool. Cards differentiated by shape (rectangle vs
+    # circle) and team-colored label vs universal-red marker/line.
+    _all_events = []
+    for g in goal_scorers:
+        _all_events.append({
+            'type': 'goal',
+            'minute': float(g.get('minute', 0)),
+            'team': g.get('team'),
+            'label': g.get('player', '') + (' (P)' if g.get('pen') else ''),
+            'og': False,
+        })
+    for og in own_goals:
+        _all_events.append({
+            'type': 'goal',
+            'minute': float(og.get('minute', 0)),
+            'team': og.get('team'),  # benefiting team
+            'label': 'OG',
+            'og': True,
+        })
+    for rc in red_cards:
+        if rc.get('card_type') not in ('red', 'second_yellow'):
+            continue
+        _all_events.append({
+            'type': 'rc',
+            'minute': float(rc.get('minute', 0)),
+            'team': rc.get('team'),
+            'label': rc.get('player', ''),
+        })
+    _all_events.sort(key=lambda x: x['minute'])
 
-    # Data source label based on input method
-    data_source = team_info.get('data_source', 'fbref')
-    if data_source == 'fbref':
-        fig.text(0.98, 0.01, 'DATA: FBREF', fontsize=8,
-                color='#999999', ha='right', fontfamily='sans-serif')
-    elif data_source == 'manual':
-        fig.text(0.98, 0.01, 'DATA: MANUAL', fontsize=8,
-                color='#999999', ha='right', fontfamily='sans-serif')
+    # Running score + side classification (only goals contribute to score)
+    _h = _a = 0
+    for ev in _all_events:
+        if ev['type'] == 'goal':
+            if ev['team'] == home:
+                _h += 1
+                ev['side'] = 'home'
+            else:
+                _a += 1
+                ev['side'] = 'away'
+            ev['score'] = f"{_h}-{_a}"
+        else:
+            # Red card: side via fuzzy match on home/away name
+            t = (ev.get('team') or '').lower()
+            affected_home = t and (t in home.lower() or home.lower() in t)
+            ev['side'] = 'home' if affected_home else 'away'
+
+    # Axes ranges. 1.05 y-multiplier = just enough sliver above the winning
+    # line for the endpoint marker; no empty sky above.
+    max_xg = max(home_xg, away_xg, 0.5) * 1.05
+    ax.set_xlim(0, last_min + 5)  # +5 for endpoint label breathing room
+    ax.set_ylim(0, max_xg)
+    if last_min <= 95:
+        ax.set_xticks([0, 15, 30, 45, 60, 75, 90])
     else:
-        fig.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8,
-                color='#999999', ha='right', fontfamily='sans-serif')
-    
-    # CBS Sports spines - softer, more artistic
-    ax.spines['top'].set_visible(False)
-    ax.spines['left'].set_linewidth(2.5)
-    ax.spines['bottom'].set_linewidth(2.5)
-    ax.spines['right'].set_visible(False)  # Remove right spine for cleaner look
-    ax.spines['left'].set_color('#00325B')
-    ax.spines['bottom'].set_color('#00325B')
-    ax.spines['left'].set_alpha(0.6)  # Softer opacity
-    ax.spines['bottom'].set_alpha(0.6)
-    
-    # CBS Sports ticks - keep but softer
-    ax.tick_params(axis='both', labelsize=11, width=1.5, colors='#556B7F', length=5)
-    # Make tick labels slightly transparent by using a lighter color
-    for label in ax.get_xticklabels() + ax.get_yticklabels():
-        label.set_alpha(0.8)
-    
-    plt.tight_layout(rect=[0, 0.03, 1, 0.855])
+        ax.set_xticks(list(range(0, last_min + 1, 15)))
+
+    # Place all event labels above the plot with collision avoidance (mutates
+    # _all_events in place, adding 'x_side' and 'y_level' per event).
+    _place_goal_labels(_all_events, chart_max=float(last_min))
+    _label_transform = blended_transform_factory(ax.transData, ax.transAxes)
+
+    _RC_COLOR = '#E53935'
+
+    for ev in _all_events:
+        side_color = home_color if ev['side'] == 'home' else away_color
+        flip_left = ev['x_side'] == 'left'
+        label_y = GOAL_LABEL_Y_LEVELS[ev['y_level']]
+        label_ha = 'right' if flip_left else 'left'
+
+        if ev['type'] == 'goal':
+            xs = home_x if ev['side'] == 'home' else away_x
+            ys = home_y if ev['side'] == 'home' else away_y
+
+            if ev['og']:
+                marker_m = ev['minute']  # no shot event for OG; line doesn't step
+            else:
+                marker_m = _precise_goal_minute(shots, ev['team'], int(ev['minute']))
+            y_at = _xg_at_minute(xs, ys, marker_m)
+
+            # Team-colored dotted vertical from top of plot DOWN TO marker on step
+            ax.plot([marker_m, marker_m], [y_at, max_xg],
+                    color=side_color, linewidth=1.0, linestyle=':',
+                    alpha=0.8, zorder=1, solid_capstyle='round')
+
+            # Marker on the step line
+            if ev['og']:
+                ax.plot(marker_m, y_at, marker='o', markersize=11,
+                        markerfacecolor=BG_COLOR, markeredgecolor=side_color,
+                        markeredgewidth=2.0, zorder=6)
+            else:
+                ax.plot(marker_m, y_at, marker='o', markersize=11,
+                        markerfacecolor=side_color, markeredgecolor='white',
+                        markeredgewidth=1.5, zorder=6)
+
+            # Anchor dot at top of plot for the label
+            ax.plot(marker_m, 1.005, 'o', transform=_label_transform,
+                    color=side_color, markersize=8, markeredgecolor='white',
+                    markeredgewidth=1.0, clip_on=False, zorder=5)
+
+            label_x = marker_m - 0.6 if flip_left else marker_m + 0.6
+            text = f"{ev['label']} ({int(ev['minute'])}')\n{ev['score']}"
+            ax.text(label_x, label_y, text,
+                    transform=_label_transform, color=side_color,
+                    fontsize=13, fontweight='bold', va='bottom', ha=label_ha,
+                    fontstyle='italic' if ev['og'] else 'normal',
+                    clip_on=False)
+
+        else:  # 'rc'
+            m = ev['minute']
+            # Universal-red dash-dot line spanning the chart
+            ax.axvline(m, color=_RC_COLOR, linewidth=1.0,
+                       linestyle='-.', alpha=0.75, zorder=2)
+
+            # Card-shaped marker at chart top edge — distinct from circles
+            card_w_min = 0.7
+            card_h_axes = 0.028
+            card = mpatches.Rectangle(
+                (m - card_w_min / 2, 1.0),
+                card_w_min, card_h_axes,
+                facecolor=_RC_COLOR, edgecolor='white', linewidth=1.5,
+                transform=_label_transform, clip_on=False, zorder=6,
+            )
+            ax.add_patch(card)
+
+            label_x = m - 0.6 if flip_left else m + 0.6
+            player = ev.get('label', '')
+            text = (f"{player} ({int(m)}')\nRED CARD"
+                    if player else f"RED CARD ({int(m)}')")
+            ax.text(label_x, label_y, text,
+                    transform=_label_transform, color=side_color,
+                    fontsize=13, fontweight='bold', va='bottom', ha=label_ha,
+                    clip_on=False)
+
+    # HT label at the top of the HT axvline
+    ax.text(ht_minute, max_xg * 0.97, 'HALF TIME', color=TEXT_SECONDARY,
+            fontsize=11, fontweight='bold', ha='center', va='top',
+            alpha=0.85, bbox=dict(facecolor=BG_COLOR, edgecolor='none', pad=2))
+
+    # Axis labels -- kicker carries chart-type ID; these describe axes
+    ax.set_xlabel('MINUTE', color=TEXT_SECONDARY, fontsize=11,
+                  fontweight='bold', labelpad=8)
+    ax.set_ylabel('CUMULATIVE xG', color=TEXT_SECONDARY, fontsize=11,
+                  fontweight='bold', labelpad=10)
+
+    # ── Header: kicker + score title + accent bar + subtitle ────────────────
+    score_title = f"{home.upper()} {home_score}-{away_score} {away.upper()}"
+    custom_title = team_info.get('custom_title')
+    custom_subtitle = team_info.get('custom_subtitle')
+
+    # Kicker -- small, uppercase, letter-spaced, muted
+    fig.text(0.5, 0.973, 'x G   R A C E', fontsize=11, fontweight='bold',
+             color=TEXT_SECONDARY, ha='center', va='center')
+
+    # Score title (user override if provided)
+    title_text = custom_title or score_title
+    score_obj = fig.text(0.5, 0.942, title_text, fontsize=22, fontweight='bold',
+                          color=TEXT_PRIMARY, ha='center', va='center')
+    fig.canvas.draw()
+    sb = score_obj.get_window_extent(renderer=fig.canvas.get_renderer())
+    sb_fig = sb.transformed(fig.transFigure.inverted())
+
+    # Two-color accent bar under score title (team identity)
+    bar_y = 0.912
+    bar_h = 0.005
+    mid = sb_fig.x0 + sb_fig.width / 2
+    fig.patches.append(Rectangle(
+        (sb_fig.x0, bar_y), sb_fig.width / 2, bar_h,
+        transform=fig.transFigure, facecolor=home_color,
+        edgecolor='none', zorder=10,
+    ))
+    fig.patches.append(Rectangle(
+        (mid, bar_y), sb_fig.width / 2, bar_h,
+        transform=fig.transFigure, facecolor=away_color,
+        edgecolor='none', zorder=10,
+    ))
+
+    # Subtitle: competition + date (user override if provided)
+    competition = team_info.get('competition', '')
+    match_date = team_info.get('date', '')
+    subtitle_parts = [p for p in (competition.upper() if competition else '', match_date) if p]
+    subtitle_text = custom_subtitle or ' | '.join(subtitle_parts)
+    if subtitle_text:
+        fig.text(0.5, 0.885, subtitle_text, ha='center',
+                 color=TEXT_SECONDARY, fontsize=11)
+
+    add_cbs_footer(fig)
     return fig
+
 
 def run(config):
     """Entry point for launcher - config contains all needed params.
