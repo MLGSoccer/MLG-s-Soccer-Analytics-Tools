@@ -16,7 +16,10 @@ from shared.colors import (
     get_contrast_color, fuzzy_match_team,
     ensure_contrast_with_background
 )
-from shared.styles import BG_COLOR, style_axis, add_cbs_footer
+from shared.styles import (
+    BG_COLOR, style_axis, add_cbs_footer,
+    BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, POSITIVE_COLOR, TEXT_SECONDARY,
+)
 from shared.file_utils import get_file_path, get_output_folder
 
 
@@ -393,6 +396,48 @@ def _year_from_season(season_str):
     return m.group(0) if m else (season_str or '')
 
 
+def format_season_text(unique_season_names):
+    """Format season/competition list for chart subtitles.
+
+    Cases:
+      - Single entry: returned as-is.
+      - Multiple entries, all the SAME competition across multiple years:
+          "2022-23 to 2024-25 Premier League"
+        (competition name once, year range only)
+      - Multiple entries spanning DIFFERENT competitions (regardless of year):
+          "2024-25 · 3 COMPETITIONS"
+          "2022-23 to 2024-25 · 5 COMPETITIONS"
+        (avoids the long pipe-joined list; the chart's season-boundary lines
+         already mark where each competition starts.)
+    """
+    import re
+    if not unique_season_names:
+        return ''
+    names = [n for n in unique_season_names if n]
+    if len(names) <= 1:
+        return names[0] if names else ''
+
+    def _split(name):
+        m = re.match(r'^(\d{4}[-/]\d{2,4})\s+(.+)$', name.strip())
+        return (m.group(1), m.group(2)) if m else (None, name)
+
+    parsed = [_split(n) for n in names]
+    competitions = {comp for _, comp in parsed if comp}
+    years = sorted({yr for yr, _ in parsed if yr})
+
+    if len(competitions) == 1 and len(years) >= 2:
+        comp = next(iter(competitions))
+        return f"{years[0]} to {years[-1]} {comp}"
+    if len(competitions) >= 2:
+        n = len(competitions)
+        if len(years) == 1:
+            return f"{years[0]} · {n} COMPETITIONS"
+        if len(years) >= 2:
+            return f"{years[0]} to {years[-1]} · {n} COMPETITIONS"
+        return f"{n} COMPETITIONS"
+    return names[0]
+
+
 def find_season_boundaries(matches):
     """Find match indices where the season year changes.
 
@@ -469,9 +514,9 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     # Colors - smart contrast for xG Against
     color_for = ensure_contrast_with_background(team_color)
     color_against = get_contrast_color(team_color)
-    color_diff = '#2ECC71'  # Green for positive diff
+    color_diff = POSITIVE_COLOR
 
-    fig = plt.figure(figsize=(16, 10))
+    fig = plt.figure(figsize=DASHBOARD_FIGSIZE)
     fig.patch.set_facecolor(BG_COLOR)
 
     gs = fig.add_gridspec(2, 2, hspace=0.35, wspace=0.3, top=0.82)
@@ -488,9 +533,10 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     ax1.set_ylabel('xG DIFFERENCE', fontsize=12, fontweight='bold', color='white')
     ax1.set_title('xG DIFFERENCE TREND LINE', fontsize=14, fontweight='bold', color='white', pad=22)
     ax1.text(0.5, 1.01, f'{window}-Game Rolling Average', transform=ax1.transAxes,
-             ha='center', fontsize=10, color='#8BA3B8', style='italic')
+             ha='center', fontsize=10, color=TEXT_SECONDARY)
 
     style_axis(ax1)
+    ax1.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax1, season_boundaries, y_pos='top')
 
     # ============ Panel 2: xG For and Against (top right) ============
@@ -507,6 +553,7 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
                bbox_to_anchor=(1.02, 1))
 
     style_axis(ax2)
+    ax2.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax2, season_boundaries, y_pos='top')
 
     # ============ Panel 3: All Three Combined (bottom left) ============
@@ -525,6 +572,7 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
                bbox_to_anchor=(1.02, 1))
 
     style_axis(ax3)
+    ax3.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax3, season_boundaries, y_pos='top')
 
     # ============ Panel 4: Cumulative xG vs Goals (bottom right) ============
@@ -543,23 +591,25 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
                bbox_to_anchor=(1.02, 1))
 
     style_axis(ax4)
+    ax4.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax4, season_boundaries, y_pos='top')
 
-    # Main title
-    fig.text(0.5, 0.97, custom_title or f'{team_name.upper()}',
+    # Header: kicker → title → subtitle (matches xG race / momentum convention)
+    # Without an accent bar to break up the stack, the kicker→title gap needs
+    # more breathing room than xG race (which has the bar between).
+    fig.text(0.5, 0.985, 'TEAM ROLLING xG', fontsize=11, fontweight='bold',
+             color=TEXT_SECONDARY, ha='center', va='center')
+    fig.text(0.5, 0.94, custom_title or f'{team_name.upper()}',
              ha='center', fontsize=22, fontweight='bold', color='white')
 
-    # Build subtitle with season range if multiple seasons
-    if len(season_boundaries) > 1:
-        first_season = season_boundaries[0][1]
-        last_season = season_boundaries[-1][1]
-        season_text = f'{first_season} - {last_season} | '
-    else:
-        season_text = f'{season_boundaries[0][1]} | ' if season_boundaries and season_boundaries[0][1] else ''
+    # Build subtitle with season/competition handling
+    unique_seasons = list(dict.fromkeys(name for _, name in season_boundaries if name))
+    season_text_inner = format_season_text(unique_seasons)
+    season_text = f'{season_text_inner} | ' if season_text_inner else ''
 
-    auto_subtitle = f'{season_text}{window}-GAME ROLLING xG ANALYSIS | {len(matches)} MATCHES'
-    fig.text(0.5, 0.93, custom_subtitle or auto_subtitle,
-             ha='center', fontsize=13, color='#8BA3B8', style='italic')
+    auto_subtitle = f'{season_text}{window}-GAME ROLLING AVERAGE | {len(matches)} MATCHES'
+    fig.text(0.5, 0.905, custom_subtitle or auto_subtitle,
+             ha='center', fontsize=13, color=TEXT_SECONDARY)
 
     # Footer
     add_cbs_footer(fig)
@@ -578,13 +628,10 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     # Find season boundaries for multi-season data
     season_boundaries = find_season_boundaries(matches)
 
-    # Build subtitle prefix with season range if multiple seasons
-    if len(season_boundaries) > 1:
-        first_season = season_boundaries[0][1]
-        last_season = season_boundaries[-1][1]
-        season_text = f'{first_season} - {last_season} | '
-    else:
-        season_text = f'{season_boundaries[0][1]} | ' if season_boundaries and season_boundaries[0][1] else ''
+    # Build subtitle prefix with season/competition handling
+    unique_seasons = list(dict.fromkeys(name for _, name in season_boundaries if name))
+    season_text_inner = format_season_text(unique_seasons)
+    season_text = f'{season_text_inner} | ' if season_text_inner else ''
 
     # Extract data series
     xg_for = [m['xg_for'] for m in matches]
@@ -609,12 +656,12 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     # Colors
     color_for = ensure_contrast_with_background(team_color)
     color_against = get_contrast_color(team_color)
-    color_diff = '#2ECC71'
+    color_diff = POSITIVE_COLOR
 
     title_base = f'{team_name.upper()}'
 
     # ============ Chart 1: xG Difference ============
-    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    fig1, ax1 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig1.patch.set_facecolor(BG_COLOR)
     ax1.set_facecolor(BG_COLOR)
 
@@ -625,10 +672,14 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     ax1.set_xlabel('MATCH', fontsize=14, fontweight='bold', color='white')
     ax1.set_ylabel('xG DIFFERENCE', fontsize=14, fontweight='bold', color='white')
     style_axis(ax1)
+    ax1.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax1, season_boundaries, y_pos='top')
 
-    fig1.text(0.5, 0.95, f'{title_base} -- xG Difference Trend Line', ha='center', fontsize=20, fontweight='bold', color='white')
-    fig1.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig1.text(0.5, 0.985, 'xG DIFFERENCE TREND LINE', fontsize=11, fontweight='bold',
+              color=TEXT_SECONDARY, ha='center', va='center')
+    fig1.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
+    fig1.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+              ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig1)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -638,7 +689,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     plt.close()
 
     # ============ Chart 2: xG For and Against ============
-    fig2, ax2 = plt.subplots(figsize=(12, 7))
+    fig2, ax2 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig2.patch.set_facecolor(BG_COLOR)
     ax2.set_facecolor(BG_COLOR)
 
@@ -650,10 +701,14 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     ax2.legend(loc='upper left', fontsize=11, facecolor=BG_COLOR, edgecolor='#556B7F', labelcolor='white',
                bbox_to_anchor=(1.02, 1))
     style_axis(ax2)
+    ax2.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax2, season_boundaries, y_pos='top')
 
-    fig2.text(0.5, 0.95, f'{title_base} -- xG For & Against', ha='center', fontsize=20, fontweight='bold', color='white')
-    fig2.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig2.text(0.5, 0.985, 'xG FOR & AGAINST', fontsize=11, fontweight='bold',
+              color=TEXT_SECONDARY, ha='center', va='center')
+    fig2.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
+    fig2.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+              ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig2)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -663,7 +718,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     plt.close()
 
     # ============ Chart 3: All Three Combined ============
-    fig3, ax3 = plt.subplots(figsize=(12, 7))
+    fig3, ax3 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig3.patch.set_facecolor(BG_COLOR)
     ax3.set_facecolor(BG_COLOR)
 
@@ -677,10 +732,14 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     ax3.legend(loc='upper left', fontsize=11, facecolor=BG_COLOR, edgecolor='#556B7F', labelcolor='white',
                bbox_to_anchor=(1.02, 1))
     style_axis(ax3)
+    ax3.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax3, season_boundaries, y_pos='top')
 
-    fig3.text(0.5, 0.95, f'{title_base} -- Combined xG View', ha='center', fontsize=20, fontweight='bold', color='white')
-    fig3.text(0.5, 0.90, f'{season_text}{window}-Game Rolling Average', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig3.text(0.5, 0.985, 'COMBINED xG VIEW', fontsize=11, fontweight='bold',
+              color=TEXT_SECONDARY, ha='center', va='center')
+    fig3.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
+    fig3.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+              ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig3)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
@@ -690,7 +749,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     plt.close()
 
     # ============ Chart 4: Cumulative xG vs Goals ============
-    fig4, ax4 = plt.subplots(figsize=(12, 7))
+    fig4, ax4 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig4.patch.set_facecolor(BG_COLOR)
     ax4.set_facecolor(BG_COLOR)
 
@@ -704,10 +763,14 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     ax4.legend(loc='upper left', fontsize=10, facecolor=BG_COLOR, edgecolor='#556B7F', labelcolor='white',
                bbox_to_anchor=(1.02, 1))
     style_axis(ax4)
+    ax4.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax4, season_boundaries, y_pos='top')
 
-    fig4.text(0.5, 0.95, f'{title_base} -- Cumulative xG vs Goals', ha='center', fontsize=20, fontweight='bold', color='white')
-    fig4.text(0.5, 0.90, f'{season_text}{len(matches)} Matches', ha='center', fontsize=12, color='#8BA3B8', style='italic')
+    fig4.text(0.5, 0.985, 'CUMULATIVE xG vs GOALS', fontsize=11, fontweight='bold',
+              color=TEXT_SECONDARY, ha='center', va='center')
+    fig4.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
+    fig4.text(0.5, 0.88, f'{season_text}{len(matches)} MATCHES',
+              ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig4)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])

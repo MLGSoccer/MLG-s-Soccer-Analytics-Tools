@@ -25,6 +25,7 @@ pg = st.navigation({
     "": [
         st.Page("pages/3_xG_Race.py", title="xG Race"),
         st.Page("pages/4_Shot_Chart.py", title="Shot Chart"),
+        st.Page("pages/12_Match_Momentum.py", title="Match Momentum"),
         st.Page("pages/6_Player_Comparison.py", title="Player Comparison"),
     ],
     "xG Trend Lines": [
@@ -38,7 +39,6 @@ pg = st.navigation({
         st.Page("pages/9_Team_Chart_Generator.py", title="Team Chart Generator"),
         st.Page("pages/10_Progressive_Flow.py", title="Progressive Flow"),
         st.Page("pages/11_Zone_Passing.py", title="Zone Passing"),
-        st.Page("pages/12_Match_Momentum.py", title="Match Momentum"),
     ],
 })
 

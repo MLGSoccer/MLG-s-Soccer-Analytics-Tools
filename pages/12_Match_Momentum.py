@@ -494,8 +494,14 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
         else:
             spine.set_color(SPINE_COLOR)
             spine.set_linewidth(0.8)
+    # Y-tick positions kept (they anchor the grid lines) but numeric labels
+    # hidden — the team labels at top/bottom of the plot tell the reader who
+    # is pressuring; explicit 0/25/50/75/100 isn't meaningful since the
+    # momentum scale is normalized to the match's own peak.
     ax.set_yticks([0, 25, 50, 75, 100])
-    ax.tick_params(axis="both", colors=TEXT_SECONDARY, labelsize=9)
+    ax.set_yticklabels([])
+    ax.tick_params(axis="y", length=0)
+    ax.tick_params(axis="x", colors=TEXT_SECONDARY, labelsize=9)
     ax.set_xlabel("Minute", color=TEXT_SECONDARY, fontsize=10)
     ax.set_ylabel("Momentum", color=TEXT_SECONDARY, fontsize=10)
     ax.set_ylim(-2, 102)

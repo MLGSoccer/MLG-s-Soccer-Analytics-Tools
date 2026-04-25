@@ -12,7 +12,11 @@ import os
 
 # Import shared utilities
 from shared.colors import get_team_color, get_contrast_color, ensure_contrast_with_background
-from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_SUBTLE, style_axis
+from mostly_finished_charts.team_rollingxg_chart import format_season_text
+from shared.styles import (
+    BG_COLOR, SPINE_COLOR, style_axis,
+    add_cbs_footer, BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, TEXT_SECONDARY,
+)
 from shared.file_utils import get_file_path, get_output_folder
 
 
@@ -332,7 +336,7 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     color_goals = get_contrast_color(team_color)  # Contrast color for goals
     color_shots = '#FFFFFF'                    # White for shots (with dashed line)
 
-    fig = plt.figure(figsize=(16, 10))
+    fig = plt.figure(figsize=DASHBOARD_FIGSIZE)
     fig.patch.set_facecolor(BG_COLOR)
 
     # Check if we have player info to display
@@ -497,33 +501,22 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     ax4.legend(loc='upper center', fontsize=9, facecolor=BG_COLOR, edgecolor=SPINE_COLOR, labelcolor='white',
                bbox_to_anchor=(0.5, -0.12), ncol=2)
 
-    # Build subtitle with season info
-    import re as _re
+    # Build subtitle with season/competition handling (shared logic)
     unique_season_names = list(dict.fromkeys(
         [m.get('season_name') or m.get('season', '') for m in matches]
     ))
     unique_season_names = [s for s in unique_season_names if s]
-    if len(unique_season_names) > 1:
-        # Same league across multiple years → "2023-24 PL - 2024-25 PL"
-        # Different leagues → "2024-25 PL | 2024-25 UCL"
-        def _league(name):
-            return _re.sub(r'^\d{4}-\d{2}\s*', '', name).strip()
-        if len({_league(s) for s in unique_season_names}) == 1:
-            season_text = f"{unique_season_names[0]} - {unique_season_names[-1]}"
-        else:
-            season_text = " | ".join(unique_season_names)
-    elif unique_season_names:
-        season_text = unique_season_names[0]
-    else:
-        season_text = season
+    season_text = format_season_text(unique_season_names) or season
 
     # Calculate totals
     total_goals = sum(goals_values)
     total_shots = sum(shots_values)
     total_xg = sum(xg_values)
 
-    # Main title - player name and team
-    fig.text(0.5, 0.97, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
+    # Header: kicker → title (matches xG race / momentum / team-rolling convention)
+    fig.text(0.5, 0.99, 'PLAYER ROLLING xG', fontsize=11, fontweight='bold',
+             color=TEXT_SECONDARY, ha='center', va='center')
+    fig.text(0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
              ha='center', fontsize=22, fontweight='bold', color='white')
 
     # ============ PLAYER INFO STRIP WITH TEAM COLOR ============
@@ -563,20 +556,19 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
         # Subtitle and stats below strip
         auto_subtitle = f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES'
         fig.text(0.5, 0.87, custom_subtitle or auto_subtitle,
-                 ha='center', fontsize=13, color='#8BA3B8', style='italic')
+                 ha='center', fontsize=13, color=TEXT_SECONDARY)
         fig.text(0.5, 0.84, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')
     else:
         # Original layout without info strip
         auto_subtitle = f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES'
-        fig.text(0.5, 0.93, custom_subtitle or auto_subtitle,
-                 ha='center', fontsize=13, color='#8BA3B8', style='italic')
-        fig.text(0.5, 0.895, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
+        fig.text(0.5, 0.92, custom_subtitle or auto_subtitle,
+                 ha='center', fontsize=13, color=TEXT_SECONDARY)
+        fig.text(0.5, 0.89, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')
 
-    # Footer
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    # Footer (standard convention)
+    add_cbs_footer(fig)
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
@@ -595,25 +587,12 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     # Find season boundaries for multi-season data
     season_boundaries = find_season_boundaries(matches)
 
-    # Build subtitle with season info
-    import re as _re
+    # Build subtitle with season/competition handling (shared logic)
     unique_season_names = list(dict.fromkeys(
         [m.get('season_name') or m.get('season', '') for m in matches]
     ))
     unique_season_names = [s for s in unique_season_names if s]
-    if len(unique_season_names) > 1:
-        # Same league across multiple years → "2023-24 PL - 2024-25 PL"
-        # Different leagues → "2024-25 PL | 2024-25 UCL"
-        def _league(name):
-            return _re.sub(r'^\d{4}-\d{2}\s*', '', name).strip()
-        if len({_league(s) for s in unique_season_names}) == 1:
-            season_text = f"{unique_season_names[0]} - {unique_season_names[-1]}"
-        else:
-            season_text = " | ".join(unique_season_names)
-    elif unique_season_names:
-        season_text = unique_season_names[0]
-    else:
-        season_text = season
+    season_text = format_season_text(unique_season_names) or season
 
     # Extract raw values and minutes
     xg_values = [m['xg'] for m in matches]
@@ -663,11 +642,19 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     has_player_info = any([player_info.get('age'), player_info.get('nationality'),
                            player_info.get('height'), player_info.get('weight')])
 
-    def add_info_strip_to_figure(fig, title, chart_subtitle):
-        """Add player info strip to an individual chart figure."""
+    def add_info_strip_to_figure(fig, kicker, title, chart_subtitle):
+        """Add header (kicker → title → strip → subtitle) to a chart figure.
+
+        kicker: panel description (rendered uppercase above the title)
+        title: player • team line
+        chart_subtitle: season / metadata text below the strip
+        """
         if has_player_info:
-            # Title
-            fig.text(0.5, 0.97, title, ha='center', fontsize=20, fontweight='bold', color='white')
+            # Kicker → title
+            fig.text(0.5, 0.99, kicker, fontsize=11, fontweight='bold',
+                     color=TEXT_SECONDARY, ha='center', va='center')
+            fig.text(0.5, 0.95, title, ha='center', fontsize=26,
+                     fontweight='bold', color='white')
 
             # Create axes for drawing the strip
             ax_header = fig.add_axes([0, 0, 1, 1])
@@ -702,18 +689,21 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
                         transform=ax_header.transAxes, ha='center', va='top', fontweight='bold')
 
             # Subtitle and stats
-            fig.text(0.5, 0.87, chart_subtitle, ha='center', fontsize=11, color='#8BA3B8', style='italic')
+            fig.text(0.5, 0.87, chart_subtitle, ha='center', fontsize=11, color=TEXT_SECONDARY)
             fig.text(0.5, 0.84, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
             return [0, 0.08, 1, 0.82]  # tight_layout rect with strip
         else:
-            # Original layout without strip
-            fig.text(0.5, 0.96, title, ha='center', fontsize=20, fontweight='bold', color='white')
-            fig.text(0.5, 0.92, chart_subtitle, ha='center', fontsize=11, color='#8BA3B8', style='italic')
-            fig.text(0.5, 0.885, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
+            # No info strip — kicker → title → subtitle → stats
+            fig.text(0.5, 0.985, kicker, fontsize=11, fontweight='bold',
+                     color=TEXT_SECONDARY, ha='center', va='center')
+            fig.text(0.5, 0.93, title, ha='center', fontsize=26,
+                     fontweight='bold', color='white')
+            fig.text(0.5, 0.895, chart_subtitle, ha='center', fontsize=11, color=TEXT_SECONDARY)
+            fig.text(0.5, 0.865, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
             return [0, 0.08, 1, 0.88]  # tight_layout rect without strip
 
     # ============ Chart 1: Rolling xG/90 vs Goals/90 with shading ============
-    fig1, ax1 = plt.subplots(figsize=(12, 7))
+    fig1, ax1 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig1.patch.set_facecolor(BG_COLOR)
     ax1.set_facecolor(BG_COLOR)
 
@@ -737,9 +727,8 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     style_axis(ax1)
     draw_season_boundaries(ax1, season_boundaries)
 
-    layout_rect = add_info_strip_to_figure(fig1, title_base, f'{subtitle} | GOALS/90 vs xG/90 ({window}-GAME ROLLING)')
-    fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig1.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    layout_rect = add_info_strip_to_figure(fig1, f'GOALS/90 vs xG/90  •  {window}-GAME ROLLING', title_base, subtitle)
+    add_cbs_footer(fig1)
 
     plt.tight_layout(rect=layout_rect)
     path1 = os.path.join(output_folder, "player_goals_vs_xg_rolling.png")
@@ -748,7 +737,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     plt.close()
 
     # ============ Chart 2: xG Per 90 Trend ============
-    fig2, ax2 = plt.subplots(figsize=(12, 7))
+    fig2, ax2 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig2.patch.set_facecolor(BG_COLOR)
     ax2.set_facecolor(BG_COLOR)
 
@@ -767,9 +756,8 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     style_axis(ax2)
     draw_season_boundaries(ax2, season_boundaries)
 
-    layout_rect = add_info_strip_to_figure(fig2, title_base, f'{subtitle} | xG PER 90 TREND')
-    fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig2.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    layout_rect = add_info_strip_to_figure(fig2, 'xG PER 90 TREND', title_base, subtitle)
+    add_cbs_footer(fig2)
 
     plt.tight_layout(rect=layout_rect)
     path2 = os.path.join(output_folder, "player_xg_per90_trend.png")
@@ -778,7 +766,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     plt.close()
 
     # ============ Chart 3: Shot Volume & Quality ============
-    fig3, ax3 = plt.subplots(figsize=(12, 7))
+    fig3, ax3 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig3.patch.set_facecolor(BG_COLOR)
     ax3.set_facecolor(BG_COLOR)
 
@@ -816,9 +804,8 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
                bbox_to_anchor=(0.5, -0.12), ncol=2)
     draw_season_boundaries(ax3, season_boundaries)
 
-    layout_rect = add_info_strip_to_figure(fig3, title_base, f'{subtitle} | SHOT VOLUME & QUALITY')
-    fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig3.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    layout_rect = add_info_strip_to_figure(fig3, 'SHOT VOLUME & QUALITY', title_base, subtitle)
+    add_cbs_footer(fig3)
 
     plt.tight_layout(rect=layout_rect)
     path3 = os.path.join(output_folder, "player_shot_volume_quality.png")
@@ -827,7 +814,7 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     plt.close()
 
     # ============ Chart 4: Last 10 Matches vs Season Average ============
-    fig4, ax4 = plt.subplots(figsize=(12, 7))
+    fig4, ax4 = plt.subplots(figsize=BROADCAST_FIGSIZE)
     fig4.patch.set_facecolor(BG_COLOR)
     ax4.set_facecolor(BG_COLOR)
 
@@ -894,9 +881,8 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     ax4.legend(loc='upper center', fontsize=10, facecolor=BG_COLOR, edgecolor=SPINE_COLOR, labelcolor='white',
                bbox_to_anchor=(0.5, -0.1), ncol=2)
 
-    layout_rect = add_info_strip_to_figure(fig4, title_base, f'{subtitle} | LAST {len(display_matches)} MATCHES (vs SEASON AVG)')
-    fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
-    fig4.text(0.98, 0.01, 'DATA: OPTA/STATS PERFORM', fontsize=8, color=TEXT_SUBTLE, ha='right')
+    layout_rect = add_info_strip_to_figure(fig4, f'LAST {len(display_matches)} MATCHES  •  vs SEASON AVG', title_base, subtitle)
+    add_cbs_footer(fig4)
 
     plt.tight_layout(rect=layout_rect)
     path4 = os.path.join(output_folder, "player_last10_vs_avg.png")
