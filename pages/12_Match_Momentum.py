@@ -24,7 +24,7 @@ from shared.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY,
     add_cbs_footer, BROADCAST_FIGSIZE,
 )
-from shared.colors import ensure_contrast_with_background, check_colors_need_fix
+from shared.colors import check_color_similarity, ensure_line_contrast
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Match Momentum", page_icon="", layout="wide")
@@ -310,17 +310,15 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     home_team_id = match_info.get("home_team_id")
     home_score = match_info["home_score"]
     away_score = match_info["away_score"]
-    home_color = ensure_contrast_with_background(match_info["home_color"], BG_COLOR)
-    away_color = ensure_contrast_with_background(match_info["away_color"], BG_COLOR)
-
-    # Apply alternate color if the two team colors clash
-    fix = check_colors_need_fix(home_color, away_color, home_name, away_name)
-    if fix["needs_fix"] and fix["suggested_fix"]:
-        sf = fix["suggested_fix"]
-        if sf["team"] == home_name:
-            home_color = sf["color"]
-        else:
-            away_color = sf["color"]
+    # Color pipeline: clash-check on raw brand colors first (preserves identity
+    # when one team has to swap to its alternate), then lift each team's color
+    # for WCAG line contrast against the dark background.
+    swapped_home, swapped_away, _ = check_color_similarity(
+        match_info["home_color"], match_info["away_color"],
+        home_name, away_name, threshold=50, interactive=False,
+    )
+    home_color = ensure_line_contrast(swapped_home, BG_COLOR)
+    away_color = ensure_line_contrast(swapped_away, BG_COLOR)
 
     ht_minute = float(match_info.get("ht_minute", 45.0))
     date = match_info["date"]

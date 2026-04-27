@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.patches import Rectangle
 from matplotlib.transforms import blended_transform_factory
-from colorsys import rgb_to_hls, hls_to_rgb
 import numpy as np
 import os
 from datetime import datetime
@@ -12,63 +11,12 @@ import re
 from shared.colors import (
     TEAM_COLORS, load_custom_colors, save_custom_color, get_team_color,
     hex_to_rgb, color_distance, check_color_similarity, fuzzy_match_team,
-    prompt_ambiguous_choice
+    prompt_ambiguous_choice, ensure_line_contrast,
 )
 from shared.styles import (
     BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     add_cbs_footer, BROADCAST_FIGSIZE,
 )
-
-
-# ── Color contrast helpers (ported from xG race mockup) ─────────────────────
-
-def _luminance(hex_color):
-    """sRGB relative luminance per WCAG 2.x.
-
-    Note: shared.colors.hex_to_rgb returns channels already in 0-1 range
-    (unlike shot_chart.colors.hex_to_rgb which returns 0-255). Don't
-    re-normalize here or luminance collapses to ~0 for everything.
-    """
-    r, g, b = hex_to_rgb(hex_color)
-    def _ch(c):
-        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
-
-
-def _wcag_contrast(c1, c2):
-    L1, L2 = _luminance(c1), _luminance(c2)
-    return (max(L1, L2) + 0.05) / (min(L1, L2) + 0.05)
-
-
-def _lighten_hsl(hex_color, l_delta=0.08):
-    """Raise HSL lightness, preserving hue and saturation.
-
-    Avoids the desaturation problem of RGB-channel-add lightening (which
-    pushes dark blues toward washed-out sky blue instead of 'brighter blue').
-    shared.colors.hex_to_rgb already returns 0-1 channels, so no /255 here.
-    """
-    r, g, b = hex_to_rgb(hex_color)
-    h, l, s = rgb_to_hls(r, g, b)
-    l = min(1.0, l + l_delta)
-    r, g, b = hls_to_rgb(h, l, s)
-    return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
-
-
-def _ensure_line_contrast(color, min_ratio=3.5):
-    """Return a variant of `color` with WCAG contrast >= min_ratio against BG.
-
-    Thin chart lines need more perceptual contrast than text; the shot-chart
-    text check at RGB distance 100 misses muddy dark-hue-on-dark-BG cases.
-    Lightens in HSL space to preserve brand hue/saturation.
-    """
-    if _wcag_contrast(color, BG_COLOR) >= min_ratio:
-        return color
-    current = color
-    for _ in range(10):
-        current = _lighten_hsl(current, 0.08)
-        if _wcag_contrast(current, BG_COLOR) >= min_ratio:
-            return current
-    return '#FFFFFF'
 
 # Try to import web scraping libraries
 try:
@@ -961,8 +909,8 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     swapped_home, swapped_away, _ = check_color_similarity(
         raw_home, raw_away, home, away, threshold=50, interactive=False
     )
-    home_color = _ensure_line_contrast(swapped_home)
-    away_color = _ensure_line_contrast(swapped_away)
+    home_color = ensure_line_contrast(swapped_home, BG_COLOR)
+    away_color = ensure_line_contrast(swapped_away, BG_COLOR)
 
     # ── Split shots by team, build step-line data ───────────────────────────
     home_x, home_y, home_xg = _cumulative_xg(shots, home)

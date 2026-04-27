@@ -927,6 +927,52 @@ def ensure_contrast_with_background(hex_color, bg_color='#1A2332', min_distance=
     return lighten_color(hex_color, 0.5)
 
 
+def _wcag_luminance(hex_color):
+    """sRGB relative luminance per WCAG 2.x. Expects channels in 0-1 range."""
+    r, g, b = hex_to_rgb(hex_color)
+    def _ch(c):
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _ch(r) + 0.7152 * _ch(g) + 0.0722 * _ch(b)
+
+
+def wcag_contrast(c1, c2):
+    """WCAG contrast ratio between two hex colors (range 1-21)."""
+    L1, L2 = _wcag_luminance(c1), _wcag_luminance(c2)
+    return (max(L1, L2) + 0.05) / (min(L1, L2) + 0.05)
+
+
+def lighten_hsl(hex_color, l_delta=0.08):
+    """Raise HSL lightness by l_delta, preserving hue and saturation.
+
+    Avoids the desaturation problem of RGB-channel-add lightening (which pushes
+    dark blues toward washed-out sky blue instead of 'brighter blue').
+    """
+    import colorsys
+    r, g, b = hex_to_rgb(hex_color)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    l = min(1.0, l + l_delta)
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return f"#{int(r*255):02X}{int(g*255):02X}{int(b*255):02X}"
+
+
+def ensure_line_contrast(color, bg_color='#1A2332', min_ratio=3.5):
+    """Return a variant of `color` with WCAG contrast >= min_ratio against bg.
+
+    Stricter than ensure_contrast_with_background -- meant for thin chart lines
+    that need more perceptual contrast than text. Lightens in HSL space to
+    preserve brand hue/saturation. Falls back to white if 10 lightening steps
+    can't reach the target ratio.
+    """
+    if wcag_contrast(color, bg_color) >= min_ratio:
+        return color
+    current = color
+    for _ in range(10):
+        current = lighten_hsl(current, 0.08)
+        if wcag_contrast(current, bg_color) >= min_ratio:
+            return current
+    return '#FFFFFF'
+
+
 def ensure_label_color(hex_color, min_lightness=0.60):
     """Ensure a color is bright enough to read as small text on a dark background.
 
