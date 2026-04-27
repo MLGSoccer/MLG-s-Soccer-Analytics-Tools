@@ -46,10 +46,23 @@ TRUMEDIA_TO_API_NAME = {
     "Queens Park Rangers": "QPR",
     "West Bromwich Albion": "West Brom",
     "Preston North End": "Preston",
+    "Charlton Athletic": "Charlton",
+    "Ipswich Town": "Ipswich",
+    "Norwich City": "Norwich",
+    "Derby County": "Derby",
+    "Coventry City": "Coventry",
+    "Birmingham City": "Birmingham",
+    "Leicester City": "Leicester",
+    "Blackburn Rovers": "Blackburn",
+    "Sheffield United": "Sheffield Utd",
+    "Swansea City": "Swansea",
     # Liga MX — API-Football uses different club names
     "Pumas UNAM": "U.N.A.M. - Pumas",
     "Juárez": "FC Juarez",
     "Querétaro": "Club Queretaro",
+    # MLS — API-Football uses full city names
+    "LA Galaxy": "Los Angeles Galaxy",
+    "Sporting KC": "Sporting Kansas City",
     # NWSL — TruMedia uses "X Women", API-Football uses inconsistent naming
     "Kansas City Current Women": "Kansas City W",
     "Gotham FC Women": "NJ/NY Gotham FC W",
@@ -57,6 +70,123 @@ TRUMEDIA_TO_API_NAME = {
     "Bay Women": "Bay FC",
     "Angel City Women": "Angel City W",
     "Chicago Stars Women": "Chicago Red Stars W",
+    "Houston Dash Women": "Houston Dash W",
+    "North Carolina Courage Women": "North Carolina Courage W",
+    "Orlando Pride Women": "Orlando Pride W",
+    "Portland Thorns Women": "Portland Thorns W",
+    "Racing Louisville Women": "Racing Louisville W",
+    "San Diego Wave Women": "San Diego Wave W",
+    "Utah Royals Women": "Utah Royals W",
+    "Washington Spirit Women": "Washington Spirit W",
+    "Boston Legacy Women": "Boston Legacy W",
+    "Denver Summit Women": "Denver Summit W",
+    # FA WSL — TruMedia "X Women", API uses "X W" (with WFC for Leicester)
+    "Arsenal Women": "Arsenal W",
+    "Aston Villa Women": "Aston Villa W",
+    "Brighton & Hove Albion Women": "Brighton W",
+    "Chelsea Women": "Chelsea W",
+    "Everton Women": "Everton W",
+    "Leicester City Women": "Leicester City WFC",
+    "Liverpool Women": "Liverpool W",
+    "London City Lionesses Women": "London City Lionesses",
+    "Manchester City Women": "Manchester City W",
+    "Manchester United Women": "Manchester United W",
+    "Tottenham Hotspur Women": "Tottenham Hotspur W",
+    "West Ham United Women": "West Ham W",
+    # Frauen-Bundesliga — TruMedia "X Women", API uses "X W" (with prefix swaps)
+    "Bayer Leverkusen Women": "Bayer Leverkusen W",
+    "Carl Zeiss Jena Women": "Carl Zeiss Jena  W",  # API uses double space, verified
+    "Eintracht Frankfurt Women": "Eintracht Frankfurt W",
+    "Freiburg Women": "SC Freiburg W",
+    "Hamburger SV Women": "Hamburger SV W",
+    "Hoffenheim Women": "1899 Hoffenheim W",
+    "Köln Women": "FC Koln W",
+    "Nürnberg Women": "Nürnberg",  # API uses Nürnberg without W suffix here
+    "RB Leipzig Women": "RB Leipzig W",
+    "SGS Essen Women": "SGS Essen W",
+    "Union Berlin Women": "Union Berlin W",
+    "Werder Bremen Women": "Werder Bremen W",
+    "Wolfsburg Women": "VfL Wolfsburg W",
+    # D1 Feminine (France women) — TruMedia "X Women", API uses "X W"
+    "Dijon Women": "Dijon W",
+    "Fleury 91 Women": "FC Fleury 91 W",
+    "Le Havre Women": "Le Havre W",
+    "Lens Women": "Lens W",
+    "Montpellier Women": "Montpellier W",
+    "Nantes Women": "Nantes W",
+    "Olympique Marseille Women": "Marseille W",
+    "Paris FC Women": "Paris FC W",
+    "Paris Saint-Germain Women": "Paris Saint Germain W",
+    "Saint-Étienne Women": "Saint-Étienne W",
+    "Strasbourg Women": "Strasbourg W",
+    # UEFA Women's Champions League — TruMedia "X Women", API uses "X W"
+    "Atlético Madrid Women": "Atletico Madrid W",
+    "Barcelona Women": "Barcelona W",
+    "Brann Women": "Brann W",
+    "Internazionale Women": "Inter Milano W",
+    "Juventus Women": "Juventus W",
+    "OH Leuven Women": "OH Leuven W",
+    "Real Madrid Women": "Real Madrid W",
+    "Roma Women": "Roma W",
+    "SL Benfica Women": "SL Benfica W",
+    "St. Pölten Women": "St. Pölten W",
+    "Twente Women": "Twente W",
+    "Valur Women": "Valur W",
+    "Vålerenga Women": "Vålerenga W",
+    # UEFA Conference League — assorted name divergences
+    "AEK Athens": "AEK Athens FC",
+    "AIK": "AIK Stockholm",
+    "AZ": "AZ Alkmaar",
+    "Aris Limassol": "Aris",
+    "Astana": "FC Astana",
+    "HB": "HB Torshavn",
+    "KA": "KA Akureyri",
+    "Puskás": "Puskas Academy",
+    "Besiktas": "Beşiktaş",
+    "Brøndby": "Brondby",
+    "CFR Cluj": "CFR 1907 Cluj",
+    "Decic": "Dečić",
+    "Dundee United": "Dundee Utd",
+    "Gyori ETO": "Gyori ETO FC",
+    "Häcken": "BK Hacken",
+    "Istanbul Basaksehir": "Başakşehir",
+    "Jagiellonia Bialystok": "Jagiellonia",
+    "Lausanne-Sport": "Lausanne",
+    "Lincoln Red Imps": "Lincoln Red Imps FC",
+    "Lugano": "FC Lugano",
+    "Mainz 05": "FSV Mainz 05",
+    "Neman Grodno": "Neman",
+    "Noah": "FC Noah",
+    "Polissya": "Polessya",
+    "Pyunik": "Pyunik Yerevan",
+    "Rakow Czestochowa": "Raków Częstochowa",
+    "Rijeka": "HNK Rijeka",
+    "St Patrick's Athletic": "St Patrick's Athl.",
+    "Vaduz": "FC Vaduz",
+    "Víkingur Reykjavík": "Vikingur Reykjavik",
+    # Liga Profesional Argentina — accent strips + suffix additions
+    "Argentinos Juniors": "Argentinos JRS",
+    "Atlético Tucumán": "Atletico Tucuman",
+    "Belgrano": "Belgrano Cordoba",
+    "Central Córdoba SdE": "Central Cordoba de Santiago",
+    "Defensa y Justicia": "Defensa Y Justicia",
+    "Estudiantes": "Estudiantes L.P.",
+    "Estudiantes Río Cuarto": "Estudiantes de Rio Cuarto",
+    "Gimnasia La Plata": "Gimnasia L.P.",
+    "Gimnasia Mendoza": "Gimnasia M.",
+    "Huracán": "Huracan",
+    "Independiente Rivadavia": "Independ. Rivadavia",
+    "Instituto": "Instituto Cordoba",
+    "Lanús": "Lanus",
+    "Newell's Old Boys": "Newells Old Boys",
+    "Sarmiento": "Sarmiento Junin",
+    "Talleres de Córdoba": "Talleres Cordoba",
+    "Vélez Sarsfield": "Velez Sarsfield",
+    # Brasileirão Série A — accent strips
+    "Atlético Mineiro": "Atletico-MG",
+    "Grêmio": "Gremio",
+    "São Paulo": "Sao Paulo",
+    "Vitória": "Vitoria",
 }
 
 # Maps TruMedia season IDs → API-Football league IDs.
@@ -73,12 +203,27 @@ SEASON_TO_API_LEAGUE = {
     "dbxs75cag7zyip5re0ppsanmc": 61,    # Ligue 1 2025/26
     "aegyls91smdw9kipjgbsu8tn8": 262,   # Liga MX 2025/26
     "6i6n0jkbh9zzij6s8htfjh2j8": 253,   # MLS 2026
-    "3ducfa94ga849pfvx8bjjgt1w": None,  # NWSL 2025 — verify ID
-    "221phckhkd7y6rg3uyava3ifo": None,  # WSL 2025/26 — verify ID
+    "3ducfa94ga849pfvx8bjjgt1w": 254,   # NWSL 2025 (calendar year)
+    "4mrfrvsjf1xhltsvqyb6lx250": 254,   # NWSL 2026 (calendar year)
+    "221phckhkd7y6rg3uyava3ifo": 44,    # FA WSL 2025/26 (England women)
     "2mr0u0l78k2gdsm79q56tb2fo": 2,     # UEFA Champions League 2025/26
     "7ttpe5jzya3vjhjadiemjy7mc": 3,     # UEFA Europa League 2025/26
-    "7x2zp2hm4p6wuijwdw3h7a8t0": None, # UEFA Conference League 2025/26 — verify ID
-    "24f2xd1kljmiu7o0xrpj30kd0": None, # UEFA Women's Champions League 2025/26 — verify ID
+    "7x2zp2hm4p6wuijwdw3h7a8t0": 848,   # UEFA Conference League 2025/26
+    "24f2xd1kljmiu7o0xrpj30kd0": 525,   # UEFA Women's Champions League 2025/26
+    "8v84l9nq3d5t0j4gb781i3llg": 128,   # Liga Profesional Argentina 2026 (calendar year)
+    "752zalnunu0zkdfbbm915kys4": 71,    # Brasileirão Série A 2026 (calendar year)
+    "br2imckbqwr0wvucakfvdp05w": 82,    # Frauen-Bundesliga 2025/26
+    "2bqrpllc5x3it55paifyfa044": 64,    # Première Ligue 2025/26 (France women)
+}
+
+# League IDs whose seasons follow the calendar year (Feb-Nov), not the European
+# Aug-Jul split. For these, API-Football's ?season= parameter is the calendar
+# year of the match (e.g. an April 2026 MLS game is season=2026).
+CALENDAR_YEAR_LEAGUES = {
+    253,  # MLS
+    254,  # NWSL
+    128,  # Liga Profesional Argentina
+    71,   # Brasileirão Série A
 }
 
 
@@ -539,11 +684,14 @@ def fetch_fixture_id(api_key, date_str, home_team, away_team, league_id=None):
     if league_id is not None:
         params["league"] = league_id
         # API-Football requires season when league is provided.
-        # Derive season year: for games Aug-Dec use the game year;
-        # for games Jan-Jul use game year - 1 (covers European split seasons).
+        # Calendar-year leagues (MLS): season = game year.
+        # European split-season leagues: Aug-Dec → game year, Jan-Jul → game year - 1.
         try:
             game_date = _dt.strptime(date_str[:10], "%Y-%m-%d")
-            params["season"] = game_date.year if game_date.month >= 7 else game_date.year - 1
+            if league_id in CALENDAR_YEAR_LEAGUES:
+                params["season"] = game_date.year
+            else:
+                params["season"] = game_date.year if game_date.month >= 7 else game_date.year - 1
         except ValueError:
             pass
     result = _apifootball_get(api_key, "fixtures", params)
