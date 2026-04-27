@@ -330,7 +330,30 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
             shots_df.loc[group.index, '_needs_flip'] = True
 
     # Build multi_match_info
-    team_name = shots_df['Team'].mode()[0] if not shots_df.empty else ''
+    # In shots-against mode the `Team` and `newestTeamColor` columns hold the
+    # OPPONENTS' values (we queried teamId != ?), so deriving from shots_df
+    # would label the chart with whichever opponent took the most shots. Look
+    # up the selected team's own name and color directly instead.
+    if against:
+        own_row = con.execute(
+            "SELECT teamFullName, newestTeamColor FROM events "
+            "WHERE teamId = ? AND teamFullName IS NOT NULL "
+            "ORDER BY newestTeamColor IS NULL LIMIT 1",
+            [team_id]
+        ).fetchone()
+        if own_row:
+            raw_name = own_row[0] or ''
+            _, clean_name, _ = fuzzy_match_team(raw_name, TEAM_COLORS)
+            team_name = clean_name if clean_name else raw_name
+            team_color = own_row[1] or '#888888'
+        else:
+            team_name = ''
+            team_color = '#888888'
+    else:
+        team_name = shots_df['Team'].mode()[0] if not shots_df.empty else ''
+        colors = shots_df['newestTeamColor'].dropna()
+        team_color = colors.iloc[0] if not colors.empty else '#888888'
+
     dates = shots_df['Date'].dropna().sort_values()
     date_range = ''
     if len(dates) > 0:
@@ -343,8 +366,6 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
     total_matches = shots_df['_match_id'].nunique()
     player_list = sorted(shots_df['shooter'].dropna().unique().tolist())
-    colors = shots_df['newestTeamColor'].dropna()
-    team_color = colors.iloc[0] if not colors.empty else '#888888'
 
     multi_match_info = {
         'team_name': team_name,
