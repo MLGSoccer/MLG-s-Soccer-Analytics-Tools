@@ -271,7 +271,6 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
     # Derive season string from date range (e.g. "2025-26")
     season_str = ''
-    date_range = multi_match_info.get('date_range', '')
     if 'Date' in shots_df.columns:
         dates = pd.to_datetime(shots_df['Date'], errors='coerce').dropna()
         if not dates.empty:
@@ -318,12 +317,16 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     else:
         if competition:
             subtitle_parts.append(competition.upper())
+        # Match count gives the data scope without duplicating the season label
+        # (already in title) or the date range (was redundant for single-season
+        # charts). Falls back to the only context line for CSVs with no league.
+        if total_matches:
+            match_word = 'MATCH' if total_matches == 1 else 'MATCHES'
+            subtitle_parts.append(f"{total_matches} {match_word}")
         # highlight stats go in the bottom stats row, not here -- keeps all
         # summary numbers in one place.
         if exclude_penalties:
             subtitle_parts.append('Non-Penalty Shots')
-        elif date_range:
-            subtitle_parts.append(date_range)
 
         if subtitle_parts:
             fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
