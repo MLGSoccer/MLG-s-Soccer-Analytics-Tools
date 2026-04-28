@@ -12,7 +12,7 @@ import os
 
 # Import shared utilities
 from shared.colors import get_team_color, get_contrast_color, ensure_contrast_with_background
-from mostly_finished_charts.team_rollingxg_chart import format_season_text
+from mostly_finished_charts.team_rollingxg_chart import format_season_text, _add_team_color_bar
 from shared.styles import (
     BG_COLOR, SPINE_COLOR, style_axis,
     add_cbs_footer, BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, TEXT_SECONDARY,
@@ -516,8 +516,10 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     # Header: kicker → title (matches xG race / momentum / team-rolling convention)
     fig.text(0.5, 0.99, 'PLAYER ROLLING xG', fontsize=11, fontweight='bold',
              color=TEXT_SECONDARY, ha='center', va='center')
-    fig.text(0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
-             ha='center', fontsize=22, fontweight='bold', color='white')
+    title_obj = fig.text(
+        0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
+        ha='center', va='center', fontsize=22, fontweight='bold', color='white'
+    )
 
     # ============ PLAYER INFO STRIP WITH TEAM COLOR ============
     if has_player_info:
@@ -560,11 +562,13 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
         fig.text(0.5, 0.84, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')
     else:
-        # Original layout without info strip
+        # Layout without info strip -- add a thin team-color accent bar instead,
+        # matching the xG race / momentum / team-rolling convention.
+        _add_team_color_bar(fig, title_obj, color_xg, bar_y=0.92)
         auto_subtitle = f'{season_text} | {window}-GAME ROLLING | {len(matches)} MATCHES'
-        fig.text(0.5, 0.92, custom_subtitle or auto_subtitle,
+        fig.text(0.5, 0.895, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=13, color=TEXT_SECONDARY)
-        fig.text(0.5, 0.89, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
+        fig.text(0.5, 0.87, f'{total_goals} Goals | {total_shots} Shots | {total_xg:.2f} xG',
                  ha='center', fontsize=11, color='white', fontweight='bold')
 
     # Footer (standard convention)
@@ -693,13 +697,14 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
             fig.text(0.5, 0.84, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
             return [0, 0.08, 1, 0.82]  # tight_layout rect with strip
         else:
-            # No info strip — kicker → title → subtitle → stats
+            # No info strip -- kicker, title, accent bar, subtitle, stats
             fig.text(0.5, 0.985, kicker, fontsize=11, fontweight='bold',
                      color=TEXT_SECONDARY, ha='center', va='center')
-            fig.text(0.5, 0.93, title, ha='center', fontsize=26,
-                     fontweight='bold', color='white')
-            fig.text(0.5, 0.895, chart_subtitle, ha='center', fontsize=11, color=TEXT_SECONDARY)
-            fig.text(0.5, 0.865, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
+            title_obj = fig.text(0.5, 0.93, title, ha='center', va='center',
+                                 fontsize=26, fontweight='bold', color='white')
+            _add_team_color_bar(fig, title_obj, color_xg, bar_y=0.905)
+            fig.text(0.5, 0.875, chart_subtitle, ha='center', fontsize=11, color=TEXT_SECONDARY)
+            fig.text(0.5, 0.845, stats_line, ha='center', fontsize=10, color='white', fontweight='bold')
             return [0, 0.08, 1, 0.88]  # tight_layout rect without strip
 
     # ============ Chart 1: Rolling xG/90 vs Goals/90 with shading ============

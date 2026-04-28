@@ -4,6 +4,7 @@ Creates rolling average xG charts for team performance analysis.
 """
 import csv
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 import numpy as np
 from collections import defaultdict
 import os
@@ -21,6 +22,22 @@ from shared.styles import (
     BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, POSITIVE_COLOR, TEXT_SECONDARY,
 )
 from shared.file_utils import get_file_path, get_output_folder
+
+
+def _add_team_color_bar(fig, title_obj, color, bar_y, height=0.005):
+    """Draw a thin team-color accent bar matching the rendered title width.
+
+    Mirrors the xG race / momentum convention: anchor the bar under the title
+    text regardless of how long the team name is.
+    """
+    fig.canvas.draw()
+    title_bbox = title_obj.get_window_extent(renderer=fig.canvas.get_renderer())
+    title_bbox_fig = title_bbox.transformed(fig.transFigure.inverted())
+    fig.patches.append(Rectangle(
+        (title_bbox_fig.x0, bar_y), title_bbox_fig.width, height,
+        transform=fig.transFigure, facecolor=color,
+        edgecolor='none', zorder=10,
+    ))
 
 
 def expand_team_name(abbrev):
@@ -594,13 +611,13 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     ax4.set_xlim(0.5, len(match_nums) + 0.5)
     draw_season_boundaries(ax4, season_boundaries, y_pos='top')
 
-    # Header: kicker → title → subtitle (matches xG race / momentum convention)
-    # Without an accent bar to break up the stack, the kicker→title gap needs
-    # more breathing room than xG race (which has the bar between).
+    # Header: kicker, title, accent bar, subtitle (xG race / momentum convention)
     fig.text(0.5, 0.985, 'TEAM ROLLING xG', fontsize=11, fontweight='bold',
              color=TEXT_SECONDARY, ha='center', va='center')
-    fig.text(0.5, 0.94, custom_title or f'{team_name.upper()}',
-             ha='center', fontsize=22, fontweight='bold', color='white')
+    title_obj = fig.text(0.5, 0.942, custom_title or f'{team_name.upper()}',
+                         ha='center', va='center', fontsize=22, fontweight='bold',
+                         color='white')
+    _add_team_color_bar(fig, title_obj, color_for, bar_y=0.912)
 
     # Build subtitle with season/competition handling
     unique_seasons = list(dict.fromkeys(name for _, name in season_boundaries if name))
@@ -608,7 +625,7 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     season_text = f'{season_text_inner} | ' if season_text_inner else ''
 
     auto_subtitle = f'{season_text}{window}-GAME ROLLING AVERAGE | {len(matches)} MATCHES'
-    fig.text(0.5, 0.905, custom_subtitle or auto_subtitle,
+    fig.text(0.5, 0.885, custom_subtitle or auto_subtitle,
              ha='center', fontsize=13, color=TEXT_SECONDARY)
 
     # Footer
@@ -677,8 +694,10 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig1.text(0.5, 0.985, 'xG DIFFERENCE TREND LINE', fontsize=11, fontweight='bold',
               color=TEXT_SECONDARY, ha='center', va='center')
-    fig1.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
-    fig1.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+    title1 = fig1.text(0.5, 0.92, title_base, ha='center', va='center',
+                       fontsize=32, fontweight='bold', color='white')
+    _add_team_color_bar(fig1, title1, color_for, bar_y=0.895)
+    fig1.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig1)
 
@@ -706,8 +725,10 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig2.text(0.5, 0.985, 'xG FOR & AGAINST', fontsize=11, fontweight='bold',
               color=TEXT_SECONDARY, ha='center', va='center')
-    fig2.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
-    fig2.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+    title2 = fig2.text(0.5, 0.92, title_base, ha='center', va='center',
+                       fontsize=32, fontweight='bold', color='white')
+    _add_team_color_bar(fig2, title2, color_for, bar_y=0.895)
+    fig2.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig2)
 
@@ -737,8 +758,10 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig3.text(0.5, 0.985, 'COMBINED xG VIEW', fontsize=11, fontweight='bold',
               color=TEXT_SECONDARY, ha='center', va='center')
-    fig3.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
-    fig3.text(0.5, 0.88, f'{season_text}{window}-GAME ROLLING AVERAGE',
+    title3 = fig3.text(0.5, 0.92, title_base, ha='center', va='center',
+                       fontsize=32, fontweight='bold', color='white')
+    _add_team_color_bar(fig3, title3, color_for, bar_y=0.895)
+    fig3.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig3)
 
@@ -768,8 +791,10 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     fig4.text(0.5, 0.985, 'CUMULATIVE xG vs GOALS', fontsize=11, fontweight='bold',
               color=TEXT_SECONDARY, ha='center', va='center')
-    fig4.text(0.5, 0.92, title_base, ha='center', fontsize=32, fontweight='bold', color='white')
-    fig4.text(0.5, 0.88, f'{season_text}{len(matches)} MATCHES',
+    title4 = fig4.text(0.5, 0.92, title_base, ha='center', va='center',
+                       fontsize=32, fontweight='bold', color='white')
+    _add_team_color_bar(fig4, title4, color_for, bar_y=0.895)
+    fig4.text(0.5, 0.86, f'{season_text}{len(matches)} MATCHES',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
     add_cbs_footer(fig4)
 
