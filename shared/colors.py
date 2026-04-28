@@ -693,12 +693,12 @@ def expand_team_name_with_prompt(abbrev):
 # Women's-only club names (no men's team with the same name)
 # Used by normalize_team_name to safely strip "Women" suffix
 WOMENS_ONLY_CLUBS = {
-    'Angel City FC', 'Bay FC', 'Chicago Red Stars', 'Houston Dash',
-    'Kansas City Current', 'Racing Louisville FC', 'NJ/NY Gotham FC',
-    'North Carolina Courage', 'OL Reign', 'Orlando Pride',
-    'Portland Thorns FC', 'Portland Thorns', 'San Diego Wave FC',
-    'San Diego Wave', 'Utah Royals', 'Washington Spirit',
-    'London City Lionesses',
+    'Angel City FC', 'Bay FC', 'Chicago Red Stars', 'Chicago Stars',
+    'Houston Dash', 'Kansas City Current', 'Racing Louisville FC',
+    'NJ/NY Gotham FC', 'North Carolina Courage', 'OL Reign',
+    'Orlando Pride', 'Portland Thorns FC', 'Portland Thorns',
+    'San Diego Wave FC', 'San Diego Wave', 'Utah Royals',
+    'Washington Spirit', 'London City Lionesses',
 }
 
 
