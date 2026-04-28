@@ -14,7 +14,7 @@ import unicodedata
 # Add parent directory for shared imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer, BROADCAST_FIGSIZE
+from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE_LIGHT, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer, BROADCAST_FIGSIZE
 from shared.file_utils import get_file_path, get_output_folder
 from shared.colors import (
     TEAM_COLORS, fuzzy_match_team, check_colors_need_fix,
@@ -581,7 +581,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     # Footer
     league_category = get_league_category(player_row.get('newestLeague', ''))
     footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.01, footer_right,
              fontsize=8, color='#666666', ha='right')
 
@@ -828,7 +828,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     # Footer
     league_category = get_league_category(player_row.get('newestLeague', ''))
     footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {position}s'
-    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE)
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.015, footer_right,
              fontsize=9, color='#666666', ha='right')
 
@@ -1393,7 +1393,7 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     fig.text(info_x, 0.038, footer_right,
              fontsize=8, color='#666666', ha='right')
     fig.text(info_x, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
-             color=CBS_BLUE, ha='right')
+             color=CBS_BLUE_LIGHT, ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
@@ -1486,7 +1486,7 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
     # Footer
     league_category = get_league_category(player_rows[0].get('newestLeague', ''))
     footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
-    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.015, footer_right,
              fontsize=8, color='#666666', ha='right')
 

@@ -16,7 +16,7 @@ from shared.colors import (
     TEAM_COLORS, load_custom_colors, save_custom_color,
     fuzzy_match_team, check_color_similarity, resolve_team_colors
 )
-from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE, TEXT_SUBTLE, style_axis, style_axis_full_grid
+from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE_LIGHT, TEXT_SUBTLE, style_axis, style_axis_full_grid
 from shared.file_utils import get_file_path, get_output_folder
 
 
@@ -519,7 +519,7 @@ def create_sequence_analysis_chart(length_data, team_data, shot_sequences, match
              ha='center', fontsize=12, color='#8BA3B8', style='italic')
 
     # Footer
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.01, 'DATA: OPTA', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
@@ -602,7 +602,7 @@ def create_individual_charts(length_data, team_data, shot_sequences, match_info,
     fig1.text(0.5, 0.96, title, ha='center', fontsize=20, fontweight='bold', color='white')
     fig1.text(0.5, 0.915, xg_line, ha='center', fontsize=12, fontweight='bold', color='#B8C5D6')
     fig1.text(0.5, 0.88, 'SHOTS BY SEQUENCE LENGTH', ha='center', fontsize=11, color='#8BA3B8', style='italic')
-    fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig1.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig1.text(0.98, 0.01, 'DATA: OPTA', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.85])
@@ -668,7 +668,7 @@ def create_individual_charts(length_data, team_data, shot_sequences, match_info,
     fig2.text(0.5, 0.96, title, ha='center', fontsize=20, fontweight='bold', color='white')
     fig2.text(0.5, 0.915, xg_line, ha='center', fontsize=12, fontweight='bold', color='#B8C5D6')
     fig2.text(0.5, 0.88, 'TEAM SEQUENCE PROFILES', ha='center', fontsize=11, color='#8BA3B8', style='italic')
-    fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig2.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig2.text(0.98, 0.01, 'DATA: OPTA', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.85])
@@ -714,7 +714,7 @@ def create_individual_charts(length_data, team_data, shot_sequences, match_info,
     fig3.text(0.5, 0.96, title, ha='center', fontsize=20, fontweight='bold', color='white')
     fig3.text(0.5, 0.915, xg_line, ha='center', fontsize=12, fontweight='bold', color='#B8C5D6')
     fig3.text(0.5, 0.88, 'INDIVIDUAL SHOTS: LENGTH vs QUALITY', ha='center', fontsize=11, color='#8BA3B8', style='italic')
-    fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig3.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig3.text(0.98, 0.01, 'DATA: OPTA', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.85])
@@ -752,7 +752,7 @@ def create_individual_charts(length_data, team_data, shot_sequences, match_info,
     fig4.text(0.5, 0.96, title, ha='center', fontsize=20, fontweight='bold', color='white')
     fig4.text(0.5, 0.915, xg_line, ha='center', fontsize=12, fontweight='bold', color='#B8C5D6')
     fig4.text(0.5, 0.88, 'SHOT QUALITY DISTRIBUTION', ha='center', fontsize=11, color='#8BA3B8', style='italic')
-    fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE)
+    fig4.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig4.text(0.98, 0.01, 'DATA: OPTA', fontsize=8, color=TEXT_SUBTLE, ha='right')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.85])
