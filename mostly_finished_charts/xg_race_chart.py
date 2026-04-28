@@ -802,7 +802,10 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
         if near_left:
             sides = ['right']
         elif near_right:
-            sides = ['left', 'right']
+            # Late events: only try left. Falling back to right would push the
+            # label past chart_max and visibly extend the chart trailing the
+            # actual end of the match. Force vertical stacking instead.
+            sides = ['left']
         else:
             sides = ['right', 'left']
 
