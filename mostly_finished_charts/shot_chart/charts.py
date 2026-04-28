@@ -486,8 +486,25 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
 
     # Title with score
     auto_title = f"{team1_name.upper()} {team1_goals}-{team2_goals} {team2_name.upper()}"
-    fig.suptitle(custom_title or auto_title,
-                 fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+    title_obj = fig.suptitle(custom_title or auto_title,
+                              fontsize=22, fontweight='bold', color=TEXT_PRIMARY, y=0.97)
+
+    # Split accent bar matching title width: left half home color, right half
+    # away color. Same pattern as Match Momentum's bar; mirrors the single-team
+    # chart's accent but represents both teams.
+    fig.canvas.draw()
+    title_bbox = title_obj.get_window_extent(renderer=fig.canvas.get_renderer())
+    title_bbox_fig = title_bbox.transformed(fig.transFigure.inverted())
+    half_w = title_bbox_fig.width / 2
+    mid_x = title_bbox_fig.x0 + half_w
+    for bar_x, color in ((title_bbox_fig.x0, team1_color), (mid_x, team2_color)):
+        bar_edge = 'white' if not check_bg_contrast(color) else 'none'
+        bar_lw = 0.8 if bar_edge == 'white' else 0
+        fig.patches.append(Rectangle(
+            (bar_x, 0.933), half_w, 0.005,
+            transform=fig.transFigure, facecolor=color,
+            edgecolor=bar_edge, linewidth=bar_lw, zorder=10
+        ))
 
     # xG sub-line directly under the score. Non-Pen label when penalties filtered.
     xg_subline_label = "Non-Pen xG" if exclude_penalties else "xG"
