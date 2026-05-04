@@ -960,32 +960,53 @@ def get_games_missing_fixture_data(con, season_ids=None):
     ]
 
 
-def build_event_log_statement(team_id, season_ids, since_date=None):
+def build_event_log_statement(team_id, season_ids, since_date=None,
+                              until_date=None, game_ids=None):
     """Build the SQL statement for a team event log download.
 
-    If since_date is provided (a date object or 'YYYY-MM-DD' string),
-    only events from games on or after that date are returned.
+    Filtering options (mutually compatible except where noted):
+        since_date:  YYYY-MM-DD or date — events from games on/after this date
+        until_date:  YYYY-MM-DD or date — events from games on/before this date
+        game_ids:    iterable of gameId strings — restrict to these specific games.
+                     Overrides since_date / until_date when provided.
     """
     season_id_str = ",".join(f"'{s}'" for s in season_ids)
-    date_filter = f"AND (game.gameDate >= '{since_date}') " if since_date else ""
+    filters = []
+    if game_ids:
+        gids_str = ",".join(f"'{g}'" for g in game_ids)
+        filters.append(f"AND (game.gameId IN ({gids_str}))")
+    else:
+        if since_date:
+            filters.append(f"AND (game.gameDate >= '{since_date}')")
+        if until_date:
+            filters.append(f"AND (game.gameDate <= '{until_date}')")
+
     return (
         f"{EVENT_LOG_SELECT} "
         f"FROM team BY event "
         f"WHERE ((team.teamId ='{team_id}') AND ((event.toucher))) "
         f"AND ((season.seasonId IN ({season_id_str}))) "
-        f"{date_filter}"
+        f"{' '.join(filters)} "
         f"ORDER BY event.gameEventIndex ASC "
         f"LIMIT 100000"
     )
 
 
-def download_event_log(session, team_id, season_ids, output_path, since_date=None):
+def download_event_log(session, team_id, season_ids, output_path,
+                       since_date=None, until_date=None, game_ids=None):
     """Download a team event log CSV and save to output_path.
 
     Returns (row_count, size_kb) on success.
     Raises on auth failure, network error, or unexpected response.
+
+    See build_event_log_statement for filter semantics.
     """
-    statement = build_event_log_statement(team_id, season_ids, since_date=since_date)
+    statement = build_event_log_statement(
+        team_id, season_ids,
+        since_date=since_date,
+        until_date=until_date,
+        game_ids=game_ids,
+    )
     payload = {
         "format": "MIXED",
         "statement": statement,
@@ -1131,6 +1152,19 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
 
     # ── Build events DataFrame ─────────────────────────────────────────────────
     events_df = df[[c for c in EVENTS_MD_COLS if c in df.columns]].copy()
+
+    # TruMedia occasionally exports the same event twice in a single CSV.
+    # Without dedup, the staging->INSERT step fails on the eventGuid PK
+    # constraint and rolls back the whole team's upload. Drop any duplicate
+    # eventGuids here, keep the first occurrence, and log how many were
+    # dropped so we can spot data-quality regressions in the source.
+    if 'eventGuid' in events_df.columns:
+        before = len(events_df)
+        events_df = events_df.drop_duplicates(subset=['eventGuid'], keep='first')
+        dropped = before - len(events_df)
+        if dropped:
+            print(f"  [warning] dropped {dropped} duplicate eventGuid row(s) "
+                  f"from staging (TruMedia CSV had repeats)")
 
     # ── Upsert ────────────────────────────────────────────────────────────────
     own_con = con is None
