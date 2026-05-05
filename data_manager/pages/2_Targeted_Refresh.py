@@ -103,6 +103,49 @@ def fetch_games_for_team(team_id, season_id):
     ]
 
 
+@st.cache_data(ttl=60)
+def fetch_broken_games_index():
+    """Return indices of FIXABLE broken games for visual flagging.
+
+    A broken game = a game where fewer than 2 teams have events. We further
+    filter to 'fixable' broken games where both home and away team_ids are
+    in our config (so coverage gaps -- e.g. UCL games where only one side is
+    in our pipeline -- don't pollute the indicators).
+
+    Returns:
+        broken_by_season: {seasonId: count}
+        broken_by_team:   {teamId: count}
+        broken_game_ids:  set of gameIds
+    """
+    if not MOTHERDUCK_TOKEN:
+        return {}, {}, set()
+    config_team_ids = {t["team_id"] for t in config["teams"]}
+    con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+    try:
+        rows = con.execute(
+            """
+            SELECT g.gameId, g.seasonId, g.homeTeamId, g.awayTeamId
+            FROM games g LEFT JOIN events e ON g.gameId = e.gameId
+            GROUP BY 1, 2, 3, 4
+            HAVING COUNT(DISTINCT e.teamId) < 2
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    by_season = {}
+    by_team = {}
+    broken_ids = set()
+    for gid, sid, h_id, a_id in rows:
+        if h_id not in config_team_ids or a_id not in config_team_ids:
+            continue  # Coverage gap, not fixable from our side
+        by_season[sid] = by_season.get(sid, 0) + 1
+        by_team[h_id] = by_team.get(h_id, 0) + 1
+        by_team[a_id] = by_team.get(a_id, 0) + 1
+        broken_ids.add(gid)
+    return by_season, by_team, broken_ids
+
+
 def find_team_config(team_id):
     """Look up a team config entry by team_id."""
     return next((t for t in config["teams"] if t["team_id"] == team_id), None)
@@ -213,6 +256,52 @@ if "cookies" not in st.session_state:
     )
     st.stop()
 
+# Pre-compute broken-games indices so we can decorate the dropdowns with
+# warning marks. Cached for 60s; invalidated after any successful refresh.
+broken_by_season, broken_by_team, broken_game_ids = fetch_broken_games_index()
+
+# Aggregate per-league counts by walking config teams (each league's broken
+# count = sum of its primary seasonId's broken count). One league can map to
+# exactly one primary seasonId via get_seasonId_for_league.
+broken_by_league = {}
+for _lname in leagues:
+    _sid = get_seasonId_for_league(_lname)
+    if _sid and _sid in broken_by_season:
+        broken_by_league[_lname] = broken_by_season[_sid]
+
+total_broken = len(broken_game_ids)
+if total_broken:
+    st.info(
+        f"⚠ {total_broken} fixable broken game"
+        f"{'s' if total_broken != 1 else ''} detected in DB "
+        f"(missing one team's events). They are flagged below."
+    )
+
+
+def _fmt_league(name):
+    if not name:
+        return ""
+    n = broken_by_league.get(name, 0)
+    return f"{name}  ⚠ {n} broken" if n else name
+
+
+def _fmt_team(name, teams_lookup):
+    if not name:
+        return ""
+    t = teams_lookup.get(name)
+    if not t:
+        return name
+    n = broken_by_team.get(t["team_id"], 0)
+    return f"{name}  ⚠ {n} broken" if n else name
+
+
+def _fmt_game(label, label_to_gameid):
+    if not label:
+        return ""
+    gid = label_to_gameid.get(label)
+    return f"🔴 {label}" if gid in broken_game_ids else label
+
+
 # Cascading selectors -------------------------------------------------------
 sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 2])
 
@@ -221,16 +310,19 @@ with sel_col1:
         "League",
         options=[""] + sorted(leagues.keys()),
         index=0,
+        format_func=_fmt_league,
         help="Pick the league of the match you want to refresh.",
     )
 
 with sel_col2:
     if league_name:
         teams_in_league = sorted(leagues[league_name], key=lambda t: t["name"])
+        teams_lookup = {t["name"]: t for t in teams_in_league}
         team_name = st.selectbox(
             "Team",
             options=[""] + [t["name"] for t in teams_in_league],
             index=0,
+            format_func=lambda n: _fmt_team(n, teams_lookup),
             help="Pick either of the two teams in the match.",
         )
     else:
@@ -249,11 +341,15 @@ with sel_col3:
                     f"{g['Date']} — {g['homeTeam']} vs {g['awayTeam']}"
                     for g in games
                 ]
+                label_to_gameid = {
+                    lbl: g["gameId"] for lbl, g in zip(game_options, games)
+                }
                 idx = st.selectbox(
                     "Game",
                     options=[""] + game_options,
                     index=0,
-                    help="Pick the specific match to refresh.",
+                    format_func=lambda lbl: _fmt_game(lbl, label_to_gameid),
+                    help="Pick the specific match to refresh. 🔴 = currently broken.",
                 )
                 if idx:
                     selected_game = games[game_options.index(idx)]
@@ -313,9 +409,10 @@ if selected_game:
                     selected_game["awayTeam"],
                 )
             st.session_state["targeted_results"] = results
-            # Bust the cached games list so the date column re-reflects the
-            # newly-refreshed game on next page load.
+            # Bust caches so the games list and broken-game indicators
+            # both re-reflect the just-refreshed game on next render.
             fetch_games_for_team.clear()
+            fetch_broken_games_index.clear()
             st.rerun()
 
 # Result display ------------------------------------------------------------
