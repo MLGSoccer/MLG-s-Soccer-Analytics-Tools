@@ -15,7 +15,7 @@ from shared.colors import (
 )
 from shared.styles import (
     BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
-    add_cbs_footer, BROADCAST_FIGSIZE,
+    add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
 )
 
 # Try to import web scraping libraries
@@ -1141,36 +1141,16 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
                   fontweight='bold', labelpad=10)
 
     # ── Header: kicker + score title + accent bar + subtitle ────────────────
-    score_title = f"{home.upper()} {home_score}-{away_score} {away.upper()}"
     custom_title = team_info.get('custom_title')
     custom_subtitle = team_info.get('custom_subtitle')
 
-    # Kicker -- small, uppercase, letter-spaced, muted
-    fig.text(0.5, 0.973, 'x G   R A C E', fontsize=11, fontweight='bold',
-             color=TEXT_SECONDARY, ha='center', va='center')
-
-    # Score title (user override if provided)
-    title_text = custom_title or score_title
-    score_obj = fig.text(0.5, 0.942, title_text, fontsize=22, fontweight='bold',
-                          color=TEXT_PRIMARY, ha='center', va='center')
-    fig.canvas.draw()
-    sb = score_obj.get_window_extent(renderer=fig.canvas.get_renderer())
-    sb_fig = sb.transformed(fig.transFigure.inverted())
-
-    # Two-color accent bar under score title (team identity)
-    bar_y = 0.912
-    bar_h = 0.005
-    mid = sb_fig.x0 + sb_fig.width / 2
-    fig.patches.append(Rectangle(
-        (sb_fig.x0, bar_y), sb_fig.width / 2, bar_h,
-        transform=fig.transFigure, facecolor=home_color,
-        edgecolor='none', zorder=10,
-    ))
-    fig.patches.append(Rectangle(
-        (mid, bar_y), sb_fig.width / 2, bar_h,
-        transform=fig.transFigure, facecolor=away_color,
-        edgecolor='none', zorder=10,
-    ))
+    render_two_team_score_header(
+        fig,
+        home_name=home, home_score=home_score, home_color=home_color,
+        away_name=away, away_score=away_score, away_color=away_color,
+        kicker='x G   R A C E',
+        custom_title=custom_title,
+    )
 
     # Subtitle: competition + date (user override if provided)
     competition = team_info.get('competition', '')

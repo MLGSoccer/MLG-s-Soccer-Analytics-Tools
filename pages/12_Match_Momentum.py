@@ -22,7 +22,7 @@ from shared.motherduck import (
 from shared.styles import (
     BG_COLOR, SPINE_COLOR,
     TEXT_PRIMARY, TEXT_SECONDARY,
-    add_cbs_footer, BROADCAST_FIGSIZE,
+    add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
 )
 from shared.colors import check_color_similarity, ensure_line_contrast
 from pages.streamlit_utils import custom_title_inputs
@@ -336,30 +336,13 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     ax.set_facecolor(BG_COLOR)
 
     # ── Header (xG race conventions) ──────────────────────────────────────────────
-    fig.text(0.5, 0.973, "MATCH MOMENTUM", fontsize=11, fontweight="bold",
-             color=TEXT_SECONDARY, ha="center", va="center")
-
-    score_title = f"{home_name.upper()} {home_score}-{away_score} {away_name.upper()}"
-    title_text = custom_title or score_title
-    title_obj = fig.text(0.5, 0.942, title_text, fontsize=22, fontweight="bold",
-                         color=TEXT_PRIMARY, ha="center", va="center")
-
-    # Accent bar matched to title text width — same approach as xG race so
-    # the bar always anchors under the title regardless of name length.
-    fig.canvas.draw()
-    sb = title_obj.get_window_extent(renderer=fig.canvas.get_renderer())
-    sb_fig = sb.transformed(fig.transFigure.inverted())
-    bar_y = 0.912
-    bar_h = 0.005
-    mid = sb_fig.x0 + sb_fig.width / 2
-    fig.patches.append(mpatches.Rectangle(
-        (sb_fig.x0, bar_y), sb_fig.width / 2, bar_h,
-        transform=fig.transFigure, facecolor=home_color,
-        edgecolor='none', zorder=10, figure=fig))
-    fig.patches.append(mpatches.Rectangle(
-        (mid, bar_y), sb_fig.width / 2, bar_h,
-        transform=fig.transFigure, facecolor=away_color,
-        edgecolor='none', zorder=10, figure=fig))
+    render_two_team_score_header(
+        fig,
+        home_name=home_name, home_score=home_score, home_color=home_color,
+        away_name=away_name, away_score=away_score, away_color=away_color,
+        kicker="MATCH MOMENTUM",
+        custom_title=custom_title,
+    )
 
     subtitle_parts = [p for p in [competition.upper() if competition else "", date] if p]
     auto_subtitle = " | ".join(subtitle_parts)
