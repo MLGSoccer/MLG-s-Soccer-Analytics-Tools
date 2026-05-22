@@ -115,7 +115,8 @@ def _ensure_team_contrast(team1_name, team2_name, team_colors):
 def _generate_single_match_charts(shots_df, match_info, team_colors, chart_options,
                                    team1_name, team2_name, team1_player, team2_player,
                                    competition, exclude_penalties, highlight_mode,
-                                   custom_title=None, custom_subtitle=None):
+                                   custom_title=None, custom_subtitle=None,
+                                   aspect='default'):
     """Generate single-match shot charts and return image bytes dict."""
     from shared.colors import TEAM_COLORS, fuzzy_match_team
 
@@ -173,6 +174,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
         player2_name = team2_player
 
     charts = {}
+    aspect_suffix = f"_{aspect}" if aspect != 'default' else ''
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         if "Individual Team Charts" in chart_options:
@@ -185,10 +187,11 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode,
                 player_name=player1_name,
-                custom_title=custom_title, custom_subtitle=custom_subtitle
+                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                aspect=aspect,
             )
             caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
-            fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_').replace('/', '-')}.png"
+            fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_').replace('/', '-')}{aspect_suffix}.png"
             path1 = os.path.join(tmp_dir, fname1)
             fig1.savefig(path1, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig1)
@@ -205,10 +208,11 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 highlight_mode=highlight_mode,
                 player_name=player2_name,
                 is_home=False,
-                custom_title=custom_title, custom_subtitle=custom_subtitle
+                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                aspect=aspect,
             )
             caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
-            fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_').replace('/', '-')}.png"
+            fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_').replace('/', '-')}{aspect_suffix}.png"
             path2 = os.path.join(tmp_dir, fname2)
             fig2.savefig(path2, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig2)
@@ -216,15 +220,22 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 charts[fname2] = (caption2, f.read())
 
         if "Combined Chart" in chart_options:
+            # Combined chart supports 'default' (horizontal Pitch, 16:9) and
+            # '9x16' (VerticalPitch full pitch, vertical fullscreen overlay).
+            # 9x8 would mean letterboxing a horizontal pitch into a square-ish
+            # frame, so we fall back to default for that aspect.
+            combined_aspect = aspect if aspect == '9x16' else 'default'
             fig_combined = create_combined_shot_chart(
                 shots_df, team1_name, team1_color, team1_flip,
                 team2_name, team2_color, team2_flip,
                 match_info, competition=competition,
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode,
-                custom_title=custom_title, custom_subtitle=custom_subtitle
+                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                aspect=combined_aspect,
             )
-            fname_combined = f"shot_chart_{team1_name.replace(' ', '_').replace('/', '-')}_vs_{team2_name.replace(' ', '_').replace('/', '-')}.png"
+            combined_suffix = f"_{combined_aspect}" if combined_aspect != 'default' else ''
+            fname_combined = f"shot_chart_{team1_name.replace(' ', '_').replace('/', '-')}_vs_{team2_name.replace(' ', '_').replace('/', '-')}{combined_suffix}.png"
             path_combined = os.path.join(tmp_dir, "shot_chart_combined.png")
             fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig_combined)
@@ -238,7 +249,7 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
                                  competition, selected_player, exclude_penalties,
                                  highlight_mode, shots_against=False,
                                  custom_title=None, custom_subtitle=None,
-                                 minutes=None):
+                                 minutes=None, aspect='default'):
     """Generate multi-match shot chart and return (img_bytes, filename, caption)."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         fig = create_multi_match_shot_chart(
@@ -248,14 +259,15 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
             highlight_mode=highlight_mode,
             shots_against=shots_against,
             custom_title=custom_title, custom_subtitle=custom_subtitle,
-            minutes=minutes
+            minutes=minutes, aspect=aspect,
         )
 
         name_part = team_name.replace(' ', '_').replace('/', '-')
         if selected_player:
             name_part = f"{selected_player.replace(' ', '_').replace('/', '-')}_{name_part}"
         suffix = "_against" if shots_against else ""
-        filename = f"shot_map_{name_part}{suffix}_season.png"
+        aspect_suffix = f"_{aspect}" if aspect != 'default' else ''
+        filename = f"shot_map_{name_part}{suffix}_season{aspect_suffix}.png"
 
         path = os.path.join(tmp_dir, filename)
         fig.savefig(path, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
@@ -287,6 +299,24 @@ def _display_charts(charts_dict, key_prefix=""):
 
 st.title("Shot Chart")
 st.markdown("Visualize shot locations for a single match or full season.")
+
+aspect = st.sidebar.radio(
+    "Aspect ratio",
+    options=["Standard (16:9)", "Tile (9:8)", "Vertical (9:16)"],
+    index=0,
+    help="In-video overlay aspects for PodcastShorts. "
+         "9:8 = SBS tile single-team (chart shares the frame with the host). "
+         "9:16 = fullscreen overlay; Combined Chart renders as full "
+         "vertical pitch with both teams (home attacks up, away attacks "
+         "down). Single-team at 9:16 is parked for redesign; if "
+         "9:16 + Combined is selected only Combined renders at 9:16.",
+)
+if aspect.startswith("Tile"):
+    aspect_param = "9x8"
+elif aspect.startswith("Vertical"):
+    aspect_param = "9x16"
+else:
+    aspect_param = "default"
 
 data_source = st.radio(
     "Data source",
@@ -448,7 +478,8 @@ if data_source == "Database":
                                 team1_name, team2_name, team1_player, team2_player,
                                 competition, exclude_penalties, highlight_mode,
                                 custom_title=custom_title_db_single,
-                                custom_subtitle=custom_subtitle_db_single
+                                custom_subtitle=custom_subtitle_db_single,
+                                aspect=aspect_param,
                             )
                             st.session_state["shot_charts"] = charts
 
@@ -712,7 +743,8 @@ if data_source == "Database":
                                     highlight_mode, shots_against=shots_against,
                                     custom_title=custom_title_db_season,
                                     custom_subtitle=custom_subtitle_db_season,
-                                    minutes=p_minutes if selected_player else None
+                                    minutes=p_minutes if selected_player else None,
+                                    aspect=aspect_param,
                                 )
                                 st.session_state["multi_shot_chart"] = {
                                     "img": img_bytes, "filename": filename, "caption": caption,
@@ -865,7 +897,8 @@ else:
                                 team1_name, team2_name, team1_player, team2_player,
                                 competition, exclude_penalties, highlight_mode,
                                 custom_title=custom_title_csv_single,
-                                custom_subtitle=custom_subtitle_csv_single
+                                custom_subtitle=custom_subtitle_csv_single,
+                                aspect=aspect_param,
                             )
                             st.session_state["shot_charts"] = charts
 
@@ -963,7 +996,8 @@ else:
                                     competition, selected_player, exclude_penalties,
                                     highlight_mode, shots_against=shots_against,
                                     custom_title=custom_title_csv_multi,
-                                    custom_subtitle=custom_subtitle_csv_multi
+                                    custom_subtitle=custom_subtitle_csv_multi,
+                                    aspect=aspect_param,
                                 )
                                 st.session_state["multi_shot_chart"] = {
                                     "img": img_bytes, "filename": filename, "caption": caption,

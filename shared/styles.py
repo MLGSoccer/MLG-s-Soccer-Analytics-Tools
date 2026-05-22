@@ -37,6 +37,50 @@ PITCH_FIGSIZE     = (12, 9)   # ~4:3 — pitch-based charts (shot chart,
 DASHBOARD_FIGSIZE = (16, 10)  # 4-panel dashboards — slightly taller than
                               # 16:9 to give each panel vertical room.
 
+# In-video overlay variants. These aren't standalone social posts -
+# they're chart assets that render as overlays inside PodcastShorts
+# vertical shorts. Two cases:
+#   9x16 = fullscreen overlay (chart fills the entire short)
+#   9x8  = SBS tile overlay (chart fills half of the short while the
+#          host fills the other half; the chart shape is wider than
+#          tall because it's HALF of a 9:16 frame)
+# Design implication: viewer has seconds (not minutes), big typography,
+# minimal text density (host carries verbal context), no need for a
+# subtitle or legend in tile mode.
+BROADCAST_FIGSIZE_9X16 = (9, 16)
+PITCH_FIGSIZE_9X16     = (9, 16)
+DASHBOARD_FIGSIZE_9X16 = (9, 16)
+BROADCAST_FIGSIZE_9X8  = (9, 8)
+PITCH_FIGSIZE_9X8      = (9, 8)
+DASHBOARD_FIGSIZE_9X8  = (9, 8)
+
+
+# Aspect vocabulary - canonical strings used as the `aspect` parameter on
+# chart functions. Keep this small; add new aspects here first, then
+# plumb through each chart that should support them.
+ASPECTS = ("16x9", "9x16", "9x8")
+
+
+def resolve_figsize(aspect: str, category: str = "broadcast") -> tuple[float, float]:
+    """Map (aspect, chart-category) to a figsize tuple.
+
+    `aspect` is one of ASPECTS. `category` is one of
+    {'broadcast', 'pitch', 'dashboard'} and picks the right default
+    when aspect is the default '16x9' (where the figsize differs by
+    chart family). In 9x16 and 9x8 modes all categories collapse to a
+    single frame size - the output aspect is the constraint, not the
+    chart family.
+    """
+    if aspect == "9x16":
+        return BROADCAST_FIGSIZE_9X16
+    if aspect == "9x8":
+        return BROADCAST_FIGSIZE_9X8
+    if category == "pitch":
+        return PITCH_FIGSIZE
+    if category == "dashboard":
+        return DASHBOARD_FIGSIZE
+    return BROADCAST_FIGSIZE
+
 
 def style_axis(ax):
     """Apply consistent CBS Sports styling to axis."""

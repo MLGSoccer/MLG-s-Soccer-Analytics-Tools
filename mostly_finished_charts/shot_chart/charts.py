@@ -32,14 +32,99 @@ from .drawing import (
 )
 
 
+_TEAM_SHOT_LAYOUT_DEFAULT = {
+    'axes_position':  None,
+    'tight_rect':     [0.02, 0.14, 0.98, 0.84],
+    'title_y':        0.97,  'title_size':    20,
+    'bar_y':          0.933, 'bar_height':    0.005,
+    'subtitle_y':     0.91,  'subtitle_size': 11,
+    'legend_y':       0.89,  'legend_size':   10,
+    'stat_val_y':     0.095, 'stat_val_size': 26,
+    'stat_label_y':   0.055, 'stat_label_size': 10,
+    'stat_xs':        (0.30, 0.50, 0.70),
+    'extras_x_goals': 0.715, 'extras_x_xg':   0.545,
+    'extras_size':    14,
+    'highlight_y':    0.025, 'highlight_size': 10,
+    'caption_y':      0.01,  'caption_size':   8,
+}
+
+_TEAM_SHOT_LAYOUT_9X16 = {
+    # Pitch axes explicitly sized so the half-pitch fits with no empty
+    # bands above/below inside the axes box. Width=full frame; height
+    # equals width (half-pitch is roughly square at the opta scale).
+    'axes_position':  [0.02, 0.22, 0.96, 0.54],
+    'tight_rect':     None,
+    'title_y':        0.94,  'title_size':    34,
+    'bar_y':          0.905, 'bar_height':    0.006,
+    'subtitle_y':     0.875, 'subtitle_size': 16,
+    'legend_y':       0.83,  'legend_size':   13,
+    'stat_val_y':     0.155, 'stat_val_size': 42,
+    'stat_label_y':   0.10,  'stat_label_size': 14,
+    'stat_xs':        (0.22, 0.50, 0.78),
+    'extras_x_goals': 0.815, 'extras_x_xg':   0.555,
+    'extras_size':    18,
+    'highlight_y':    0.055, 'highlight_size': 13,
+    'caption_y':      0.02,  'caption_size':   10,
+}
+
+# 9:8 tile overlay - chart lives in HALF of a 9:16 short while the host
+# fills the other half. The pitch's natural ~0.77 aspect fits this
+# almost perfectly (height/width = 0.78 in this layout), so the pitch
+# fills ~83% of vertical with no internal dead space. Top + bottom
+# bands are intentionally tight; the host carries the verbal context
+# so we drop the subtitle, legend, highlight line, and "circle size"
+# caption. A `None` y-coordinate means the block is omitted.
+_TEAM_SHOT_LAYOUT_9X8 = {
+    # Frame: 9 wide x 8 tall. Top band ~6% (title + bar). Pitch axes
+    # ~83% (axes aspect 0.77 matches half-pitch natural aspect, no
+    # internal dead bands). Bottom band ~11% (stats values + labels
+    # with clearance above CBS footer at y=0.01).
+    'axes_position':  [0.02, 0.11, 0.96, 0.83],
+    'tight_rect':     None,
+    'title_y':        0.97,  'title_size':    22,
+    # bar_y is the bar's bottom edge. 22pt title in an 8" tall figure
+    # extends ~0.038 in figure coords below the title_y; bar must sit
+    # below 0.97 - 0.038 = 0.932 to avoid overlapping the text.
+    'bar_y':          0.925, 'bar_height':    0.005,
+    'subtitle_y':     None,  'subtitle_size': None,
+    'legend_y':       None,  'legend_size':   None,
+    'stat_val_y':     0.075, 'stat_val_size': 22,
+    'stat_label_y':   0.040, 'stat_label_size': 9,
+    'stat_xs':        (0.20, 0.50, 0.80),
+    'extras_x_goals': 0.84,  'extras_x_xg':   0.555,
+    'extras_size':    11,
+    'highlight_y':    None,  'highlight_size': None,
+    'caption_y':      None,  'caption_size':  None,
+}
+
+
+_TEAM_SHOT_LAYOUTS = {
+    'default': _TEAM_SHOT_LAYOUT_DEFAULT,
+    '9x16':    _TEAM_SHOT_LAYOUT_9X16,
+    '9x8':     _TEAM_SHOT_LAYOUT_9X8,
+}
+
+
 def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                            opponent_name, team_final_score=0, opponent_goals=0,
                            own_goals_for=0, own_goals_against=0,
                            flip_coords=False, competition='',
                            exclude_penalties=False, highlight_mode='All',
                            player_name=None, is_home=True,
-                           custom_title=None, custom_subtitle=None):
-    """Create a single team's shot chart using mplsoccer VerticalPitch."""
+                           custom_title=None, custom_subtitle=None,
+                           aspect='default'):
+    """Create a single team's shot chart using mplsoccer VerticalPitch.
+
+    aspect: 'default' = (12, 9) frame, 16:9-era layout. '9x16' = (9, 16)
+    frame with a layout that's native to portrait social: pitch axes
+    explicitly sized to fit (no letterbox bands), bigger title and
+    stats typography to fill the vertical real estate, tighter top and
+    bottom regions to make every band feel deliberate.
+    """
+    from shared.styles import resolve_figsize
+
+    layout = _TEAM_SHOT_LAYOUTS.get(aspect, _TEAM_SHOT_LAYOUT_DEFAULT)
+
     pitch = VerticalPitch(
         pitch_type='opta',
         half=True,
@@ -53,7 +138,9 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         pad_right=1
     )
 
-    fig, ax = plt.subplots(figsize=(12, 9))
+    fig, ax = plt.subplots(figsize=resolve_figsize(aspect, category='pitch'))
+    if layout['axes_position'] is not None:
+        ax.set_position(layout['axes_position'])
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
 
@@ -103,8 +190,9 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     else:
         title_text = f"{team_name.upper()} {shot_map_label}"
 
-    title_obj = fig.suptitle(title_text, fontsize=20, fontweight='bold',
-                              color=TEXT_PRIMARY, y=0.97)
+    title_obj = fig.suptitle(title_text, fontsize=layout['title_size'],
+                              fontweight='bold',
+                              color=TEXT_PRIMARY, y=layout['title_y'])
 
     # Team color accent bar matching title width
     fig.canvas.draw()
@@ -113,15 +201,21 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     bar_edge = 'white' if not check_bg_contrast(team_color) else 'none'
     bar_lw = 0.8 if bar_edge == 'white' else 0
     fig.patches.append(Rectangle(
-        (title_bbox_fig.x0, 0.933), title_bbox_fig.width, 0.005,
+        (title_bbox_fig.x0, layout['bar_y']), title_bbox_fig.width,
+        layout['bar_height'],
         transform=fig.transFigure, facecolor=team_color,
         edgecolor=bar_edge, linewidth=bar_lw, zorder=10
     ))
 
-    # Subtitle: match context (score, opponent, competition, date)
-    if custom_subtitle:
-        fig.text(0.5, 0.91, custom_subtitle, ha='center', va='center',
-                 fontsize=11, color=TEXT_SECONDARY)
+    # Subtitle: match context (score, opponent, competition, date).
+    # Skipped entirely when layout['subtitle_y'] is None (e.g. 9:8 tile
+    # mode where the host provides the verbal context).
+    if layout['subtitle_y'] is None:
+        pass
+    elif custom_subtitle:
+        fig.text(0.5, layout['subtitle_y'], custom_subtitle,
+                 ha='center', va='center',
+                 fontsize=layout['subtitle_size'], color=TEXT_SECONDARY)
     else:
         # Match line — score from the focal team's perspective
         if player_name:
@@ -141,36 +235,42 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         if match_info.get('date_formatted'):
             subtitle_parts.append(match_info['date_formatted'])
 
-        fig.text(0.5, 0.91, ' | '.join(subtitle_parts),
-                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+        fig.text(0.5, layout['subtitle_y'], ' | '.join(subtitle_parts),
+                 ha='center', va='center',
+                 fontsize=layout['subtitle_size'], color=TEXT_SECONDARY)
 
-    # Legend: shape-only (Goal = star, Shot = circle; size encodes xG qualitatively)
-    legend_handles = [
-        Line2D([0], [0], marker='*', color='none', markerfacecolor=team_color,
-               markeredgecolor='white', markeredgewidth=1, markersize=14, label='Goal'),
-        Line2D([0], [0], marker='o', color='none', markerfacecolor=team_color,
-               markeredgecolor='white', markeredgewidth=1, markersize=10,
-               label='Shot'),
-    ]
-    fig.legend(handles=legend_handles, loc='upper center',
-                bbox_to_anchor=(0.5, 0.89), ncol=2, frameon=False,
-                fontsize=10, labelcolor=TEXT_SECONDARY,
-                handletextpad=0.5, columnspacing=3.0)
+    # Legend: shape-only (Goal = star, Shot = circle; size encodes xG
+    # qualitatively). Skipped entirely when layout['legend_y'] is None
+    # (e.g. 9:8 tile mode where the shape convention is understood).
+    if layout['legend_y'] is not None:
+        legend_handles = [
+            Line2D([0], [0], marker='*', color='none', markerfacecolor=team_color,
+                   markeredgecolor='white', markeredgewidth=1, markersize=14, label='Goal'),
+            Line2D([0], [0], marker='o', color='none', markerfacecolor=team_color,
+                   markeredgecolor='white', markeredgewidth=1, markersize=10,
+                   label='Shot'),
+        ]
+        fig.legend(handles=legend_handles, loc='upper center',
+                    bbox_to_anchor=(0.5, layout['legend_y']), ncol=2, frameon=False,
+                    fontsize=layout['legend_size'], labelcolor=TEXT_SECONDARY,
+                    handletextpad=0.5, columnspacing=3.0)
 
     # Stats row: large numbers with small uppercase labels beneath.
     # Label xG explicitly as "Non-Pen xG" when penalties are filtered, so the
     # number's meaning is unambiguous without needing inline reconciliation.
     xg_label = "Non-Pen xG" if exclude_penalties else "xG"
+    x_shots, x_xg, x_goals = layout['stat_xs']
     stat_cols = [
-        (0.30, str(total_shots), "SHOTS"),
-        (0.50, f"{total_xg:.2f}", xg_label),
-        (0.70, str(goals), "GOALS"),
+        (x_shots, str(total_shots), "SHOTS"),
+        (x_xg, f"{total_xg:.2f}", xg_label),
+        (x_goals, str(goals), "GOALS"),
     ]
     for x, val, lbl in stat_cols:
-        fig.text(x, 0.095, val, ha='center', va='center',
-                 fontsize=26, fontweight='bold', color=TEXT_PRIMARY)
-        fig.text(x, 0.055, lbl, ha='center', va='center',
-                 fontsize=10, color=TEXT_SECONDARY)
+        fig.text(x, layout['stat_val_y'], val, ha='center', va='center',
+                 fontsize=layout['stat_val_size'], fontweight='bold',
+                 color=TEXT_PRIMARY)
+        fig.text(x, layout['stat_label_y'], lbl, ha='center', va='center',
+                 fontsize=layout['stat_label_size'], color=TEXT_SECONDARY)
 
     # Inline modifiers next to the primary numbers at smaller font:
     #   GOALS: "(+N OG)" and/or "(+N pen)" when filter hides pen goals
@@ -185,26 +285,34 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     if show_pen_annotation:
         goals_extras.append(f"+{pen_goals} pen")
     if goals_extras:
-        fig.text(0.715, 0.095, f"({', '.join(goals_extras)})",
+        fig.text(layout['extras_x_goals'], layout['stat_val_y'],
+                 f"({', '.join(goals_extras)})",
                  ha='left', va='center',
-                 fontsize=14, color=TEXT_SECONDARY)
+                 fontsize=layout['extras_size'], color=TEXT_SECONDARY)
 
     if show_pen_annotation:
-        fig.text(0.545, 0.095, f"(+{pen_xg:.2f} pen)",
+        fig.text(layout['extras_x_xg'], layout['stat_val_y'],
+                 f"(+{pen_xg:.2f} pen)",
                  ha='left', va='center',
-                 fontsize=14, color=TEXT_SECONDARY)
+                 fontsize=layout['extras_size'], color=TEXT_SECONDARY)
 
-    if highlight_stats:
+    if highlight_stats and layout['highlight_y'] is not None:
         hl_text = (f"{highlight_mode}:  {highlight_stats['shots']} shots  ·  "
                    f"{highlight_stats['xg']:.2f} xG  ·  {highlight_stats['goals']} goals")
-        fig.text(0.5, 0.025, hl_text, ha='center', va='center',
-                 fontsize=10, color=TEXT_SECONDARY, style='italic')
+        fig.text(0.5, layout['highlight_y'], hl_text,
+                 ha='center', va='center',
+                 fontsize=layout['highlight_size'],
+                 color=TEXT_SECONDARY, style='italic')
 
-    plt.tight_layout(rect=[0.02, 0.14, 0.98, 0.84])
+    if layout['tight_rect'] is not None:
+        plt.tight_layout(rect=layout['tight_rect'])
 
     add_cbs_footer(fig)
-    fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
-             fontsize=8, color=TEXT_MUTED, style='italic')
+    if layout['caption_y'] is not None:
+        fig.text(0.5, layout['caption_y'], 'Circle size = xG',
+                 ha='center', va='bottom',
+                 fontsize=layout['caption_size'],
+                 color=TEXT_MUTED, style='italic')
 
     return fig
 
@@ -214,14 +322,18 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                                    exclude_penalties=False, highlight_mode='All',
                                    shots_against=False,
                                    custom_title=None, custom_subtitle=None,
-                                   minutes=None):
+                                   minutes=None, aspect='default'):
     """Create a multi-match shot chart for one team on a vertical half-pitch.
 
     Marker style:
         - Non-goals: black fill, white edge, circle
         - Goals: team_color fill, white edge, circle
         - Size scaled by xG
+
+    aspect: 'default' uses (12, 9); '9x16' uses (9, 16) for social.
     """
+    from shared.styles import resolve_figsize
+
     pitch = VerticalPitch(
         pitch_type='opta',
         half=True,
@@ -235,7 +347,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         pad_right=1
     )
 
-    fig, ax = plt.subplots(figsize=(12, 9))
+    fig, ax = plt.subplots(figsize=resolve_figsize(aspect, category='pitch'))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
 
@@ -409,24 +521,49 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                                 team2_name, team2_color, team2_flip,
                                 match_info, competition='',
                                 exclude_penalties=False, highlight_mode='All',
-                                custom_title=None, custom_subtitle=None):
-    """Create a combined shot chart showing both teams on a full horizontal pitch.
+                                custom_title=None, custom_subtitle=None,
+                                aspect='default'):
+    """Create a combined shot chart showing both teams on a full pitch.
 
-    Home team (team1) attacks LEFT, Away team (team2) attacks RIGHT.
+    aspect='default': horizontal Pitch (the existing 16:9 broadcast frame).
+        Home (team1) attacks LEFT, Away (team2) attacks RIGHT.
+    aspect='9x16': VerticalPitch(half=False) (vertical fullscreen overlay).
+        Home attacks UP (top of frame), Away attacks DOWN. Same shot
+        plotter (plot_shots_horizontal), same flip_y per-team empirical
+        values, only flip_x predicates invert because the target half
+        flips when the display rotates 90 degrees. See the call site
+        for the explicit predicate derivations.
     """
-    pitch = Pitch(
-        pitch_type='opta',
-        pitch_color='none',  # We'll draw the green rectangle manually
-        line_color='white',
-        linewidth=1.3,
-        goal_type='box',
-        pad_top=1,
-        pad_bottom=1,
-        pad_left=3,
-        pad_right=3
-    )
+    from shared.styles import resolve_figsize
 
-    fig, ax = plt.subplots(figsize=(12, 8))
+    is_vertical = (aspect == '9x16')
+
+    if is_vertical:
+        pitch = VerticalPitch(
+            pitch_type='opta',
+            pitch_color='none',
+            line_color='white',
+            linewidth=1.3,
+            goal_type='box',
+            pad_top=1,
+            pad_bottom=1,
+            pad_left=3,
+            pad_right=3
+        )
+    else:
+        pitch = Pitch(
+            pitch_type='opta',
+            pitch_color='none',  # We'll draw the green rectangle manually
+            line_color='white',
+            linewidth=1.3,
+            goal_type='box',
+            pad_top=1,
+            pad_bottom=1,
+            pad_left=3,
+            pad_right=3
+        )
+
+    fig, ax = plt.subplots(figsize=resolve_figsize(aspect, category='pitch'))
     fig.patch.set_facecolor(BG_COLOR)
     ax.set_facecolor(BG_COLOR)
 
@@ -434,6 +571,11 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     ax.add_patch(pitch_rect)
 
     pitch.draw(ax=ax)
+
+    if is_vertical:
+        # Pitch axes sized to match full vertical pitch natural aspect
+        # (~1.54 tall/wide). 8.64x13.3 inches in a (9, 16) frame.
+        ax.set_position([0.02, 0.06, 0.96, 0.83])
 
     # Per-team penalty stats computed BEFORE any filter runs. Prefer the pre-
     # computed match_info['pen_stats_by_team'] (CSV path) if present, else
@@ -455,12 +597,23 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     team1_shots = classify_highlight(shots_df[shots_df['Team'] == team1_name].copy(), highlight_mode)
     team2_shots = classify_highlight(shots_df[shots_df['Team'] == team2_name].copy(), highlight_mode)
 
-    # For combined chart: home attacks LEFT, away attacks RIGHT
+    # Per-team flip_x predicate: assign each team to the correct half.
+    # Horizontal (16:9): home -> LEFT (low x), away -> RIGHT (high x).
+    # Vertical   (9:16): home -> UP   (high x), away -> DOWN  (low x).
+    # The target half inverts when the display rotates 90 degrees, so
+    # the predicate inverts. flip_y stays the same per-team because
+    # it's the empirical TruMedia home/away cross-pitch convention,
+    # independent of display orientation (see drawing.py for the
+    # historical reason these values were chosen).
     team1_avg_x = team1_shots['EventX'].mean() if not team1_shots.empty else 50
     team2_avg_x = team2_shots['EventX'].mean() if not team2_shots.empty else 50
 
-    team1_combined_flip = team1_avg_x > 50
-    team2_combined_flip = team2_avg_x < 50
+    if is_vertical:
+        team1_combined_flip = team1_avg_x < 50   # mirror up if shots are in lower half
+        team2_combined_flip = team2_avg_x > 50   # mirror down if shots are in upper half
+    else:
+        team1_combined_flip = team1_avg_x > 50   # mirror left if shots are in right half
+        team2_combined_flip = team2_avg_x < 50   # mirror right if shots are in left half
 
     plot_shots_horizontal(ax, pitch, team1_shots, team1_color, flip_x=team1_combined_flip,
                           flip_y=True, highlight_mode=highlight_mode)
@@ -485,58 +638,84 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
     team1_own_goals = t1_breakdown.own_goals
     team2_own_goals = t2_breakdown.own_goals
 
-    # Title + split accent bar via shared helper. No kicker on shot chart;
-    # title sits higher (y=0.97) and bar at y=0.933.
-    render_two_team_score_header(
-        fig,
-        home_name=team1_name, home_score=team1_goals, home_color=team1_color,
-        away_name=team2_name, away_score=team2_goals, away_color=team2_color,
-        custom_title=custom_title,
-        y_title=0.97,
-        y_bar=0.933,
-        bar_contrast_edge=True,
-    )
+    # Title + split accent bar via shared helper.
+    # 16:9: standard broadcast positioning, fontsize 22.
+    # 9:16: title bumped to fontsize 28 to read as a fullscreen overlay
+    # title, bar adjusted to clear the larger text bottom edge.
+    if is_vertical:
+        render_two_team_score_header(
+            fig,
+            home_name=team1_name, home_score=team1_goals, home_color=team1_color,
+            away_name=team2_name, away_score=team2_goals, away_color=team2_color,
+            custom_title=custom_title,
+            fontsize_title=28,
+            y_title=0.97,
+            y_bar=0.943,
+            bar_contrast_edge=True,
+        )
+    else:
+        render_two_team_score_header(
+            fig,
+            home_name=team1_name, home_score=team1_goals, home_color=team1_color,
+            away_name=team2_name, away_score=team2_goals, away_color=team2_color,
+            custom_title=custom_title,
+            y_title=0.97,
+            y_bar=0.933,
+            bar_contrast_edge=True,
+        )
 
     # xG sub-line directly under the score. Non-Pen label when penalties filtered.
     xg_subline_label = "Non-Pen xG" if exclude_penalties else "xG"
-    fig.text(0.5, 0.92, f"{xg_subline_label}  {team1_xg:.2f} — {team2_xg:.2f}",
-             ha='center', va='center',
-             fontsize=12, fontweight='bold', color=TEXT_SECONDARY)
-
-    # Per-team highlight stats
-    team1_hl_stats = compute_highlight_stats(team1_shots, highlight_mode)
-    team2_hl_stats = compute_highlight_stats(team2_shots, highlight_mode)
-
-    # Subtitle
-    if custom_subtitle:
-        fig.text(0.5, 0.895, custom_subtitle, ha='center', va='center',
-                 fontsize=11, color=TEXT_SECONDARY)
+    if is_vertical:
+        # Bigger font in 9:16, single line carries the only stat that
+        # matters for an in-video overlay; no bottom stats block.
+        fig.text(0.5, 0.91, f"{xg_subline_label}  {team1_xg:.2f} — {team2_xg:.2f}",
+                 ha='center', va='center',
+                 fontsize=18, fontweight='bold', color=TEXT_SECONDARY)
     else:
-        shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
-        subtitle_parts = [shot_map_label]
-        if highlight_mode != 'All':
-            subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
-        if competition:
-            subtitle_parts.append(competition.upper())
-        if match_info.get('date_formatted'):
-            subtitle_parts.append(match_info['date_formatted'])
+        fig.text(0.5, 0.92, f"{xg_subline_label}  {team1_xg:.2f} — {team2_xg:.2f}",
+                 ha='center', va='center',
+                 fontsize=12, fontweight='bold', color=TEXT_SECONDARY)
 
-        fig.text(0.5, 0.895, ' | '.join(subtitle_parts),
-                 ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
+    # Per-team highlight stats (only needed for 16:9 detailed view)
+    team1_hl_stats = compute_highlight_stats(team1_shots, highlight_mode) if not is_vertical else None
+    team2_hl_stats = compute_highlight_stats(team2_shots, highlight_mode) if not is_vertical else None
+
+    # Subtitle - omitted in 9:16 fullscreen overlay mode (host carries
+    # the match context). Same for legend, per-team stats, highlight
+    # line, and the "Circle size = xG" caption below.
+    if not is_vertical:
+        if custom_subtitle:
+            fig.text(0.5, 0.895, custom_subtitle, ha='center', va='center',
+                     fontsize=11, color=TEXT_SECONDARY)
+        else:
+            shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
+            subtitle_parts = [shot_map_label]
+            if highlight_mode != 'All':
+                subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
+            if competition:
+                subtitle_parts.append(competition.upper())
+            if match_info.get('date_formatted'):
+                subtitle_parts.append(match_info['date_formatted'])
+
+            fig.text(0.5, 0.895, ' | '.join(subtitle_parts),
+                     ha='center', va='center', fontsize=11, color=TEXT_SECONDARY)
 
     # Shape legend only (team colors are communicated by the colored team
-    # names in the stats row at the bottom of the chart).
-    shape_handles = [
-        Line2D([0], [0], marker='*', color='none', markerfacecolor='#888888',
-               markeredgecolor='white', markeredgewidth=1, markersize=14, label='Goal'),
-        Line2D([0], [0], marker='o', color='none', markerfacecolor='#888888',
-               markeredgecolor='white', markeredgewidth=1, markersize=10,
-               label='Shot'),
-    ]
-    fig.legend(handles=shape_handles, loc='upper center',
-                bbox_to_anchor=(0.5, 0.87), ncol=2, frameon=False,
-                fontsize=10, labelcolor=TEXT_SECONDARY,
-                handletextpad=0.5, columnspacing=3.0)
+    # names in the stats row at the bottom of the chart). Skipped in 9:16
+    # overlay mode (convention is understood, no room for it anyway).
+    if not is_vertical:
+        shape_handles = [
+            Line2D([0], [0], marker='*', color='none', markerfacecolor='#888888',
+                   markeredgecolor='white', markeredgewidth=1, markersize=14, label='Goal'),
+            Line2D([0], [0], marker='o', color='none', markerfacecolor='#888888',
+                   markeredgecolor='white', markeredgewidth=1, markersize=10,
+                   label='Shot'),
+        ]
+        fig.legend(handles=shape_handles, loc='upper center',
+                    bbox_to_anchor=(0.5, 0.87), ncol=2, frameon=False,
+                    fontsize=10, labelcolor=TEXT_SECONDARY,
+                    handletextpad=0.5, columnspacing=3.0)
 
     # Per-team stat groups: team name header (in team color), then number/label columns.
     # Combined chart's tight columns can't fit inline pen annotations on xG, so
@@ -570,26 +749,28 @@ def create_combined_shot_chart(shots_df, team1_name, team1_color, team1_flip,
                      ha='left', va='center',
                      fontsize=12, color=TEXT_SECONDARY)
 
-    _draw_team_stats(0.24, team1_name, team1_color,
-                     team1_total_shots, team1_xg, team1_shot_goals, team1_own_goals,
-                     team1_pen_stats)
-    _draw_team_stats(0.76, team2_name, team2_color,
-                     team2_total_shots, team2_xg, team2_shot_goals, team2_own_goals,
-                     team2_pen_stats)
+    if not is_vertical:
+        _draw_team_stats(0.24, team1_name, team1_color,
+                         team1_total_shots, team1_xg, team1_shot_goals, team1_own_goals,
+                         team1_pen_stats)
+        _draw_team_stats(0.76, team2_name, team2_color,
+                         team2_total_shots, team2_xg, team2_shot_goals, team2_own_goals,
+                         team2_pen_stats)
 
-    if team1_hl_stats and team2_hl_stats:
-        hl_text = (f"{highlight_mode}:  {team1_name} {team1_hl_stats['shots']}sh · "
-                   f"{team1_hl_stats['xg']:.2f}xG · {team1_hl_stats['goals']}g    "
-                   f"{team2_name} {team2_hl_stats['shots']}sh · "
-                   f"{team2_hl_stats['xg']:.2f}xG · {team2_hl_stats['goals']}g")
-        fig.text(0.5, 0.025, hl_text, ha='center', va='center',
-                 fontsize=9, color=TEXT_SECONDARY, style='italic')
+        if team1_hl_stats and team2_hl_stats:
+            hl_text = (f"{highlight_mode}:  {team1_name} {team1_hl_stats['shots']}sh · "
+                       f"{team1_hl_stats['xg']:.2f}xG · {team1_hl_stats['goals']}g    "
+                       f"{team2_name} {team2_hl_stats['shots']}sh · "
+                       f"{team2_hl_stats['xg']:.2f}xG · {team2_hl_stats['goals']}g")
+            fig.text(0.5, 0.025, hl_text, ha='center', va='center',
+                     fontsize=9, color=TEXT_SECONDARY, style='italic')
 
-    plt.tight_layout(rect=[0.02, 0.16, 0.98, 0.84])
+        plt.tight_layout(rect=[0.02, 0.16, 0.98, 0.84])
 
     add_cbs_footer(fig)
-    fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
-             fontsize=8, color=TEXT_MUTED, style='italic')
+    if not is_vertical:
+        fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
+                 fontsize=8, color=TEXT_MUTED, style='italic')
 
     return fig
 
