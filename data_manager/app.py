@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from downloader import (
-    parse_cookies_from_curl, create_session,
+    parse_cookies_from_curl, create_session, probe_endpoint_health,
     download_player_pool, upload_to_supabase, load_secrets,
     download_event_log, upsert_events_to_motherduck,
     download_minutes_and_cards, upsert_minutes_to_motherduck,
@@ -138,10 +138,16 @@ with st.expander("How to get your cURL command"):
     st.markdown("""
 1. Log into TruMedia in Chrome
 2. Open **DevTools** (F12) and go to the **Network** tab
-3. On any TruMedia page, trigger a CSV export
-4. Find the **dp-proxy-export** request in the Network tab
-5. Right-click it → **Copy** → **Copy as cURL**
+3. On any TruMedia data page (e.g. players-in-possession-stats),
+   type `dp-proxy` into the Network filter box
+4. **Reload the page** — at least one `dp-proxy-*` request appears
+5. Right-click any one of them → **Copy** → **Copy as cURL**
 6. Paste the result in the box below
+
+**Note (May 2026):** TruMedia moved CSV exports to client-side in their UI,
+so right-clicking Export no longer surfaces a request. Any `dp-proxy-*`
+request from a page load carries the same auth cookies the data manager
+needs — pick whichever one shows up.
 """)
 
 col_input, col_status = st.columns([3, 1])
@@ -150,7 +156,7 @@ with col_input:
     curl_input = st.text_area(
         "Paste cURL command",
         height=80,
-        placeholder='curl "https://cbssports.opta.trumediasports.com/dp-proxy-export" ...',
+        placeholder='curl "https://cbssports.opta.trumediasports.com/dp-proxy-..." ...',
     )
 
 with col_status:
@@ -159,10 +165,40 @@ with col_status:
     if curl_input:
         try:
             cookies = parse_cookies_from_curl(curl_input)
-            st.session_state["cookies"] = cookies
-            st.success("Authenticated")
+            # Hash the cURL so the endpoint probe only fires once per paste
+            # (re-runs of the Streamlit script shouldn't keep re-probing).
+            curl_hash = hash(curl_input)
+            if st.session_state.get("_probed_curl_hash") != curl_hash:
+                with st.spinner("Verifying endpoint..."):
+                    sample_season = (
+                        config.get("player_pools", {})
+                        .get("europe", {})
+                        .get("seasons", [None])[0]
+                    )
+                    if sample_season:
+                        probe_session = create_session(cookies)
+                        ok, message = probe_endpoint_health(
+                            probe_session, sample_season,
+                        )
+                        st.session_state["_probed_curl_hash"] = curl_hash
+                        st.session_state["_probe_ok"] = ok
+                        st.session_state["_probe_message"] = message
+                    else:
+                        st.session_state["_probed_curl_hash"] = curl_hash
+                        st.session_state["_probe_ok"] = True
+                        st.session_state["_probe_message"] = (
+                            "No sample season in config.json - skipped probe"
+                        )
+
+            if st.session_state.get("_probe_ok", True):
+                st.session_state["cookies"] = cookies
+                st.success("Authenticated")
+            else:
+                st.session_state.pop("cookies", None)
+                st.error(st.session_state.get("_probe_message", "Probe failed"))
         except ValueError as e:
             st.session_state.pop("cookies", None)
+            st.session_state.pop("_probed_curl_hash", None)
             st.error(str(e))
     elif "cookies" in st.session_state:
         st.info("Session active")

@@ -342,6 +342,66 @@ def create_session(cookies):
     return session
 
 
+def probe_endpoint_health(session, sample_season_id):
+    """Quick health check after cookies are pasted: fire a tiny POST to
+    `/dp-proxy-export` and confirm it returns CSV. Catches three failure
+    modes before the user kicks off a long download cycle:
+
+      1. Cookies expired / invalid -> 401 / 403
+      2. Endpoint removed (TruMedia decommissions it) -> 404 / HTML
+      3. Response format changed -> not CSV
+
+    Returns (ok: bool, message: str). On success the message is a one-line
+    "endpoint alive" confirmation; on failure it names the failure mode so
+    the user knows whether to refresh cookies vs. expect a refactor.
+
+    Uses a 10s timeout so a hung endpoint doesn't block the UI for long.
+    """
+    statement = build_player_pool_statement([sample_season_id])
+    payload = {
+        "format": "MIXED",
+        "statement": statement,
+        "export": "csv",
+        "pageDescriptorName": "pageSoccerPlayersInPossession",
+        "exportOptions": {"includeCalculations": False, "includeVideoData": False},
+    }
+    try:
+        resp = session.post(EXPORT_URL, json=payload, timeout=10)
+    except requests.RequestException as e:
+        return False, f"Network error reaching /dp-proxy-export: {type(e).__name__}: {e}"
+
+    if resp.status_code in (401, 403):
+        return False, (
+            f"Auth failed (HTTP {resp.status_code}). Cookies may have expired - "
+            "paste a fresh cURL command."
+        )
+    if resp.status_code == 404:
+        return False, (
+            "Endpoint /dp-proxy-export returned 404. TruMedia may have "
+            "removed it - data manager refactor likely needed."
+        )
+    if not resp.ok:
+        return False, (
+            f"Unexpected HTTP {resp.status_code} from /dp-proxy-export. "
+            f"Body preview: {resp.text[:200]!r}"
+        )
+
+    body = resp.content[:500]
+    if b"<!DOCTYPE html>" in body or b"<html" in body.lower():
+        return False, (
+            "Endpoint returned HTML (likely a login redirect or generic "
+            "error page). Cookies are probably stale - refresh cURL."
+        )
+    if not (b"," in body and b"\n" in body):
+        return False, (
+            "Endpoint returned an unexpected format (not CSV). TruMedia may "
+            "have changed the response shape - data manager refactor needed. "
+            f"Body preview: {body[:200]!r}"
+        )
+
+    return True, "Endpoint alive — /dp-proxy-export returned CSV as expected"
+
+
 def build_player_pool_statement(season_ids):
     """Build the SQL statement for a player pool download with today's date range."""
     today = date.today()

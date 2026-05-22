@@ -41,3 +41,6 @@ team_abbrevs.json
 dp_app.py
 dp_pages/
 dp_mostly_finished_charts/
+
+# Podcast Shorts pipeline — separate project, own git repo
+PodcastShorts/
