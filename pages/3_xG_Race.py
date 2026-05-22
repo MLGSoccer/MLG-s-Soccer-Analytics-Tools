@@ -264,7 +264,7 @@ else:
 
         try:
             with st.spinner("Parsing match data..."):
-                shots, match_info, team_colors = _parse_xg_race_cached(file_content)
+                shots, match_info, team_colors, goal_scorers = _parse_xg_race_cached(file_content)
 
             if not shots:
                 st.error("No shot data found in CSV.")
@@ -313,7 +313,8 @@ else:
                         own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
                         img_bytes, filename, caption = _generate_chart(
                             shots, match_info, team_colors, competition, own_goals_hashable,
-                            custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg
+                            custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
+                            goal_scorers=goal_scorers,
                         )
                         if img_bytes is None:
                             st.error("Chart generation failed. Please check team names.")

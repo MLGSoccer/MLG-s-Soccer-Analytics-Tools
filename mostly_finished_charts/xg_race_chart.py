@@ -194,9 +194,10 @@ def parse_trumedia_csv(file_path):
 
             if shooter_idx is None or xg_idx is None:
                 print("⚠ Could not find required columns (shooter, xG)")
-                return None, None, None
+                return None, None, None, None
 
             shots = []
+            goal_scorers = []  # match-side: matches Match Momentum's goal_scorers shape
             team_colors = {}
             match_info = None
             has_extra_time = False
@@ -249,6 +250,19 @@ def parse_trumedia_csv(file_path):
 
                         shots.append((minute, team, xg, outcome))
 
+                        # Goal scorers: same shape as get_goal_scorers_for_game
+                        # (DB pipeline) and _parse_momentum_csv. Skip rows
+                        # without a shooter name even though playType says Goal.
+                        if play_type in ('Goal', 'PenaltyGoal'):
+                            shooter_name = row[shooter_idx]
+                            goal_scorers.append({
+                                'minute':  int(minute),
+                                'player':  shooter_name,
+                                'team':    team,
+                                'team_id': None,
+                                'pen':     play_type == 'PenaltyGoal',
+                            })
+
                         # Capture team color
                         if color_idx and len(row) > color_idx and row[color_idx]:
                             team_colors[team] = row[color_idx]
@@ -294,17 +308,18 @@ def parse_trumedia_csv(file_path):
                     print(f"✓ Extra time detected (Period 3/4 found)")
                 if penalty_shootout_excluded > 0:
                     print(f"✓ Excluded {penalty_shootout_excluded} penalty shootout shots (Period 5+)")
-                return shots, match_info, team_colors
+                goal_scorers.sort(key=lambda g: g['minute'])
+                return shots, match_info, team_colors, goal_scorers
             else:
                 print("⚠ No shot data found in CSV")
-                return None, None, None
+                return None, None, None, None
 
     except FileNotFoundError:
         print(f"⚠ File not found: {file_path}")
-        return None, None, None
+        return None, None, None, None
     except Exception as e:
         print(f"⚠ Error reading CSV: {e}")
-        return None, None, None
+        return None, None, None, None
 
 def get_data_source():
     """Ask user how they want to provide data.
@@ -342,8 +357,10 @@ def get_data_source():
         # Remove quotes if user copied path with quotes
         file_path = file_path.strip('"').strip("'")
         if file_path:
-            shots, match_info, team_colors = parse_trumedia_csv(file_path)
+            shots, match_info, team_colors, goal_scorers = parse_trumedia_csv(file_path)
             if shots:
+                if match_info is not None and goal_scorers:
+                    match_info['goal_scorers'] = goal_scorers
                 return shots, match_info, team_colors, 'trumedia'
             else:
                 print("\nFalling back to manual data entry...")
@@ -1183,13 +1200,14 @@ def run(config):
     # Get shot data based on data source
     if data_source == 'trumedia':
         file_path = config['file_path']
-        shots, match_info, team_colors = parse_trumedia_csv(file_path)
+        shots, match_info, team_colors, goal_scorers = parse_trumedia_csv(file_path)
         if not shots:
             print("\nError: No shot data found in CSV.")
             return
     else:
         # For fbref/manual, fall back to interactive mode
         shots, match_info, team_colors, data_source = get_data_source()
+        goal_scorers = (match_info or {}).get('goal_scorers', []) or []
         if not shots:
             print("\nError: No shot data found. Please try again.")
             return
@@ -1206,7 +1224,7 @@ def run(config):
     print("GENERATING CBS SPORTS CHART...")
     print("="*60)
 
-    fig = create_xg_chart(shots, team_info)
+    fig = create_xg_chart(shots, team_info, goal_scorers=goal_scorers)
 
     # Check if chart creation failed
     if fig is None:
@@ -1247,13 +1265,14 @@ def main():
     # Get team information (pass team_colors for auto-detection)
     team_info = get_team_info(shots, match_info, team_colors)
     team_info['data_source'] = data_source
+    goal_scorers = (match_info or {}).get('goal_scorers', []) or []
 
     # Create and display chart
     print("\n" + "="*60)
     print("GENERATING CBS SPORTS CHART...")
     print("="*60)
 
-    fig = create_xg_chart(shots, team_info)
+    fig = create_xg_chart(shots, team_info, goal_scorers=goal_scorers)
 
     # Check if chart creation failed
     if fig is None:
