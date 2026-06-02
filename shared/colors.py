@@ -222,6 +222,73 @@ TEAM_ABBREV = {
 
     # WSL (women-only clubs)
     'LCL': 'London City Lionesses',
+
+    # ─── World Cup 2026 National Teams ─────────────────────────────────
+    # FIFA 3-letter country codes. TruMedia's national-team naming
+    # convention isn't fully nailed down yet; verify these map cleanly
+    # when World Cup events land in MotherDuck.
+
+    # UEFA
+    'ENG': 'England',
+    'FRA': 'France',
+    'CRO': 'Croatia',
+    'NOR': 'Norway',
+    'POR': 'Portugal',
+    'GER': 'Germany',
+    'NED': 'Netherlands',
+    'SUI': 'Switzerland',
+    'SCO': 'Scotland',
+    'ESP': 'Spain',
+    'AUT': 'Austria',
+    'BEL': 'Belgium',
+    'BIH': 'Bosnia and Herzegovina',
+    'SWE': 'Sweden',
+    'TUR': 'Turkey',
+    'CZE': 'Czechia',
+
+    # CONCACAF
+    'USA': 'United States',
+    'MEX': 'Mexico',
+    'CAN': 'Canada',
+    'PAN': 'Panama',
+    'CUW': 'Curacao',
+    'HAI': 'Haiti',
+
+    # CONMEBOL
+    'ARG': 'Argentina',
+    'BRA': 'Brazil',
+    'COL': 'Colombia',
+    'ECU': 'Ecuador',
+    'PAR': 'Paraguay',
+    'URU': 'Uruguay',
+
+    # AFC
+    'AUS': 'Australia',
+    'IRN': 'Iran',
+    'JPN': 'Japan',
+    'JOR': 'Jordan',
+    'UZB': 'Uzbekistan',
+    'QAT': 'Qatar',
+    'KSA': 'Saudi Arabia',
+    'KOR': 'South Korea',
+
+    # CAF
+    'ALG': 'Algeria',
+    'CPV': 'Cape Verde',
+    'EGY': 'Egypt',
+    'GHA': 'Ghana',
+    'CIV': 'Ivory Coast',
+    'MAR': 'Morocco',
+    'SEN': 'Senegal',
+    'RSA': 'South Africa',
+    'TUN': 'Tunisia',
+
+    # OFC
+    'NZL': 'New Zealand',
+
+    # Interconfederation Playoff Winners
+    'COD': 'DR Congo',
+    'IRQ': 'Iraq',
 }
 
 
@@ -396,6 +463,81 @@ TEAM_ALTERNATE_COLORS = {
 
     # ─── Other ──────────────────────────────────────────────────────────
     'Benfica': '#FFFFFF',             # White
+
+    # ─── World Cup 2026 National Teams ─────────────────────────────────
+    # Clash-avoidance fallbacks. Light primaries get a dark alt; dark
+    # primaries get white; known away kits are used where the team's
+    # second strip is iconic. Confederations sharing many similar
+    # primaries (UEFA reds, CAF greens) get more attention here.
+
+    # UEFA
+    'England': '#C8102E',             # Red (away strip accent)
+    'France': '#FFFFFF',              # White (away)
+    'Croatia': '#FFFFFF',              # White
+    'Norway': '#FFFFFF',              # White
+    'Portugal': '#1F4E2F',             # Dark green (secondary brand color)
+    'Germany': '#FFFFFF',              # White (home is white, going to white)
+    'Netherlands': '#005CB9',          # Blue (away)
+    'Switzerland': '#FFFFFF',          # White
+    'Scotland': '#FFFFFF',             # White
+    'Spain': '#FFD700',                # Yellow (away)
+    'Austria': '#FFFFFF',              # White
+    'Belgium': '#000000',              # Black
+    'Bosnia and Herzegovina': '#FFD700',  # Yellow (flag secondary)
+    'Sweden': '#005AA7',               # Blue
+    'Turkey': '#FFFFFF',               # White
+    'Turkiye': '#FFFFFF',
+    'Czechia': '#FFFFFF',              # White
+    'Czech Republic': '#FFFFFF',
+
+    # CONCACAF
+    'United States': '#BF0A30',        # Red (alternate stripe)
+    'USA': '#BF0A30',
+    'USMNT': '#BF0A30',
+    'Mexico': '#FFFFFF',               # White
+    'Canada': '#FFFFFF',               # White
+    'Panama': '#FFFFFF',               # White
+    'Curacao': '#FFFFFF',              # White
+    'Haiti': '#CE1126',                # Red (flag)
+
+    # CONMEBOL
+    'Argentina': '#000000',            # Black (away kit dark in modern kits)
+    'Brazil': '#003876',               # Blue (Brazilian away blue)
+    'Colombia': '#003087',             # Blue
+    'Ecuador': '#003087',              # Blue
+    'Paraguay': '#FFFFFF',             # White (alternate)
+    'Uruguay': '#FFFFFF',              # White
+
+    # AFC
+    'Australia': '#00563F',            # Green (Socceroos green stripe)
+    'Iran': '#FFFFFF',                 # White
+    'Japan': '#FFFFFF',                # White (away)
+    'Jordan': '#FFFFFF',               # White
+    'Uzbekistan': '#FFFFFF',           # White
+    'Qatar': '#FFFFFF',                # White
+    'Saudi Arabia': '#FFFFFF',         # White
+    'South Korea': '#FFFFFF',          # White
+    'Korea Republic': '#FFFFFF',
+
+    # CAF
+    'Algeria': '#FFFFFF',              # White
+    'Cape Verde': '#FFFFFF',           # White
+    'Egypt': '#FFFFFF',                # White
+    'Ghana': '#C8102E',                # Red (flag accent)
+    'Ivory Coast': '#FFFFFF',          # White
+    'Cote d Ivoire': '#FFFFFF',
+    'Morocco': '#FFFFFF',              # White (alternate)
+    'Senegal': '#FFFFFF',              # White
+    'South Africa': '#007749',         # Green (flag)
+    'Tunisia': '#FFFFFF',              # White
+
+    # OFC
+    'New Zealand': '#000000',          # Black (All Blacks/All Whites away)
+
+    # Interconfederation Playoff Winners
+    'DR Congo': '#FFFFFF',             # White
+    'Congo DR': '#FFFFFF',
+    'Iraq': '#007A3D',                 # Green (flag)
 }
 
 # Built-in team color database
@@ -561,6 +703,82 @@ TEAM_COLORS = {
 
     # WSL (women-only clubs)
     'London City Lionesses': '#D4AF37',
+
+    # ─── World Cup 2026 National Teams ─────────────────────────────────
+    # Best-effort canonical kit colors. TruMedia's newestTeamColor in
+    # MotherDuck typically overrides at chart render time; these entries
+    # are load-bearing for clash detection and fallback. Verify against
+    # current World Cup kits when they drop or replace from a verified
+    # source. ASCII-only canonical keys with Unicode/abbrev aliases below.
+
+    # UEFA
+    'England': '#FFFFFF',           # White (with red accent)
+    'France': '#002395',            # Blue (Les Bleus)
+    'Croatia': '#FF0000',           # Red (red/white check)
+    'Norway': '#BA0C2F',            # Red
+    'Portugal': '#E42022',          # Red (with green)
+    'Germany': '#1A1A1A',           # Black (white kit, black accent — using black for dark-bg legibility)
+    'Netherlands': '#FF6600',       # Orange (Oranje)
+    'Switzerland': '#DC291E',       # Red
+    'Scotland': '#003D7A',          # Navy
+    'Spain': '#AA151B',             # Red (La Roja)
+    'Austria': '#ED2939',           # Red
+    'Belgium': '#E30613',           # Red (Red Devils)
+    'Bosnia and Herzegovina': '#002F6C',  # Blue (with yellow)
+    'Sweden': '#FECC00',            # Yellow (with blue)
+    'Turkey': '#E30A17',            # Red
+    'Turkiye': '#E30A17',           # alias (FIFA spelling, ASCII)
+    'Czechia': '#DA291C',           # Red
+    'Czech Republic': '#DA291C',    # alias
+
+    # CONCACAF
+    'United States': '#002868',     # Navy
+    'USA': '#002868',                # alias
+    'USMNT': '#002868',              # alias
+    'Mexico': '#006847',            # Green (Tricolor)
+    'Canada': '#DA291C',            # Red
+    'Panama': '#DA291C',            # Red
+    'Curacao': '#003DA5',           # Blue
+    'Haiti': '#00209F',             # Blue (with red)
+
+    # CONMEBOL
+    'Argentina': '#75AADB',         # Sky blue
+    'Brazil': '#FFD700',            # Yellow
+    'Colombia': '#FCD116',          # Yellow
+    'Ecuador': '#FFE000',           # Yellow
+    'Paraguay': '#C8102E',          # Red (white stripes)
+    'Uruguay': '#5DA9D9',           # Sky blue (La Celeste)
+
+    # AFC
+    'Australia': '#FFCD00',         # Yellow/gold (Socceroos)
+    'Iran': '#C00000',              # Red # verify (could be white at home)
+    'Japan': '#0033A0',             # Blue (Samurai Blue)
+    'Jordan': '#CE1126',            # Red
+    'Uzbekistan': '#00A0E1',        # Sky blue # verify
+    'Qatar': '#8A1538',             # Maroon
+    'Saudi Arabia': '#006C35',      # Green
+    'South Korea': '#C8102E',       # Red
+    'Korea Republic': '#C8102E',    # alias (FIFA name)
+
+    # CAF
+    'Algeria': '#006633',           # Green
+    'Cape Verde': '#003893',        # Blue
+    'Egypt': '#DC241F',             # Red
+    'Ghana': '#FCD116',             # Yellow
+    'Ivory Coast': '#FF8000',       # Orange (Les Elephants)
+    'Cote d Ivoire': '#FF8000',     # alias (ASCII)
+    'Morocco': '#C1272D',           # Red
+    'Senegal': '#00853F',           # Green
+    'South Africa': '#FFB81C',      # Yellow/gold (Bafana Bafana)
+    'Tunisia': '#C8102E',           # Red
+
+    # OFC
+    'New Zealand': '#FFFFFF',       # White (All Whites) # verify
+
+    # Interconfederation Playoff Winners
+    'DR Congo': '#75AADB',          # Sky blue
+    'Congo DR': '#75AADB',          # alias (FIFA short form)
+    'Iraq': '#FFFFFF',               # White (with green) # verify
 }
 
 
