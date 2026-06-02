@@ -9,22 +9,16 @@ import streamlit as st
 from datetime import datetime
 
 from shared.colors import fuzzy_match_team, TEAM_COLORS
+from shared.season_to_league import SEASON_TO_LEAGUE as _SEASON_TO_LEAGUE
 
 # -- League configuration ------------------------------------------------------
 
-# Season ID -> curated league bucket mapping
-_SEASON_TO_LEAGUE = {
-    "51r6ph2woavlbbpk8f29nynf8": "Premier League",
-    "bmmk637l2a33h90zlu36kx8no": "Championship",
-    "80zg2v1cuqcfhphn56u4qpyqc": "La Liga",
-    "2bchmrj23l9u42d68ntcekob8": "Bundesliga",
-    "emdmtfr1v8rey2qru3xzfwges": "Serie A",
-    "dbxs75cag7zyip5re0ppsanmc": "Ligue 1",
-    "6i6n0jkbh9zzij6s8htfjh2j8": "MLS",
-    "3ducfa94ga849pfvx8bjjgt1w": "NWSL",
-    "221phckhkd7y6rg3uyava3ifo": "WSL",
-    "2mr0u0l78k2gdsm79q56tb2fo": "Champions League",
-}
+# _SEASON_TO_LEAGUE is the single-source-of-truth mapping in
+# shared/season_to_league.py. Imported above as `_SEASON_TO_LEAGUE` to
+# preserve the existing private-name reference used by _get_team_league.
+# LEAGUE_ORDER below remains the Streamlit-side curated UI bucket list -
+# season IDs in _SEASON_TO_LEAGUE but not in LEAGUE_ORDER fall through
+# to the "Other" bucket.
 
 # Priority order -- first match wins for each team
 LEAGUE_ORDER = [
