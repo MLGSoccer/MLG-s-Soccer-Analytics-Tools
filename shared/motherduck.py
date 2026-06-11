@@ -21,6 +21,9 @@ from shared.season_to_league import SEASON_TO_LEAGUE as _SEASON_TO_LEAGUE
 # to the "Other" bucket.
 
 # Priority order -- first match wins for each team
+# Note: WC bucket is year-tagged (not just "World Cup") because the
+# tournament is quadrennial; a future "World Cup 2030" gets its own
+# bucket rather than merging with 2026.
 LEAGUE_ORDER = [
     "Premier League",
     "Championship",
@@ -32,6 +35,7 @@ LEAGUE_ORDER = [
     "NWSL",
     "WSL",
     "Champions League",
+    "World Cup 2026",
     "Other",
 ]
 

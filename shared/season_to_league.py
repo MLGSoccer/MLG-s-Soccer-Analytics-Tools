@@ -45,4 +45,12 @@ SEASON_TO_LEAGUE: dict[str, str] = {
     "73zebisnu1109jix9yoc09yc4": "Bundesliga",
     "b25u56idqlgo8s1rahhltqd5g": "Serie A",
     "a7htj8rtzib7a2xx7b3xs04d0": "Ligue 1",
+    # 2026 World Cup - TODO: add the TruMedia seasonId here when known.
+    # Colors + abbrevs for all 48 nations are already loaded in
+    # shared/colors.py (commit 6ac52c4). Once the seasonId lands, the
+    # 48 nations also need their TruMedia teamIds added to
+    # data_manager/config.json (teams[] array, each with this seasonId
+    # in season_ids). After that, the World Cup 2026 bucket appears
+    # automatically in the data_manager UI + chart pages.
+    # "<wc_2026_season_id>": "World Cup 2026",
 }
