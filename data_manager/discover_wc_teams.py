@@ -138,3 +138,7 @@ def main():
     print("\nNext steps:")
     print("  1. Open the Data Manager app")
     print("  2. World Cup 2026 expander -> select the new teams -> Download")
+
+
+if __name__ == "__main__":
+    main()
