@@ -4,6 +4,7 @@ Handles authentication via cURL parsing and data downloads via POST requests.
 """
 import re
 import os
+import tempfile
 import difflib
 import requests
 import duckdb
@@ -456,6 +457,121 @@ def download_player_pool(session, season_ids, output_path):
     size_kb = len(content) / 1024
 
     return row_count, size_kb
+
+
+def discover_teams_for_season(session, season_id, config):
+    """Download the player pool for one season and diff against config.json.
+
+    Returns a dict:
+      {
+        "season_id":   <str>,
+        "pool_count":  <int>,           # distinct teams in the pool
+        "new_teams":   [{name, abbrev, team_id, season_ids: [season_id]}, ...],
+        "to_update":   [{team_id, name, current_season_ids, season_id}, ...],
+      }
+
+    `new_teams` are team_ids absent from config.json (need a fresh entry).
+    `to_update` are team_ids already in config.json under a different
+    season - this season_id needs to be appended to their season_ids
+    (common case: a Championship team gets promoted to the Premier
+    League and we want one entry with both season_ids).
+
+    Caller decides what to do with the dict (UI confirmation, CLI prompt,
+    etc.); this function only reads the pool and reports.
+
+    Uses a temp file for the pool CSV and deletes it on the way out, so
+    nothing persistent is left behind by a discovery run.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp_path = tmp.name
+    try:
+        download_player_pool(session, [season_id], tmp_path)
+        df = pd.read_csv(tmp_path)
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    id_col   = next((c for c in ("newestTeamId", "teamId") if c in df.columns), None)
+    name_col = next((c for c in ("newestTeam", "teamName") if c in df.columns), None)
+    abbr_col = next((c for c in ("teamAbbrevName",) if c in df.columns), None)
+    if not id_col or not name_col:
+        raise ValueError(
+            f"Player pool missing team id/name columns. Got: {list(df.columns)}"
+        )
+
+    team_rows = (
+        df[[id_col, name_col] + ([abbr_col] if abbr_col else [])]
+        .dropna(subset=[id_col, name_col])
+        .drop_duplicates(subset=[id_col])
+    )
+
+    existing_by_id = {t["team_id"]: t for t in config.get("teams", [])}
+    new_teams = []
+    to_update = []
+    for _, row in team_rows.iterrows():
+        tid = str(row[id_col]).strip()
+        if not tid:
+            continue
+        name = str(row[name_col]).strip()
+        abbr = str(row[abbr_col]).strip() if abbr_col else name[:4].upper()
+        if tid in existing_by_id:
+            existing = existing_by_id[tid]
+            if season_id not in existing.get("season_ids", []):
+                to_update.append({
+                    "team_id": tid,
+                    "name": existing.get("name", name),
+                    "current_season_ids": list(existing.get("season_ids", [])),
+                    "season_id": season_id,
+                })
+        else:
+            new_teams.append({
+                "name": name,
+                "abbrev": abbr,
+                "team_id": tid,
+                "season_ids": [season_id],
+            })
+
+    return {
+        "season_id": season_id,
+        "pool_count": len(team_rows),
+        "new_teams": new_teams,
+        "to_update": to_update,
+    }
+
+
+def apply_team_discovery(config, results):
+    """Apply discovery results (a list of dicts from `discover_teams_for_season`)
+    to a config dict in-place.
+
+    Returns (added, updated) counts. Caller persists the config to disk.
+    """
+    added = 0
+    updated = 0
+    existing_by_id = {t["team_id"]: t for t in config.get("teams", [])}
+    for res in results:
+        for nt in res["new_teams"]:
+            if nt["team_id"] in existing_by_id:
+                # Edge case: same team_id discovered in two seasons in the
+                # same run. Merge into the just-added entry rather than
+                # creating a duplicate.
+                ex = existing_by_id[nt["team_id"]]
+                for sid in nt["season_ids"]:
+                    if sid not in ex["season_ids"]:
+                        ex["season_ids"].append(sid)
+            else:
+                config["teams"].append(nt)
+                existing_by_id[nt["team_id"]] = nt
+                added += 1
+        for up in res["to_update"]:
+            existing = existing_by_id.get(up["team_id"])
+            if not existing:
+                continue
+            if up["season_id"] not in existing["season_ids"]:
+                existing["season_ids"].append(up["season_id"])
+                updated += 1
+    return added, updated
 
 
 # ── Event Log ─────────────────────────────────────────────────────────────────
