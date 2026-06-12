@@ -3308,6 +3308,38 @@
       "season_ids": [
         "bmmk637l2a33h90zlu36kx8no"
       ]
+    },
+    {
+      "name": "Mexico",
+      "abbrev": "MEX",
+      "team_id": "4vofb84dzb5fyc81n2ssws6ah",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "South Africa",
+      "abbrev": "RSA",
+      "team_id": "xmip8t9f2kefltjkraxzsxl9",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Czechia",
+      "abbrev": "CZE",
+      "team_id": "70tnqyqn871jwlk26gtjw7knm",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Korea Republic",
+      "abbrev": "KOR",
+      "team_id": "1yghbv1c71b37eenutbwnvvq",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {

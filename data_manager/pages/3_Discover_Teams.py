@@ -36,7 +36,7 @@ st.set_page_config(
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 
-with open(CONFIG_PATH) as f:
+with open(CONFIG_PATH, encoding="utf-8") as f:
     config = json.load(f)
 
 st.title("Discover Teams")

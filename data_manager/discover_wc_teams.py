@@ -41,7 +41,7 @@ WC_SEASON_ID = "873cbl9cd9butm4air0mugxzo"
 
 
 def main():
-    with open(CONFIG_PATH) as f:
+    with open(CONFIG_PATH, encoding="utf-8") as f:
         config = json.load(f)
 
     existing_ids = {t["team_id"] for t in config["teams"]}
@@ -131,7 +131,7 @@ def main():
         return
 
     config["teams"].extend(new_teams)
-    with open(CONFIG_PATH, "w") as f:
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
     print(f"\nAdded {len(new_teams)} teams to config.json.")
