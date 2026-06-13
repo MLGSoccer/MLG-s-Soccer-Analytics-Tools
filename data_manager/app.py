@@ -368,7 +368,7 @@ def _run_downloads(teams_to_download, incremental=True, download_only=False,
         missing = get_games_missing_fixture_data(con)
         if missing:
             pm_matched = 0
-            pm_failed = 0
+            pm_failed_rows: list[dict] = []  # collected for UI surfacing
             for j, game in enumerate(missing):
                 status.text(f"Fetching match data (API-Football)... ({j+1}/{len(missing)})")
                 game_status = fetch_and_store_fixture_data(
@@ -384,9 +384,29 @@ def _run_downloads(teams_to_download, incremental=True, download_only=False,
                 if game_status == "matched":
                     pm_matched += 1
                 else:
-                    pm_failed += 1
+                    pm_failed_rows.append({
+                        "Date": str(game["Date"])[:10],
+                        "Home": game["homeTeam"],
+                        "Away": game["awayTeam"],
+                        "Status": game_status,
+                    })
+            pm_failed = len(pm_failed_rows)
             results.append((True, f"API-Football: {pm_matched} games fetched"
                             + (f", {pm_failed} not found/failed" if pm_failed else "")))
+            # Surface the specific failures prominently so the user can
+            # see which TruMedia team names need overrides added to
+            # TRUMEDIA_TO_API_NAME in downloader.py. Without this, the
+            # aggregate "X not found/failed" message hides the names
+            # and own-goals/cards/minutes silently miss those games.
+            if pm_failed_rows:
+                st.warning(
+                    f"{pm_failed} game(s) failed to match an API-Football "
+                    "fixture. Listed below - if a name lookup is needed, "
+                    "search API-Football for the canonical name and add "
+                    "an entry to `TRUMEDIA_TO_API_NAME` in "
+                    "`data_manager/downloader.py`. The next run will retry."
+                )
+                st.dataframe(pm_failed_rows, hide_index=True, use_container_width=True)
 
     if con:
         con.close()
