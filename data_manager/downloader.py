@@ -215,6 +215,7 @@ SEASON_TO_API_LEAGUE = {
     "752zalnunu0zkdfbbm915kys4": 71,    # Brasileirão Série A 2026 (calendar year)
     "br2imckbqwr0wvucakfvdp05w": 82,    # Frauen-Bundesliga 2025/26
     "2bqrpllc5x3it55paifyfa044": 64,    # Première Ligue 2025/26 (France women)
+    "873cbl9cd9butm4air0mugxzo": 1,     # FIFA World Cup 2026 (calendar year)
 }
 
 # League IDs whose seasons follow the calendar year (Feb-Nov), not the European
@@ -225,6 +226,7 @@ CALENDAR_YEAR_LEAGUES = {
     254,  # NWSL
     128,  # Liga Profesional Argentina
     71,   # Brasileirão Série A
+    1,    # FIFA World Cup
 }
 
 
