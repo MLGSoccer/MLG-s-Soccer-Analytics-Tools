@@ -3372,6 +3372,38 @@
       "season_ids": [
         "873cbl9cd9butm4air0mugxzo"
       ]
+    },
+    {
+      "name": "Switzerland",
+      "abbrev": "SUI",
+      "team_id": "339wxbt07ltnva7hop6m5o477",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Qatar",
+      "abbrev": "QAT",
+      "team_id": "ea68amhsn28ijs7bzjuzeqrz6",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Morocco",
+      "abbrev": "MAR",
+      "team_id": "avggs3u2b5cu8i1dnzknhth52",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Brazil",
+      "abbrev": "BRA",
+      "team_id": "ajab3nmpoltsoeqcuoyi4pwzx",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {
