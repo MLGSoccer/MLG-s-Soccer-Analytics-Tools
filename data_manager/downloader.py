@@ -64,6 +64,10 @@ TRUMEDIA_TO_API_NAME = {
     # MLS — API-Football uses full city names
     "LA Galaxy": "Los Angeles Galaxy",
     "Sporting KC": "Sporting Kansas City",
+    # FIFA World Cup 2026 — TruMedia uses long/formal names, API-Football
+    # uses short/colloquial forms for several nations
+    "United States": "USA",
+    "Korea Republic": "South Korea",
     # NWSL — TruMedia uses "X Women", API-Football uses inconsistent naming
     "Kansas City Current Women": "Kansas City W",
     "Gotham FC Women": "NJ/NY Gotham FC W",
@@ -1107,7 +1111,16 @@ def fetch_and_store_fixture_data(api_key, token, game_id, date, home, away, con=
 
 
 def get_games_missing_fixture_data(con, season_ids=None):
-    """Return games that have no entry in game_fixtures (fetch never attempted).
+    """Return games that need an API-Football match attempt.
+
+    Includes both:
+    - Games with NO entry in game_fixtures (never tried).
+    - Games WITH an entry but fixture_id IS NULL (tried and failed).
+
+    The second case matters because adding a new TRUMEDIA_TO_API_NAME
+    override should let a previously-failed match succeed on the next
+    run. Without retrying NULL rows, those games would stay stuck
+    forever unless the user manually DELETEd the failed entries.
 
     Args:
         season_ids: optional list/set of seasonId strings to restrict results.
@@ -1120,7 +1133,7 @@ def get_games_missing_fixture_data(con, season_ids=None):
             SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId
             FROM games g
             LEFT JOIN game_fixtures gf ON g.gameId = gf.gameId
-            WHERE gf.gameId IS NULL
+            WHERE (gf.gameId IS NULL OR gf.fixture_id IS NULL)
               AND g.seasonId IN ({placeholders})
             ORDER BY g.Date DESC
         """, list(season_ids)).fetchall()
@@ -1129,7 +1142,7 @@ def get_games_missing_fixture_data(con, season_ids=None):
             SELECT g.gameId, g.Date, g.homeTeam, g.awayTeam, g.seasonId
             FROM games g
             LEFT JOIN game_fixtures gf ON g.gameId = gf.gameId
-            WHERE gf.gameId IS NULL
+            WHERE gf.gameId IS NULL OR gf.fixture_id IS NULL
             ORDER BY g.Date DESC
         """).fetchall()
     return [
