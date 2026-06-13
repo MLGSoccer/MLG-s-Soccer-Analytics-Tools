@@ -3340,6 +3340,38 @@
       "season_ids": [
         "873cbl9cd9butm4air0mugxzo"
       ]
+    },
+    {
+      "name": "Canada",
+      "abbrev": "CAN",
+      "team_id": "eg7vduna0h3vis1wd47s41za7",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Bosnia-Herzegovina",
+      "abbrev": "BIH",
+      "team_id": "o5iztj2zl6b0v6ed9q5m7p1k",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Paraguay",
+      "abbrev": "PAR",
+      "team_id": "3cwjdmekfdouwg990mqdq9fh0",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "United States",
+      "abbrev": "USA",
+      "team_id": "9vh2u1p4ppm597tjfahst2m3n",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {
