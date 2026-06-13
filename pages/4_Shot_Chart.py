@@ -99,7 +99,7 @@ def _ensure_team_contrast(team1_name, team2_name, team_colors):
     # check_color_similarity returns (color1, color2, use_different_line_styles);
     # in non-interactive mode it swaps one team to its alternate if too similar.
     c1_fixed, c2_fixed, _ = check_color_similarity(
-        c1_raw, c2_raw, team1_name, team2_name, threshold=50, interactive=False
+        c1_raw, c2_raw, team1_name, team2_name, threshold=150, interactive=False
     )
 
     adjusted = (c1_fixed != c1_raw) or (c2_fixed != c2_raw)

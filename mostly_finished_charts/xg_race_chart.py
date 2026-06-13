@@ -927,7 +927,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     # Swap one side to its alternate if the two primaries clash, then apply
     # WCAG-based lightening so both lines read against the dark background.
     swapped_home, swapped_away, _ = check_color_similarity(
-        raw_home, raw_away, home, away, threshold=50, interactive=False
+        raw_home, raw_away, home, away, threshold=150, interactive=False
     )
     home_color = ensure_line_contrast(swapped_home, BG_COLOR)
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)

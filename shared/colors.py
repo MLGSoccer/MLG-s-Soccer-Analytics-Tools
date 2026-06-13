@@ -1217,7 +1217,7 @@ def ensure_label_color(hex_color, min_lightness=0.60):
         return hex_color
 
 
-def check_colors_need_fix(color1, color2, team1, team2, threshold=50):
+def check_colors_need_fix(color1, color2, team1, team2, threshold=150):
     """Check if two team colors need fixing and whether auto-fix is available.
 
     Args:
@@ -1286,7 +1286,7 @@ def get_alternate_color(team_name):
     return color
 
 
-def check_color_similarity(color1, color2, team1, team2, threshold=50, interactive=True):
+def check_color_similarity(color1, color2, team1, team2, threshold=150, interactive=True):
     """Check if two colors are too similar and auto-fix or prompt user.
 
     Args:
@@ -1294,7 +1294,12 @@ def check_color_similarity(color1, color2, team1, team2, threshold=50, interacti
         color2: Hex color for team2
         team1: Name of first team
         team2: Name of second team
-        threshold: Color distance threshold (default 50)
+        threshold: RGB Euclidean distance below which the pair is treated as
+            visually too similar (default 150). 50 was the original tuning
+            for the club-team palette; national teams cluster many saturated
+            reds together (Qatar #990000 vs Switzerland #FF0000 = 102) and
+            need a higher floor. Distinct national pairs start at ~263, so
+            150 is well-clear of false positives.
         interactive: If False (GUI mode), auto-swap to alternate color without prompting
 
     Returns (color1, color2, use_different_line_styles)"""

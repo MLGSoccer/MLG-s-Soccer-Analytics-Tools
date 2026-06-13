@@ -318,7 +318,7 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     # for WCAG line contrast against the dark background.
     swapped_home, swapped_away, _ = check_color_similarity(
         match_info["home_color"], match_info["away_color"],
-        home_name, away_name, threshold=50, interactive=False,
+        home_name, away_name, threshold=150, interactive=False,
     )
     home_color = ensure_line_contrast(swapped_home, BG_COLOR)
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)
