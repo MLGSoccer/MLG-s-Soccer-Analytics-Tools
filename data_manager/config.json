@@ -3404,6 +3404,54 @@
       "season_ids": [
         "873cbl9cd9butm4air0mugxzo"
       ]
+    },
+    {
+      "name": "Scotland",
+      "abbrev": "SCO",
+      "team_id": "bcllqlzvj9j7opjene2zvran7",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Australia",
+      "abbrev": "AUS",
+      "team_id": "bl4fd8cxe6kjvjx8br82gkhnq",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Türkiye",
+      "abbrev": "TUR",
+      "team_id": "9s2kpeunkes0g17l95r3t91j6",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Haiti",
+      "abbrev": "HAI",
+      "team_id": "151psmk1h1c846f2lqmflkx75",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Germany",
+      "abbrev": "GER",
+      "team_id": "3l2t2db0c5ow2f7s7bhr6mij4",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Curaçao",
+      "abbrev": "CUW",
+      "team_id": "3csexoalt9hfesmo2p4619ga4",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {
