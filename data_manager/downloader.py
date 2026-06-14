@@ -635,6 +635,14 @@ EVENT_LOG_SELECT = (
     "[PassEndX|EVENT] AS STAT('PassEndXDecimal', 'PassEndXDecimal', 'PassEndXDecimal', true, false, 'TeamStats|OpponentStats', NUMBER|0.00|- ),"
     "[xG|EVENT],[xA|EVENT],[ShotDist|EVENT],[BodyPart|EVENT],[ShotPlayStyle|EVENT],"
     "if(event.q107 OR event.assistq107,'Throw-In',if(event.q6 OR event.assist_q6,'Corner',if(event.q124,'Goal Kick',''))) AS PassType,"
+    # Opta qualifier 82 = "Blocked". Set on every shot event whether the
+    # block was attributable to a named defender or not. The dedicated
+    # `blocker` column misses cases where Opta flagged the shot blocked
+    # without identifying the defender; q82 catches both. Required by
+    # build_stat_poster_payload's SOT count - if NULL on a shot event
+    # (game downloaded before this column landed) the stats payload
+    # raises rather than silently undercounting blocks.
+    "event.q82 AS qualifierBlocked,"
     "season.seasonId as seasonId,"
     "season.seasonName as seasonName"
 )
@@ -668,7 +676,7 @@ EVENTS_MD_COLS = [
     'opponent', 'opponentId',
     'EventXDecimal', 'EventYDecimal', 'PassEndXDecimal', 'PassEndYDecimal',
     'xG', 'xA', 'ShotDist', 'BodyPart', 'ShotPlayStyle',
-    'seasonId', 'PassType',
+    'seasonId', 'PassType', 'qualifierBlocked',
 ]
 
 GAMES_DDL = """
@@ -743,7 +751,8 @@ CREATE TABLE IF NOT EXISTS events (
     BodyPart VARCHAR,
     ShotPlayStyle VARCHAR,
     seasonId VARCHAR,
-    PassType VARCHAR
+    PassType VARCHAR,
+    qualifierBlocked BOOLEAN
 )
 """
 
@@ -824,6 +833,11 @@ def get_motherduck_connection(token):
     con.execute("ALTER TABLE games ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS PassType VARCHAR")
+    # Opta q82 (Blocked) qualifier: nullable, NULL for rows downloaded
+    # before this column landed. build_stat_poster_payload's SOT
+    # calculation raises loudly when NULL is encountered on a shot
+    # event so we don't ship a quietly-wrong number.
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierBlocked BOOLEAN")
     return con
 
 
