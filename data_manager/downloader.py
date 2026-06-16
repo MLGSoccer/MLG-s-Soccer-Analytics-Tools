@@ -429,6 +429,36 @@ def build_player_pool_statement(season_ids):
     )
 
 
+def _post_export_with_retry(session, payload, *, timeout=120, max_attempts=3):
+    """POST to EXPORT_URL with retries on transient upstream failures.
+
+    TruMedia's load balancer occasionally returns 502/503/504 when a heavy
+    statement (long season, big team) outruns the backend. A single retry
+    after a brief pause clears it without user intervention. Other 4xx
+    failures (auth, payload error) are NOT retried - they need a human.
+
+    Raises ValueError with the HTTP status if all retries fail, or
+    requests.RequestException on a hard network failure.
+    """
+    import time
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = session.post(EXPORT_URL, json=payload, timeout=timeout)
+        except requests.RequestException as e:
+            last_exc = e
+            if attempt < max_attempts:
+                time.sleep(2 * attempt)
+                continue
+            raise
+        if resp.status_code in (502, 503, 504) and attempt < max_attempts:
+            time.sleep(2 * attempt)
+            continue
+        return resp
+    # Unreachable: loop either returns or raises.
+    raise last_exc  # type: ignore[misc]
+
+
 def download_player_pool(session, season_ids, output_path):
     """Download a player pool CSV and save to output_path.
 
@@ -444,7 +474,7 @@ def download_player_pool(session, season_ids, output_path):
         "exportOptions": {"includeCalculations": False, "includeVideoData": False},
     }
 
-    response = session.post(EXPORT_URL, json=payload, timeout=120)
+    response = _post_export_with_retry(session, payload)
     response.raise_for_status()
 
     content = response.content
@@ -1220,7 +1250,7 @@ def download_event_log(session, team_id, season_ids, output_path,
         "exportOptions": {"includeCalculations": False, "includeVideoData": False},
     }
 
-    response = session.post(EXPORT_URL, json=payload, timeout=120)
+    response = _post_export_with_retry(session, payload)
     if not response.ok:
         raise ValueError(
             f"HTTP {response.status_code} {response.reason}: {response.text[:500]}"
@@ -1455,7 +1485,7 @@ def download_minutes_and_cards(session, team_id, season_ids, output_path):
         "exportOptions": {"includeCalculations": False, "includeVideoData": False},
     }
 
-    response = session.post(EXPORT_URL, json=payload, timeout=120)
+    response = _post_export_with_retry(session, payload)
     if not response.ok:
         raise ValueError(
             f"HTTP {response.status_code} {response.reason}: {response.text[:500]}"
