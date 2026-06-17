@@ -523,7 +523,11 @@ def build_shots_from_game(game_id):
             xg = float(xg) if xg else 0.0
             outcome = _OUTCOME_MAP.get(play_type, play_type or 'Unknown')
 
-            shots.append((minute, team_display, xg, outcome))
+            # Tuple is (minute, team, xg, outcome, period). period flows
+            # through to xg_race_chart's chrono-minute shift so Period 2
+            # plots after Period 1 ends on the chart x-axis even when raw
+            # broadcast minute would put them earlier (45+4 vs 46').
+            shots.append((minute, team_display, xg, outcome, period))
 
             if team_color and team_display:
                 team_colors[team_display] = team_color
@@ -559,7 +563,9 @@ def build_shots_from_game(game_id):
 def get_own_goals_for_game(game_id):
     """Return own goal events for a game from the own_goals table.
 
-    Returns list of {minute, credited_team} dicts, or empty list if none found.
+    Returns list of {minute, period, credited_team} dicts, or empty list
+    if none found. Period is heuristic (see _infer_period_from_minute)
+    because the own_goals table stores minute = elapsed + extra collapsed.
     """
     if not game_id:
         return []
@@ -568,7 +574,12 @@ def get_own_goals_for_game(game_id):
         "SELECT minute, credited_team FROM own_goals WHERE gameId = ? ORDER BY minute",
         [game_id]
     ).fetchall()
-    return [{"minute": r[0], "credited_team": r[1]} for r in rows]
+    return [
+        {"minute": r[0],
+         "period": _infer_period_from_minute(r[0]),
+         "credited_team": r[1]}
+        for r in rows
+    ]
 
 
 @st.cache_data(ttl=3600)
@@ -739,12 +750,35 @@ def get_player_game_log(player_id, player_name):
     return matches
 
 
+def _infer_period_from_minute(minute):
+    """Heuristic: minute <= 50 = first half, else second half.
+
+    Used when the underlying source (API-Football cards / own_goals, or
+    user-entered own_goals) doesn't carry an explicit period flag.
+
+    The ambiguity zone is minute 46-50: a card displayed as "49'" could
+    be either first-half stoppage (elapsed=45 + extra=4) or a true
+    49th-minute second-half event (elapsed=49 + extra=0). API-Football
+    stores them collapsed as minute=49 either way. The threshold of 50
+    catches typical 1-5 minute first-half stoppage; it misclassifies the
+    rare case of >5min first-half stoppage as second-half. For events
+    sourced from the events table directly (goals), use the explicit
+    Period column instead of this heuristic.
+    """
+    if minute is None:
+        return 1
+    return 1 if minute <= 50 else 2
+
+
 @st.cache_data(ttl=3600)
 def get_goal_scorers_for_game(game_id):
     """Return goal scorer info for a game from the events table.
 
     Only includes regular goals and penalties -- own goals are handled separately.
-    Returns list of {minute, player, team, pen} dicts, sorted by minute.
+    Returns list of {minute, period, player, team, pen} dicts, sorted by
+    (period, minute) so a first-half stoppage goal (45+4) sorts BEFORE a
+    second-half early goal (46') even though minute values would otherwise
+    invert that order (49 > 46).
     """
     if not game_id:
         return []
@@ -765,6 +799,7 @@ def get_goal_scorers_for_game(game_id):
             _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
             scorers.append({
                 'minute': minute,
+                'period': int(period) if period is not None else 1,
                 'player': shooter,
                 'team': clean_name if clean_name else team_full,
                 'team_id': team_id,
@@ -781,7 +816,9 @@ def get_red_cards_for_game(game_id):
 
     Includes red cards and second yellows. Returns empty list if no API data
     was fetched for this game.
-    Returns list of {minute, player, team, card_type} dicts, sorted by minute.
+    Returns list of {minute, period, player, team, card_type} dicts. Period
+    is heuristic (see _infer_period_from_minute) because the cards table
+    stores minute = elapsed + extra collapsed.
     """
     if not game_id:
         return []
@@ -793,7 +830,9 @@ def get_red_cards_for_game(game_id):
         ORDER BY minute
     """, [game_id]).fetchall()
     return [
-        {'minute': r[0], 'player': r[1], 'team': r[2], 'card_type': r[3]}
+        {'minute': r[0],
+         'period': _infer_period_from_minute(r[0]),
+         'player': r[1], 'team': r[2], 'card_type': r[3]}
         for r in rows
     ]
 
@@ -1104,4 +1143,4 @@ def get_momentum_events(game_id):
         'ht_minute':    ht_minute,
     }
 
-    return df[['minute','team_side','event_type']].reset_index(drop=True), match_info
+    return df[['minute','period','team_side','event_type']].reset_index(drop=True), match_info

@@ -134,7 +134,10 @@ def fetch_fbref_data(url):
                 # Clean up squad name
                 squad = squad_cell.replace('Club Crest ', '').strip()
                 
-                shots.append((minute, squad, xg, outcome))
+                # Manual entry has no period info; default to 1. xG race
+                # charts from manual data won't have Period 2 events anyway -
+                # this default just keeps the tuple shape consistent.
+                shots.append((minute, squad, xg, outcome, 1))
                 
             except (ValueError, IndexError) as e:
                 # Skip rows that can't be parsed
@@ -248,7 +251,7 @@ def parse_trumedia_csv(file_path):
                         }
                         outcome = outcome_map.get(play_type, play_type)
 
-                        shots.append((minute, team, xg, outcome))
+                        shots.append((minute, team, xg, outcome, period))
 
                         # Goal scorers: same shape as get_goal_scorers_for_game
                         # (DB pipeline) and _parse_momentum_csv. Skip rows
@@ -257,6 +260,7 @@ def parse_trumedia_csv(file_path):
                             shooter_name = row[shooter_idx]
                             goal_scorers.append({
                                 'minute':  int(minute),
+                                'period':  period,
                                 'player':  shooter_name,
                                 'team':    team,
                                 'team_id': None,
@@ -308,7 +312,10 @@ def parse_trumedia_csv(file_path):
                     print(f"✓ Extra time detected (Period 3/4 found)")
                 if penalty_shootout_excluded > 0:
                     print(f"✓ Excluded {penalty_shootout_excluded} penalty shootout shots (Period 5+)")
-                goal_scorers.sort(key=lambda g: g['minute'])
+                # Sort by (period, minute) so first-half stoppage goals
+                # (45+4 -> minute 49) precede second-half early goals
+                # (46' -> minute 46) instead of inverting on minute alone.
+                goal_scorers.sort(key=lambda g: (g.get('period', 1), g['minute']))
                 return shots, match_info, team_colors, goal_scorers
             else:
                 print("⚠ No shot data found in CSV")
@@ -724,15 +731,42 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
 
 # ── Step-line geometry helpers ──────────────────────────────────────────────
 
-def _cumulative_xg(shots, team_name):
+
+def _shot_chrono_x(minute, period, ht_minute):
+    """Translate (broadcast_minute, period) into chronological match time.
+
+    Mirrors the momentum chart's _chrono_minute. Period 1 events stay at
+    their broadcast minute; Period 2+ shift forward by (ht_minute - 45)
+    so they plot AFTER Period 1 ends instead of overlapping with first-
+    half stoppage (49' vs 46' problem). Same formula handles extra time
+    (period 3, 4) by the same offset since their broadcast clocks
+    restart at fixed regulation marks.
+    """
+    try:
+        p = int(period)
+    except (ValueError, TypeError):
+        p = 1
+    if p <= 1:
+        return float(minute)
+    return float(minute) + (float(ht_minute) - 45.0)
+
+
+def _cumulative_xg(shots, team_name, ht_minute=45.0):
     """Build (xs, ys, total_xg) for a team's cumulative xG step line.
 
     Each shot contributes two points at the same minute: (m, before) and
-    (m, after). Step-post rendering uses these to produce the vertical jump
-    at each shot.
+    (m, after). Step-post rendering uses these to produce the vertical
+    jump at each shot.
+
+    xs are CHRONOLOGICAL match minutes (period 1 at their broadcast
+    minute; period 2+ shifted forward by Period 1 stoppage). This keeps
+    the step line strictly monotonic across the half-time boundary -
+    Period 2 shots plot to the right of Period 1 stoppage shots even
+    when their broadcast minute would put them earlier on the timeline.
     """
     pts = sorted(
-        [(float(m), float(xg)) for (m, t, xg, _o) in shots if t == team_name],
+        [(_shot_chrono_x(m, p, ht_minute), float(xg))
+         for (m, t, xg, _o, p) in shots if t == team_name],
         key=lambda x: x[0],
     )
     xs = [0.0]
@@ -748,11 +782,16 @@ def _cumulative_xg(shots, team_name):
 
 
 def _xg_at_minute(xs, ys, minute):
-    """Return the step-line y-value at a given minute.
+    """Return the step-line y-value at a given chronological-minute.
 
-    Matches the 'post' step semantics: for a minute at which a shot occurs,
-    returns the post-step (after-shot) value because the duplicate (m, after)
-    point follows the (m, before) point in the xs/ys sequence.
+    `xs` and `minute` must both be in the chronological frame produced
+    by _shot_chrono_x (so the goal-marker lookup matches the step-line
+    coordinates, not the raw broadcast minute).
+
+    Matches the 'post' step semantics: for a minute at which a shot
+    occurs, returns the post-step (after-shot) value because the
+    duplicate (m, after) point follows the (m, before) point in the
+    xs/ys sequence.
     """
     last = 0.0
     for x, y in zip(xs, ys):
@@ -763,16 +802,25 @@ def _xg_at_minute(xs, ys, minute):
     return last
 
 
-def _precise_goal_minute(shots, team, int_min):
-    """Resolve an integer goal minute to the precise float minute of the shot.
+def _precise_goal_minute(shots, team, int_min, period, ht_minute=45.0):
+    """Resolve a (period, integer goal minute) to the precise chronological
+    float-minute of the matching shot on the step line.
 
-    goal_scorers carries integer minutes (floor of gameClock/60) but shots
-    carry the exact float — we need the float so a goal marker lands on the
-    TOP of its step, not on the pre-step line value.
+    goal_scorers carries integer broadcast minutes (floor of
+    gameClock/60) + period. shots carry exact float minute + period. We
+    match on (team, int(broadcast_minute), period) and return the
+    chronological x-coordinate so the goal-marker dot lands on the TOP
+    of its step on the cumulative xG line.
     """
-    for m, t, _xg, outcome in shots:
-        if t == team and int(m) == int_min and outcome == 'Goal':
-            return m
+    for m, t, _xg, outcome, p in shots:
+        try:
+            shot_period = int(p)
+        except (ValueError, TypeError):
+            shot_period = 1
+        if (t == team and int(m) == int_min
+                and shot_period == period
+                and outcome == 'Goal'):
+            return _shot_chrono_x(m, shot_period, ht_minute)
     return float(int_min)
 
 
@@ -798,24 +846,57 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
       - If level 0 conflicts, try flipping an earlier level-0 label's side
         so both stay at the bottom stack instead of elevating this one.
       - Fall back to higher y-levels only if flipping can't resolve.
-    """
-    def _label_range(minute, side):
-        if side == 'right':
-            return (minute, minute + label_width)
-        return (minute - label_width, minute)
 
-    def _overlaps(m_new, s_new, placed):
-        lo_new, hi_new = _label_range(m_new, s_new)
-        for m_p, s_p, _lv in placed:
-            lo_p, hi_p = _label_range(m_p, s_p)
+    The `label_width` parameter is retained as a floor for backward
+    compatibility; the active width per label is estimated from the
+    label text itself (longer text -> wider range) so collision
+    detection reflects what the chart actually renders. Without this
+    width estimation a "M. Baturina (35') 1-1" label (~21 chars) gets
+    treated as the same 12-unit span as a "OG (45') 1-0" label (~12
+    chars), so the algorithm misses real overlaps.
+    """
+    def _estimate_width(ev):
+        if ev.get('type') == 'goal':
+            line1 = f"{ev.get('label','')} ({int(ev['minute'])}')"
+            line2 = ev.get('score', '')
+        else:  # 'rc'
+            player = ev.get('label', '') or ''
+            m = int(ev['minute'])
+            if player:
+                line1 = f"{player} ({m}')"
+                line2 = 'RED CARD'
+            else:
+                line1 = f"RED CARD ({m}')"
+                line2 = ''
+        max_chars = max(len(line1), len(line2 or ''))
+        # Empirical: ~0.55 x-units per char at fontsize=13 + small marker padding
+        return max(max_chars * 0.55 + 3, float(label_width))
+
+    def _label_range(minute, side, width):
+        if side == 'right':
+            return (minute, minute + width)
+        return (minute - width, minute)
+
+    def _overlaps(m_new, s_new, w_new, placed):
+        lo_new, hi_new = _label_range(m_new, s_new, w_new)
+        for m_p, s_p, w_p, _lv in placed:
+            lo_p, hi_p = _label_range(m_p, s_p, w_p)
             if max(lo_new, lo_p) < min(hi_new, hi_p):
                 return True
         return False
 
-    placed = []  # (minute, x_side, level)
+    def _xpos(ev):
+        # Use chrono_x when present (chart plots events at chronological
+        # match time); fall back to broadcast minute for backward
+        # compatibility with callers that haven't threaded period yet.
+        return ev.get('chrono_x', ev['minute'])
+
+    placed = []  # (xpos, x_side, width, level)
     for ev in goals:
-        near_right = (chart_max - ev['minute']) < near_edge
-        near_left = ev['minute'] < near_edge
+        ev_x = _xpos(ev)
+        ev_w = _estimate_width(ev)
+        near_right = (chart_max - ev_x) < near_edge
+        near_left = ev_x < near_edge
         if near_left:
             sides = ['right']
         elif near_right:
@@ -826,30 +907,32 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
         else:
             sides = ['right', 'left']
 
-        def _free_at(m, s, lv, placed=placed):
-            return not _overlaps(m, s, [(mp, sp, lp) for mp, sp, lp in placed if lp == lv])
+        def _free_at(m, w, s, lv, placed=placed):
+            same_lv = [(mp, sp, wp, lp) for mp, sp, wp, lp in placed if lp == lv]
+            return not _overlaps(m, s, w, same_lv)
 
         chosen_side, chosen_level = None, None
         # Step 1: natural side, level 0
         for s in sides:
-            if _free_at(ev['minute'], s, 0):
+            if _free_at(ev_x, ev_w, s, 0):
                 chosen_side, chosen_level = s, 0
                 break
 
         # Step 2: try flipping an earlier level-0 label to keep both at bottom
         flip_target = None
         if chosen_side is None and not near_left:
-            for j, (mp, sp, lp) in enumerate(placed):
+            for j, (mp, sp, wp, lp) in enumerate(placed):
                 if lp != 0:
                     continue
                 alt_s = 'left' if sp == 'right' else 'right'
-                others_lv0 = [(mk, sk, lk) for k, (mk, sk, lk) in enumerate(placed)
+                others_lv0 = [(mk, sk, wk, lk)
+                              for k, (mk, sk, wk, lk) in enumerate(placed)
                               if k != j and lk == 0]
-                if _overlaps(mp, alt_s, others_lv0):
+                if _overlaps(mp, alt_s, wp, others_lv0):
                     continue
-                tentative = others_lv0 + [(mp, alt_s, 0)]
+                tentative = others_lv0 + [(mp, alt_s, wp, 0)]
                 for s in sides:
-                    if not _overlaps(ev['minute'], s, tentative):
+                    if not _overlaps(ev_x, s, ev_w, tentative):
                         flip_target = (j, mp, alt_s)
                         chosen_side, chosen_level = s, 0
                         break
@@ -860,7 +943,7 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
         if chosen_side is None:
             for lv in range(len(GOAL_LABEL_Y_LEVELS)):
                 for s in sides:
-                    if _free_at(ev['minute'], s, lv):
+                    if _free_at(ev_x, ev_w, s, lv):
                         chosen_side, chosen_level = s, lv
                         break
                 if chosen_side is not None:
@@ -871,10 +954,11 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
 
         if flip_target is not None:
             j, mp, alt_s = flip_target
-            placed[j] = (mp, alt_s, 0)
+            _, _, wp, _ = placed[j]
+            placed[j] = (mp, alt_s, wp, 0)
             goals[j]['x_side'] = alt_s
 
-        placed.append((ev['minute'], chosen_side, chosen_level))
+        placed.append((ev_x, chosen_side, ev_w, chosen_level))
         ev['x_side'] = chosen_side
         ev['y_level'] = chosen_level
 
@@ -933,8 +1017,11 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)
 
     # ── Split shots by team, build step-line data ───────────────────────────
-    home_x, home_y, home_xg = _cumulative_xg(shots, home)
-    away_x, away_y, away_xg = _cumulative_xg(shots, away)
+    # ht_minute lets _cumulative_xg shift Period 2+ shots forward by
+    # (ht_minute - 45) so the step line stays monotonic across half-time.
+    ht_minute = team_info.get('first_half_end_minute', 45) or 45
+    home_x, home_y, home_xg = _cumulative_xg(shots, home, ht_minute=ht_minute)
+    away_x, away_y, away_xg = _cumulative_xg(shots, away, ht_minute=ht_minute)
 
     # Safety: a match with zero shots on a side shouldn't crash
     home_shots = [s for s in shots if s[1] == home]
@@ -943,18 +1030,26 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         print("No shots found for either team -- cannot render xG race")
         return None
 
-    # Extend lines to end of regulation / extra time
+    # Extend lines to end of regulation / extra time. The x-axis is the
+    # chronological match-clock (Period 2+ shifted forward by Period 1
+    # stoppage), so "end of regulation" extends to 90 + (ht_minute - 45)
+    # so the chart end reflects actual elapsed match minutes.
     has_extra_time = team_info.get('extra_time', False)
-    all_shot_minutes = [s[0] for s in shots]
-    max_shot_minute = max(all_shot_minutes) if all_shot_minutes else 0
+    p2_offset = max(0.0, float(ht_minute) - 45.0)
+    all_shot_chrono = [
+        _shot_chrono_x(s[0], s[4] if len(s) >= 5 else 1, ht_minute)
+        for s in shots
+    ]
+    max_shot_chrono = max(all_shot_chrono) if all_shot_chrono else 0
     if has_extra_time:
-        last_min = 125
-    elif max_shot_minute > 95:
-        last_min = int(max_shot_minute) + 3
+        last_min = 125 + p2_offset
+    elif max_shot_chrono > 95 + p2_offset:
+        last_min = int(max_shot_chrono) + 3
     else:
-        last_min = 95
-    home_x.append(float(last_min)); home_y.append(home_xg)
-    away_x.append(float(last_min)); away_y.append(away_xg)
+        last_min = 95 + p2_offset
+    last_min = float(last_min)
+    home_x.append(last_min); home_y.append(home_xg)
+    away_x.append(last_min); away_y.append(away_xg)
 
     # ── Derive score from goals + own goals ─────────────────────────────────
     home_score = sum(1 for g in goal_scorers if g.get('team') == home)
@@ -1014,11 +1109,23 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     # All match events share the events row at chart top and the same
     # collision-avoidance pool. Cards differentiated by shape (rectangle vs
     # circle) and team-colored label vs universal-red marker/line.
+    # Sort key carries period so first-half stoppage events (45+4 -> minute
+    # 49) sort BEFORE second-half early events (46' -> minute 46). Without
+    # period a minute-only sort flips that order, which also breaks the
+    # running-score accumulation below.
+    def _ev_period(ev):
+        p = ev.get('period')
+        if p is not None:
+            return int(p)
+        m = ev.get('minute', 0)
+        return 1 if m <= 50 else 2
+
     _all_events = []
     for g in goal_scorers:
         _all_events.append({
             'type': 'goal',
             'minute': float(g.get('minute', 0)),
+            'period': g.get('period'),
             'team': g.get('team'),
             'label': g.get('player', '') + (' (P)' if g.get('pen') else ''),
             'og': False,
@@ -1027,6 +1134,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         _all_events.append({
             'type': 'goal',
             'minute': float(og.get('minute', 0)),
+            'period': og.get('period'),
             'team': og.get('team'),  # benefiting team
             'label': 'OG',
             'og': True,
@@ -1037,10 +1145,17 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         _all_events.append({
             'type': 'rc',
             'minute': float(rc.get('minute', 0)),
+            'period': rc.get('period'),
             'team': rc.get('team'),
             'label': rc.get('player', ''),
         })
-    _all_events.sort(key=lambda x: x['minute'])
+    # Each event's chronological x-position (chrono_x) is what gets used
+    # for plotting and collision-detection in _place_goal_labels. Period
+    # 1 events stay at their broadcast minute; Period 2+ shift forward by
+    # (ht_minute - 45) so the chart x-axis is monotonic across half-time.
+    for ev in _all_events:
+        ev['chrono_x'] = _shot_chrono_x(ev['minute'], _ev_period(ev), ht_minute)
+    _all_events.sort(key=lambda x: (_ev_period(x), x['minute']))
 
     # Running score + side classification (only goals contribute to score)
     _h = _a = 0
@@ -1067,7 +1182,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     if last_min <= 95:
         ax.set_xticks([0, 15, 30, 45, 60, 75, 90])
     else:
-        ax.set_xticks(list(range(0, last_min + 1, 15)))
+        ax.set_xticks(list(range(0, int(last_min) + 1, 15)))
 
     # Place all event labels above the plot with collision avoidance (mutates
     # _all_events in place, adding 'x_side' and 'y_level' per event).
@@ -1081,15 +1196,22 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         flip_left = ev['x_side'] == 'left'
         label_y = GOAL_LABEL_Y_LEVELS[ev['y_level']]
         label_ha = 'right' if flip_left else 'left'
+        ev_period = _ev_period(ev)
 
         if ev['type'] == 'goal':
             xs = home_x if ev['side'] == 'home' else away_x
             ys = home_y if ev['side'] == 'home' else away_y
 
             if ev['og']:
-                marker_m = ev['minute']  # no shot event for OG; line doesn't step
+                # OGs aren't in the shots stream (TruMedia doesn't flag
+                # them) - place at the chronological x derived from the
+                # OG's broadcast minute + period. Line doesn't step.
+                marker_m = _shot_chrono_x(ev['minute'], ev_period, ht_minute)
             else:
-                marker_m = _precise_goal_minute(shots, ev['team'], int(ev['minute']))
+                marker_m = _precise_goal_minute(
+                    shots, ev['team'], int(ev['minute']),
+                    period=ev_period, ht_minute=ht_minute,
+                )
             y_at = _xg_at_minute(xs, ys, marker_m)
 
             # Team-colored dotted vertical from top of plot DOWN TO marker on step
@@ -1121,7 +1243,11 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
                     clip_on=False)
 
         else:  # 'rc'
-            m = ev['minute']
+            # Red card x-position is the chronological match-time for the
+            # card's broadcast minute (so a 45+4 card plots before a 46'
+            # second-half event); the label still shows broadcast minute.
+            m = _shot_chrono_x(ev['minute'], ev_period, ht_minute)
+            broadcast_m = ev['minute']
             # Universal-red dash-dot line spanning the chart
             ax.axvline(m, color=_RC_COLOR, linewidth=1.0,
                        linestyle='-.', alpha=0.75, zorder=2)
@@ -1139,8 +1265,8 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
 
             label_x = m - 0.6 if flip_left else m + 0.6
             player = ev.get('label', '')
-            text = (f"{player} ({int(m)}')\nRED CARD"
-                    if player else f"RED CARD ({int(m)}')")
+            text = (f"{player} ({int(broadcast_m)}')\nRED CARD"
+                    if player else f"RED CARD ({int(broadcast_m)}')")
             ax.text(label_x, label_y, text,
                     transform=_label_transform, color=side_color,
                     fontsize=13, fontweight='bold', va='bottom', ha=label_ha,

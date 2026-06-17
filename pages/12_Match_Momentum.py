@@ -126,7 +126,18 @@ def _parse_momentum_csv(file_content):
     else:
         ht_minute = 45.0
 
-    events_df = df[["minute", "team_side", "event_type"]].reset_index(drop=True)
+    # Keep period alongside minute so downstream code can compute a
+    # chronological match-time x-axis (period 2+ events plot AFTER period 1
+    # ends, even when broadcast minute would put them earlier on a naive
+    # axis - e.g. 46' in second half vs 45+4 in first half).
+    if "Period" in df.columns:
+        events_df = df[["minute", "Period", "team_side", "event_type"]].copy()
+        events_df = events_df.rename(columns={"Period": "period"}).reset_index(drop=True)
+        events_df["period"] = pd.to_numeric(events_df["period"], errors="coerce").fillna(1).astype(int)
+    else:
+        events_df = df[["minute", "team_side", "event_type"]].copy()
+        events_df["period"] = 1
+        events_df = events_df.reset_index(drop=True)
 
     # ── Goal scorers ──────────────────────────────────────────────────────────
     goal_scorers = []
@@ -138,14 +149,21 @@ def _parse_momentum_csv(file_content):
             except Exception:
                 minute = 0
             team = grow[team_col]
+            try:
+                period = int(grow.get("Period") or 1)
+            except (ValueError, TypeError):
+                period = 1
             goal_scorers.append({
                 "minute":   minute,
+                "period":   period,
                 "player":   str(grow["shooter"]),
                 "team":     team,
                 "team_id":  None,
                 "pen":      grow[play_col] == "PenaltyGoal",
             })
-        goal_scorers.sort(key=lambda x: x["minute"])
+        # Sort by (period, minute) so first-half stoppage (45+4) precedes
+        # second-half early goals (46') instead of inverting on minute alone.
+        goal_scorers.sort(key=lambda x: (x.get("period", 1), x["minute"]))
 
     match_info = {
         "home_team":    home_team,
@@ -165,16 +183,48 @@ def _parse_momentum_csv(file_content):
 
 # ── Momentum computation ───────────────────────────────────────────────────────
 
-def _compute_momentum(events_df, w_shots, w_corners, w_ft, window=5):
+def _chrono_minute(minute, period, ht_minute):
+    """Translate a (broadcast_minute, period) pair into chronological match
+    time since kickoff.
+
+    Period 1: clock ran continuously from kickoff, so broadcast minute
+    already equals elapsed match minutes.
+    Period 2+: period 2's broadcast clock restarts at minute=45 even
+    though period 1 actually ran to ht_minute. Shift forward by the
+    Period 1 stoppage time (ht_minute - 45) so events line up
+    sequentially after Period 1 ends. Same logic extends to extra time.
+    """
+    try:
+        p = int(period)
+    except (ValueError, TypeError):
+        p = 1
+    if p <= 1:
+        return float(minute)
+    return float(minute) + (float(ht_minute) - 45.0)
+
+
+def _compute_momentum(events_df, w_shots, w_corners, w_ft, ht_minute=45.0, window=5):
     """
     Compute per-minute momentum (0-100) using a rolling window.
     50 = neutral, >50 = home dominant, <50 = away dominant.
     Weights are normalised internally so they don't need to sum to 100.
+
+    Bins on chronological match-minute (period-aware) so the returned
+    Series index is monotonic across the half-time boundary - the chart
+    line plots without a backward jump when Period 2 starts.
     """
     if events_df.empty:
         return pd.Series(dtype=float)
 
-    max_min = int(events_df["minute"].max()) + 1
+    events_df = events_df.copy()
+    if "period" not in events_df.columns:
+        events_df["period"] = 1
+    events_df["chrono_minute"] = events_df.apply(
+        lambda r: _chrono_minute(r["minute"], r.get("period", 1), ht_minute),
+        axis=1,
+    )
+
+    max_min = int(events_df["chrono_minute"].max()) + 1
     minutes = range(0, max_min + 1)
 
     weight_map = {"shot": w_shots, "corner": w_corners, "final_third": w_ft}
@@ -185,8 +235,7 @@ def _compute_momentum(events_df, w_shots, w_corners, w_ft, window=5):
     home_score = pd.Series(0.0, index=minutes)
     away_score = pd.Series(0.0, index=minutes)
 
-    events_df = events_df.copy()
-    events_df["minute_bin"] = events_df["minute"].astype(int).clip(0, max_min)
+    events_df["minute_bin"] = events_df["chrono_minute"].astype(int).clip(0, max_min)
     events_df["weight"] = events_df["event_type"].map(weight_map).fillna(0)
 
     for side, series in [("home", home_score), ("away", away_score)]:
@@ -227,22 +276,53 @@ def _place_event_labels(events, chart_max):
     """Assign x_side ('left'/'right') and y_level (0/1/2) to each event so
     labels don't collide. Mutates events in place. Mirrors xG race's
     collision-avoidance logic.
-    """
-    def _label_range(minute, side):
-        return (minute, minute + _LABEL_W) if side == "right" else (minute - _LABEL_W, minute)
 
-    def _overlaps(m_new, s_new, placed):
-        lo_new, hi_new = _label_range(m_new, s_new)
-        for m_p, s_p, _lv in placed:
-            lo_p, hi_p = _label_range(m_p, s_p)
+    Reads each event's chronological x-position (chrono_x) for placement,
+    falling back to broadcast minute when chrono_x isn't set (older
+    callers / CSV path before period was threaded through).
+
+    Label width is estimated per-event from the actual label text so
+    collision detection reflects what the chart renders - a constant
+    _LABEL_W underestimates long labels (e.g. "M. Baturina (35') 1-1"
+    is ~17 chart units wide, not 12).
+    """
+    def _xpos(ev):
+        return ev.get("chrono_x", ev["minute"])
+
+    def _estimate_width(ev):
+        if ev.get("type") == "goal":
+            line1 = f"{ev.get('label','')} ({int(ev['minute'])}')"
+            line2 = ev.get("score", "")
+        else:  # 'rc'
+            player = ev.get("label", "") or ""
+            m = int(ev["minute"])
+            if player:
+                line1 = f"{player} ({m}')"
+                line2 = "RED CARD"
+            else:
+                line1 = f"RED CARD ({m}')"
+                line2 = ""
+        max_chars = max(len(line1), len(line2 or ""))
+        # ~0.55 x-units per char at fontsize=13 + small marker padding.
+        return max(max_chars * 0.55 + 3, float(_LABEL_W))
+
+    def _label_range(minute, side, width):
+        return (minute, minute + width) if side == "right" else (minute - width, minute)
+
+    def _overlaps(m_new, s_new, w_new, placed):
+        lo_new, hi_new = _label_range(m_new, s_new, w_new)
+        for m_p, s_p, w_p, _lv in placed:
+            lo_p, hi_p = _label_range(m_p, s_p, w_p)
             if max(lo_new, lo_p) < min(hi_new, hi_p):
                 return True
         return False
 
-    placed = []  # (minute, x_side, level)
+    placed = []  # (xpos, x_side, width, level)
     for ev in events:
-        near_right = (chart_max - ev["minute"]) < _NEAR_EDGE
-        near_left = ev["minute"] < _NEAR_EDGE
+        ev_x = _xpos(ev)
+        ev_w = _estimate_width(ev)
+        near_right = (chart_max - ev_x) < _NEAR_EDGE
+        near_left = ev_x < _NEAR_EDGE
         if near_left:
             sides = ["right"]
         elif near_right:
@@ -256,25 +336,26 @@ def _place_event_labels(events, chart_max):
         chosen_side, chosen_level = None, None
         # Step 1: try level 0
         for s in sides:
-            same_lv = [(mp, sp, lp) for mp, sp, lp in placed if lp == 0]
-            if not _overlaps(ev["minute"], s, same_lv):
+            same_lv = [(mp, sp, wp, lp) for mp, sp, wp, lp in placed if lp == 0]
+            if not _overlaps(ev_x, s, ev_w, same_lv):
                 chosen_side, chosen_level = s, 0
                 break
 
         # Step 2: try flipping a placed level-0 label
         flip_target = None
         if chosen_side is None and not near_left:
-            for j, (mp, sp, lp) in enumerate(placed):
+            for j, (mp, sp, wp, lp) in enumerate(placed):
                 if lp != 0:
                     continue
                 alt_s = "left" if sp == "right" else "right"
-                others_lv0 = [(mk, sk, lk) for k, (mk, sk, lk) in enumerate(placed)
+                others_lv0 = [(mk, sk, wk, lk)
+                              for k, (mk, sk, wk, lk) in enumerate(placed)
                               if k != j and lk == 0]
-                if _overlaps(mp, alt_s, others_lv0):
+                if _overlaps(mp, alt_s, wp, others_lv0):
                     continue
-                tentative = others_lv0 + [(mp, alt_s, 0)]
+                tentative = others_lv0 + [(mp, alt_s, wp, 0)]
                 for s in sides:
-                    if not _overlaps(ev["minute"], s, tentative):
+                    if not _overlaps(ev_x, s, ev_w, tentative):
                         flip_target = (j, mp, alt_s)
                         chosen_side, chosen_level = s, 0
                         break
@@ -285,8 +366,8 @@ def _place_event_labels(events, chart_max):
         if chosen_side is None:
             for lv in range(1, len(_Y_LEVELS)):
                 for s in sides:
-                    same_lv = [(mp, sp, lp) for mp, sp, lp in placed if lp == lv]
-                    if not _overlaps(ev["minute"], s, same_lv):
+                    same_lv = [(mp, sp, wp, lp) for mp, sp, wp, lp in placed if lp == lv]
+                    if not _overlaps(ev_x, s, ev_w, same_lv):
                         chosen_side, chosen_level = s, lv
                         break
                 if chosen_side is not None:
@@ -297,10 +378,11 @@ def _place_event_labels(events, chart_max):
 
         if flip_target is not None:
             j, mp, alt_s = flip_target
-            placed[j] = (mp, alt_s, 0)
+            _, _, wp, _ = placed[j]
+            placed[j] = (mp, alt_s, wp, 0)
             events[j]["x_side"] = alt_s
 
-        placed.append((ev["minute"], chosen_side, chosen_level))
+        placed.append((ev_x, chosen_side, ev_w, chosen_level))
         ev["x_side"] = chosen_side
         ev["y_level"] = chosen_level
 
@@ -376,10 +458,24 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
         as_ = _dl.SequenceMatcher(None, (team_name or "").lower(), away_name.lower()).ratio()
         return hs >= as_
 
+    # Each event carries broadcast minute (for labels) + period (for sort
+    # and chrono shift). chrono_x is the chronological match time since
+    # kickoff - Period 1 events at their broadcast minute, Period 2+
+    # appended after Period 1 ends so they plot sequentially after the
+    # half-time line instead of overlapping with first-half stoppage.
+    # See _chrono_minute().
+    def _ev_period(ev):
+        p = ev.get("period")
+        if p is not None:
+            return int(p)
+        m = ev.get("minute", 0)
+        return 1 if m <= 50 else 2
+
     all_events = []
     for g in (goal_scorers or []):
         all_events.append({
             "type": "goal", "minute": g["minute"], "team": g["team"],
+            "period": g.get("period"),
             "team_id": g.get("team_id"),
             "label": g["player"] + (" (P)" if g.get("pen") else ""),
             "og": False,
@@ -387,6 +483,7 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     for og in (own_goals or []):
         all_events.append({
             "type": "goal", "minute": og["minute"], "team": og["team"],
+            "period": og.get("period"),
             "team_id": None, "label": "OG", "og": True,
         })
     for rc in (red_cards or []):
@@ -394,10 +491,13 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
             continue
         all_events.append({
             "type": "rc", "minute": rc["minute"], "team": rc["team"],
+            "period": rc.get("period"),
             "team_id": rc.get("team_id"),
             "label": rc.get("player", ""),
         })
-    all_events.sort(key=lambda x: x["minute"])
+    for ev in all_events:
+        ev["chrono_x"] = _chrono_minute(ev["minute"], _ev_period(ev), ht_minute)
+    all_events.sort(key=lambda x: (_ev_period(x), x["minute"]))
 
     h, a = 0, 0
     for ev in all_events:
@@ -418,20 +518,26 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     for ev in all_events:
         flip_left = ev["x_side"] == "left"
         label_y = _Y_LEVELS[ev["y_level"]]
-        label_x = ev["minute"] - 0.6 if flip_left else ev["minute"] + 0.6
+        # chrono_x is the chart x-position (chronological match time since
+        # kickoff). ev["minute"] is the broadcast minute kept only for the
+        # label text - e.g. "(46')" - so the displayed label stays in the
+        # soccer convention even though Bellingham's "46'" plots to the
+        # right of Musa's "50'" (45+stoppage) on the chronological axis.
+        x_pos = ev.get("chrono_x", ev["minute"])
+        label_x = x_pos - 0.6 if flip_left else x_pos + 0.6
         label_ha = "right" if flip_left else "left"
         side_color = home_color if ev["side"] == "home" else away_color
 
         if ev["type"] == "goal":
-            ax.axvline(ev["minute"], color=side_color, linewidth=1.2,
+            ax.axvline(x_pos, color=side_color, linewidth=1.2,
                        linestyle=":", alpha=0.8)
             if ev["og"]:
-                ax.plot(ev["minute"], 1.005, "o", transform=label_transform,
+                ax.plot(x_pos, 1.005, "o", transform=label_transform,
                         markerfacecolor='none', markeredgecolor=side_color,
                         markersize=8, markeredgewidth=1.6,
                         clip_on=False, zorder=5)
             else:
-                ax.plot(ev["minute"], 1.005, "o", transform=label_transform,
+                ax.plot(x_pos, 1.005, "o", transform=label_transform,
                         color=side_color, markersize=8,
                         markeredgecolor="white", markeredgewidth=1.2,
                         clip_on=False, zorder=5)
@@ -443,14 +549,14 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
                     clip_on=False)
 
         else:  # rc
-            ax.axvline(ev["minute"], color=_RC_COLOR, linewidth=1.0,
+            ax.axvline(x_pos, color=_RC_COLOR, linewidth=1.0,
                        linestyle="-.", alpha=0.7)
             # Card-shaped marker: vertical red rectangle at chart top edge,
             # ~1:1.5 ratio, distinct from circular goal markers.
             card_w_min = 0.7
             card_h_axes = 0.028
             card = mpatches.Rectangle(
-                (ev["minute"] - card_w_min / 2, 1.0),
+                (x_pos - card_w_min / 2, 1.0),
                 card_w_min, card_h_axes,
                 facecolor=_RC_COLOR, edgecolor='white', linewidth=1.5,
                 transform=label_transform, clip_on=False, zorder=6,
@@ -573,7 +679,9 @@ def _render_and_store(events_df, match_info, goal_scorers, own_goals, red_cards,
         st.warning("Please set at least one weight above 0.")
         return False
 
-    momentum = _compute_momentum(events_df, w_shots, w_corners, w_ft, window=window)
+    ht_minute = float(match_info.get("ht_minute", 45.0))
+    momentum = _compute_momentum(events_df, w_shots, w_corners, w_ft,
+                                 ht_minute=ht_minute, window=window)
     fig = _draw_momentum_chart(
         momentum, match_info, goal_scorers,
         own_goals=own_goals,
