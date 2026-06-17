@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from downloader import (  # noqa: E402
     create_session,
     download_event_log,
+    fetch_and_store_fixture_data,
     upsert_events_to_motherduck,
     get_motherduck_connection,
     load_secrets,
@@ -44,6 +45,7 @@ with open(CONFIG_PATH) as f:
 
 secrets = load_secrets(SECRETS_PATH)
 MOTHERDUCK_TOKEN = secrets.get("MOTHERDUCK_TOKEN")
+API_FOOTBALL_KEY = secrets.get("API_FOOTBALL_KEY")
 
 _secondary = set(config.get("secondary_seasons", []))
 _season_names = config.get("seasons", {})
@@ -152,16 +154,29 @@ def find_team_config(team_id):
 
 
 # ── Refresh worker ───────────────────────────────────────────────────────────
-def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name):
+def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name,
+                 game_date=None, season_id=None):
     """Download + upsert events for both teams for a single gameId.
 
-    Two-phase to avoid leaving the game in a half-empty state:
+    Three-phase to avoid leaving the game in a half-empty state:
       Phase 1 - download both teams' CSVs from TruMedia (same snapshot, same
                 moment). If either download fails, abort with no DB changes.
       Phase 2 - wipe the game's events entirely (both teams), then INSERT
                 each team's fresh rows. The wide DELETE is necessary because
                 stale-snapshot rows from one team would collide with the
                 fresh-snapshot eventGuids from the other on insert.
+      Phase 3 - re-call API-Football for the game so own_goals / cards /
+                player_minutes pick up any post-match revisions (retro-
+                credited own goals, rescinded cards, corrected sub times).
+                The default API-Football enrichment pass on the main page
+                only fetches games whose fixture_id is NULL, so a retro-
+                credit silently never lands until we re-fetch from here.
+                Best-effort: a failure here is reported but doesn't undo
+                the TruMedia refresh.
+
+    `game_date` and `season_id` are needed for Phase 3 (passed straight
+    into fetch_and_store_fixture_data). They're optional - omitting them
+    skips Phase 3.
 
     Returns a list of (success_bool, message) tuples.
     """
@@ -214,6 +229,7 @@ def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name):
     # in a transaction so a mid-flight failure rolls back rather than leaving
     # the game half-populated.
     con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+    phase2_ok = False
     try:
         con.execute("BEGIN TRANSACTION")
         try:
@@ -225,6 +241,7 @@ def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name):
                     f"{team_name} ({side}): refreshed {rows:,} events",
                 ))
             con.execute("COMMIT")
+            phase2_ok = True
         except Exception as e:
             con.execute("ROLLBACK")
             results.append((False, f"DB write failed -- rolled back: {e}"))
@@ -233,6 +250,70 @@ def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name):
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
         con.close()
+
+    # Phase 3: API-Football refresh. Best-effort - failures here don't undo
+    # the TruMedia refresh that already committed. Only runs if Phase 2 was
+    # clean (no point pulling fresh fixture data onto half-broken events).
+    if phase2_ok and API_FOOTBALL_KEY and game_date:
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        try:
+            # Reuse the existing fixture_id if we have one, so we skip the
+            # name-matching API call (one less request) and head straight to
+            # /fixtures/lineups + /fixtures/events.
+            row = con.execute(
+                "SELECT fixture_id FROM game_fixtures WHERE gameId = ?",
+                [game_id],
+            ).fetchone()
+            existing_fid = row[0] if row else None
+
+            status = fetch_and_store_fixture_data(
+                api_key=API_FOOTBALL_KEY,
+                token=MOTHERDUCK_TOKEN,
+                game_id=game_id,
+                date=game_date,
+                home=home_name,
+                away=away_name,
+                con=con,
+                season_id=season_id,
+                fixture_id=existing_fid,
+                force_refresh=True,
+            )
+            if status == "matched":
+                # Read back the new counts so the user can see what landed.
+                n_pm = con.execute(
+                    "SELECT COUNT(*) FROM player_minutes WHERE gameId = ?",
+                    [game_id],
+                ).fetchone()[0]
+                n_og = con.execute(
+                    "SELECT COUNT(*) FROM own_goals WHERE gameId = ?",
+                    [game_id],
+                ).fetchone()[0]
+                n_c = con.execute(
+                    "SELECT COUNT(*) FROM cards WHERE gameId = ?",
+                    [game_id],
+                ).fetchone()[0]
+                results.append((
+                    True,
+                    f"API-Football: refreshed ({n_pm} player_minutes, "
+                    f"{n_og} own_goals, {n_c} cards)",
+                ))
+            elif status == "not_found":
+                results.append((
+                    False,
+                    "API-Football: fixture name lookup failed - "
+                    "add a TRUMEDIA_TO_API_NAME override and retry.",
+                ))
+            else:
+                results.append((False, f"API-Football: {status}"))
+        except Exception as e:
+            results.append((False, f"API-Football: {type(e).__name__}: {e}"))
+        finally:
+            con.close()
+    elif phase2_ok and not API_FOOTBALL_KEY:
+        results.append((
+            False,
+            "API-Football refresh skipped: API_FOOTBALL_KEY not configured.",
+        ))
 
     return results
 
@@ -407,6 +488,8 @@ if selected_game:
                     selected_game["awayTeamId"],
                     selected_game["homeTeam"],
                     selected_game["awayTeam"],
+                    game_date=selected_game["Date"],
+                    season_id=get_seasonId_for_league(league_name),
                 )
             st.session_state["targeted_results"] = results
             # Bust caches so the games list and broken-game indicators

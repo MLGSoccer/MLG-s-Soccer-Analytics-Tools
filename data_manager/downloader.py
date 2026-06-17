@@ -1078,12 +1078,22 @@ def compute_player_minutes(lineups_response, events_response):
     return player_minutes_list, own_goals_list, cards_list
 
 
-def fetch_and_store_fixture_data(api_key, token, game_id, date, home, away, con=None, season_id=None, fixture_id=None):
+def fetch_and_store_fixture_data(api_key, token, game_id, date, home, away,
+                                 con=None, season_id=None, fixture_id=None,
+                                 force_refresh=False):
     """Fetch lineups + events from API-Football for one game and store to MotherDuck.
 
     Writes to game_fixtures, player_minutes, own_goals, and cards tables.
     season_id is used to look up the API-Football league ID for filtered queries.
     If fixture_id is provided, the API-Football fixture lookup is skipped entirely.
+
+    `force_refresh=True` wipes the gameId's existing rows in player_minutes /
+    own_goals / cards before re-inserting. Needed when API-Football has
+    REVISED data (post-match retro-credits like an own goal reassignment, a
+    rescinded card, a corrected sub time). The default INSERT OR REPLACE
+    only updates rows that match on primary key - it can't remove a stale
+    row whose PK no longer exists in the new response.
+
     Returns fetch_status string: 'matched', 'not_found', or 'error: ...'
     """
     fetched_at = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
@@ -1108,6 +1118,11 @@ def fetch_and_store_fixture_data(api_key, token, game_id, date, home, away, con=
         events_resp = _apifootball_get(api_key, "fixtures/events", {"fixture": fixture_id})
 
         player_minutes_list, own_goals_list, cards_list = compute_player_minutes(lineups_resp, events_resp)
+
+        if force_refresh:
+            con.execute("DELETE FROM player_minutes WHERE gameId = ?", [game_id])
+            con.execute("DELETE FROM own_goals WHERE gameId = ?", [game_id])
+            con.execute("DELETE FROM cards WHERE gameId = ?", [game_id])
 
         if player_minutes_list:
             pm_df = pd.DataFrame(player_minutes_list)
