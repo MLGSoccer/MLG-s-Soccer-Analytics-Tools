@@ -68,6 +68,7 @@ TRUMEDIA_TO_API_NAME = {
     # uses short/colloquial forms for several nations
     "United States": "USA",
     "Korea Republic": "South Korea",
+    "Côte d'Ivoire": "Ivory Coast",
     # NWSL — TruMedia uses "X Women", API-Football uses inconsistent naming
     "Kansas City Current Women": "Kansas City W",
     "Gotham FC Women": "NJ/NY Gotham FC W",
