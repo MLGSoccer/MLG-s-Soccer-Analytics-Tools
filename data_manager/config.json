@@ -3564,6 +3564,38 @@
       "season_ids": [
         "873cbl9cd9butm4air0mugxzo"
       ]
+    },
+    {
+      "name": "Senegal",
+      "abbrev": "SEN",
+      "team_id": "2wk1549tkz80oet8226euj7jp",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "France",
+      "abbrev": "FRA",
+      "team_id": "4pz87gsel7183b7kcadw1dwzv",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Norway",
+      "abbrev": "NOR",
+      "team_id": "e1vf7kzswllumuykwezkrbo70",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Iraq",
+      "abbrev": "IRQ",
+      "team_id": "7u6a9femhquay3jnk6ysgiwx9",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {
