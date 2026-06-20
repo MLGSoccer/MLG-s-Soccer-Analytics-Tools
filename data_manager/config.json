@@ -3676,6 +3676,22 @@
       "season_ids": [
         "873cbl9cd9butm4air0mugxzo"
       ]
+    },
+    {
+      "name": "Colombia",
+      "abbrev": "COL",
+      "team_id": "7km4szeh6fs5bbdgypshh0snd",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
+    },
+    {
+      "name": "Uzbekistan",
+      "abbrev": "UZB",
+      "team_id": "elayenut7wtobtmg7hyujzdoe",
+      "season_ids": [
+        "873cbl9cd9butm4air0mugxzo"
+      ]
     }
   ],
   "seasons": {
