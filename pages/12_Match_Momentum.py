@@ -596,6 +596,23 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     ax.set_ylabel("Momentum", color=TEXT_SECONDARY, fontsize=10)
     ax.set_ylim(-2, 102)
     ax.set_xlim(0, chart_max)
+    # X-axis ticks show BROADCAST minute, positioned at the chrono_x where
+    # that broadcast minute actually occurs. Same convention as xG race -
+    # without this, a "60" tick lands at chrono_x = 60 while a 60' event
+    # actually plots at chrono_x = 60 + (ht_minute - 45), and the label
+    # disagrees with the event marker beside it.
+    p2_offset = max(0.0, float(ht_minute) - 45.0)
+    broadcast_ticks = [0, 15, 30, 45, 60, 75, 90]
+    if chart_max > 95 + p2_offset:
+        broadcast_ticks += [105, 120]
+    tick_positions, tick_labels = [], []
+    for b in broadcast_ticks:
+        pos = b if b <= 45 else b + p2_offset
+        if pos <= chart_max:
+            tick_positions.append(pos)
+            tick_labels.append(str(b))
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels)
     ax.yaxis.grid(True, color=SPINE_COLOR, alpha=0.18, linewidth=0.5)
     ax.set_axisbelow(True)
 

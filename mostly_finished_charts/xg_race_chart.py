@@ -1179,10 +1179,23 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     max_xg = max(home_xg, away_xg, 0.5) * 1.05
     ax.set_xlim(0, last_min + 5)  # +5 for endpoint label breathing room
     ax.set_ylim(0, max_xg)
-    if last_min <= 95:
-        ax.set_xticks([0, 15, 30, 45, 60, 75, 90])
-    else:
-        ax.set_xticks(list(range(0, int(last_min) + 1, 15)))
+    # X-axis ticks show BROADCAST minute, but positioned at the
+    # CHRONOLOGICAL x where that broadcast minute actually occurs. So a "60"
+    # tick lands at chrono_x = 60 + (ht_minute - 45), not at chrono_x = 60 -
+    # otherwise the tick labels disagree with the goal labels (e.g.
+    # "Cunha (59')" sits between "45" and "60" ticks on a pure-chrono axis,
+    # which reads as 59 happening before 60).
+    broadcast_ticks = [0, 15, 30, 45, 60, 75, 90]
+    if has_extra_time:
+        broadcast_ticks += [105, 120]
+    tick_positions, tick_labels = [], []
+    for b in broadcast_ticks:
+        pos = b if b <= 45 else b + p2_offset
+        if pos <= last_min + 5:
+            tick_positions.append(pos)
+            tick_labels.append(str(b))
+    ax.set_xticks(tick_positions)
+    ax.set_xticklabels(tick_labels)
 
     # Place all event labels above the plot with collision avoidance (mutates
     # _all_events in place, adding 'x_side' and 'y_level' per event).
