@@ -128,6 +128,24 @@ if results:
         f"**{total_updates}** existing team(s) gaining a season_id"
     )
 
+    # Discovery is a snapshot of who has PLAYED, not who is in the league.
+    # The pool query ANDs a rolling date window with the season id, so a club
+    # with no minutes yet does not exist in it. Early in a season that reads
+    # like a half-empty league: La Liga 2026/27 returned 12 of 20 teams on
+    # 2026-08-21 because only 7 fixtures had been played.
+    #
+    # Applying a partial result is fine and expected - apply_team_discovery
+    # only appends a season_id to teams that lack it, so re-running later adds
+    # the stragglers without disturbing anything already applied.
+    if any(r["pool_count"] < 16 for r in results):
+        st.info(
+            "**Some squads may not have played yet.** Discovery only sees "
+            "teams with minutes inside the pool's rolling window, so a season "
+            "that has just kicked off returns only the clubs already in "
+            "action. Apply what is here, then re-run after the next matchweek "
+            "or two — repeat runs only ever add what is missing."
+        )
+
     for res in results:
         with st.expander(
             f"{res['label']} — pool has {res['pool_count']} team(s), "
