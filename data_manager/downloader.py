@@ -1038,6 +1038,38 @@ def _apifootball_get(api_key, endpoint, params):
     return result
 
 
+def search_api_football_leagues(api_key, query):
+    """Search API-Football for leagues matching a name.
+
+    Exists so nobody has to know a league id off the top of their head. The
+    ids are stable across seasons, so this is a once-per-competition lookup.
+
+    Returns [{id, name, type, country, latest_season}, ...], most useful
+    first. API-Football wants at least three characters.
+    """
+    query = (query or "").strip()
+    if len(query) < 3:
+        raise ValueError("Search needs at least 3 characters.")
+
+    result = _apifootball_get(api_key, "leagues", {"search": query})
+    out = []
+    for item in result.get("response", []):
+        league = item.get("league") or {}
+        country = item.get("country") or {}
+        years = [s.get("year") for s in (item.get("seasons") or [])
+                 if s.get("year")]
+        out.append({
+            "id": league.get("id"),
+            "name": league.get("name") or "?",
+            "type": league.get("type") or "?",
+            "country": country.get("name") or "—",
+            "latest_season": max(years) if years else None,
+        })
+    # A competition still running is the likelier match than a defunct one.
+    out.sort(key=lambda r: (-(r["latest_season"] or 0), r["name"]))
+    return out
+
+
 def fetch_fixture_id(api_key, date_str, home_team, away_team, league_id=None):
     """Match a TruMedia game to an API-Football fixture ID by date + team names.
 
