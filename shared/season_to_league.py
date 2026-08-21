@@ -1,50 +1,55 @@
 """Single source of truth for TruMedia seasonId -> league name mapping.
 
+The mapping itself now lives in `data_manager/config.json` under the
+`season_leagues` key, alongside every other season fact (display label,
+player-pool membership, API-Football league id, team roster). This module
+loads it and exposes it under the name callers already import.
+
 Used by:
 - shared/motherduck.py (Streamlit chart pages, team-league bucketing)
 - PodcastShorts/pipeline/chart_data.py (chart kicker text + Claude
   subject resolver + parent overlay catalog)
 
-Adding a new league: query MotherDuck for an unknown seasonId via
-    SELECT DISTINCT homeTeam FROM games WHERE seasonId='<id>' LIMIT 10
-identify the league, and add the entry below. Unknown ids fall back
-to "MATCH" in the rendered kicker on the PodcastShorts side and to
-"Other" in the Streamlit league bucket.
+Adding a new league: add the entry to `season_leagues` in config.json -
+or let the Data Manager's Add Season form write it for you. Unknown ids
+fall back to "MATCH" in the rendered kicker on the PodcastShorts side
+and to "Other" in the Streamlit league bucket.
 
-This module has zero dependencies (pure dict) so it can be imported
-from any Python context including the PodcastShorts pipeline, which
-shares the SoccerPython parent directory via sys.path injection.
+WHY CONFIG AND NOT A LITERAL HERE
+---------------------------------
+A season rollover used to mean six edits across three files, two of them
+Python source that Streamlit hot-reloads while it is running. Keeping the
+mapping in JSON means a rollover is one write to one data file, and the
+accented names (Premiere Ligue) that would be risky in .py source are
+safe in JSON.
+
+The trade: this module used to be a dependency-free dict literal that
+could not fail to import. It now reads a file. That file is committed to
+git and sits at a fixed relative path, and both other consumers -
+shared/motherduck.py and PodcastShorts/pipeline/chart_data.py - already
+read it from that same path in production.
 """
+from __future__ import annotations
 
-SEASON_TO_LEAGUE: dict[str, str] = {
-    # 2025/26 men's
-    "51r6ph2woavlbbpk8f29nynf8": "Premier League",
-    "bmmk637l2a33h90zlu36kx8no": "Championship",
-    "80zg2v1cuqcfhphn56u4qpyqc": "La Liga",
-    "2bchmrj23l9u42d68ntcekob8": "Bundesliga",
-    "emdmtfr1v8rey2qru3xzfwges": "Serie A",
-    "dbxs75cag7zyip5re0ppsanmc": "Ligue 1",
-    "6i6n0jkbh9zzij6s8htfjh2j8": "MLS",
-    "aegyls91smdw9kipjgbsu8tn8": "Liga MX",
-    "8v84l9nq3d5t0j4gb781i3llg": "Liga Profesional",  # Argentine Primera
-    "752zalnunu0zkdfbbm915kys4": "Brasileirao",
-    # 2025/26 UEFA + secondary competitions
-    "2mr0u0l78k2gdsm79q56tb2fo": "Champions League",
-    "7ttpe5jzya3vjhjadiemjy7mc": "Europa League",
-    "7x2zp2hm4p6wuijwdw3h7a8t0": "Conference League",
-    # 2025/26 women's
-    "221phckhkd7y6rg3uyava3ifo": "WSL",
-    "3ducfa94ga849pfvx8bjjgt1w": "NWSL",
-    "br2imckbqwr0wvucakfvdp05w": "Frauen-Bundesliga",
-    "2bqrpllc5x3it55paifyfa044": "D1 Arkema",          # French women
-    "24f2xd1kljmiu7o0xrpj30kd0": "UWCL",
-    "4mrfrvsjf1xhltsvqyb6lx250": "NWSL",               # older NWSL season
-    # 2024/25 - kept for older games still in MotherDuck
-    "9n12waklv005j8r32sfjj2eqc": "Premier League",
-    "4x7uzww3jur4re7sgt3mslyj8": "La Liga",
-    "73zebisnu1109jix9yoc09yc4": "Bundesliga",
-    "b25u56idqlgo8s1rahhltqd5g": "Serie A",
-    "a7htj8rtzib7a2xx7b3xs04d0": "Ligue 1",
-    # 2026 World Cup
-    "873cbl9cd9butm4air0mugxzo": "World Cup 2026",
-}
+import json
+import os
+
+_CONFIG_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    "..", "data_manager", "config.json",
+)
+
+
+def load_season_leagues(config_path: str | None = None) -> dict[str, str]:
+    """Read the seasonId -> league name mapping from config.json.
+
+    encoding is explicit: league names carry accents (Premiere Ligue), and
+    open() would otherwise use the platform default - UTF-8 on Streamlit
+    Cloud but cp1252 on Windows, which mojibakes them locally.
+    """
+    path = config_path or _CONFIG_PATH
+    with open(path, encoding="utf-8") as f:
+        return json.load(f).get("season_leagues", {})
+
+
+SEASON_TO_LEAGUE: dict[str, str] = load_season_leagues()

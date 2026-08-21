@@ -4,12 +4,27 @@ Handles authentication via cURL parsing and data downloads via POST requests.
 """
 import re
 import os
+import json
 import tempfile
 import difflib
 import requests
 import duckdb
 import pandas as pd
 from datetime import date, timedelta, datetime as _dt
+
+
+CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+
+
+def _load_config_key(key, default=None):
+    """Read one top-level key out of config.json.
+
+    encoding is explicit: config.json carries accented league and team names,
+    and open() would otherwise use the platform default - UTF-8 on Streamlit
+    Cloud but cp1252 on Windows, which mojibakes them locally.
+    """
+    with open(CONFIG_PATH, encoding="utf-8") as f:
+        return json.load(f).get(key, default if default is not None else {})
 
 
 EXPORT_URL = "https://cbssports.opta.trumediasports.com/dp-proxy-export"
@@ -195,33 +210,18 @@ TRUMEDIA_TO_API_NAME = {
     "Vitória": "Vitoria",
 }
 
-# Maps TruMedia season IDs → API-Football league IDs.
+# Maps TruMedia season IDs -> API-Football league IDs.
 # Passed as ?league= filter on /fixtures queries to prevent cross-competition
 # false matches (e.g. men's vs women's Champions League on the same date).
-# None = skip league filtering for that season (safe fallback).
+# Missing id = skip league filtering for that season (safe fallback).
 # To find an unknown ID: GET /leagues?name=<name>&season=2025 on the API.
-SEASON_TO_API_LEAGUE = {
-    "51r6ph2woavlbbpk8f29nynf8": 39,    # Premier League 2025/26
-    "bmmk637l2a33h90zlu36kx8no": 40,    # Championship 2025/26
-    "80zg2v1cuqcfhphn56u4qpyqc": 140,   # La Liga 2025/26
-    "2bchmrj23l9u42d68ntcekob8": 78,    # Bundesliga 2025/26
-    "emdmtfr1v8rey2qru3xzfwges": 135,   # Serie A 2025/26
-    "dbxs75cag7zyip5re0ppsanmc": 61,    # Ligue 1 2025/26
-    "aegyls91smdw9kipjgbsu8tn8": 262,   # Liga MX 2025/26
-    "6i6n0jkbh9zzij6s8htfjh2j8": 253,   # MLS 2026
-    "3ducfa94ga849pfvx8bjjgt1w": 254,   # NWSL 2025 (calendar year)
-    "4mrfrvsjf1xhltsvqyb6lx250": 254,   # NWSL 2026 (calendar year)
-    "221phckhkd7y6rg3uyava3ifo": 44,    # FA WSL 2025/26 (England women)
-    "2mr0u0l78k2gdsm79q56tb2fo": 2,     # UEFA Champions League 2025/26
-    "7ttpe5jzya3vjhjadiemjy7mc": 3,     # UEFA Europa League 2025/26
-    "7x2zp2hm4p6wuijwdw3h7a8t0": 848,   # UEFA Conference League 2025/26
-    "24f2xd1kljmiu7o0xrpj30kd0": 525,   # UEFA Women's Champions League 2025/26
-    "8v84l9nq3d5t0j4gb781i3llg": 128,   # Liga Profesional Argentina 2026 (calendar year)
-    "752zalnunu0zkdfbbm915kys4": 71,    # Brasileirão Série A 2026 (calendar year)
-    "br2imckbqwr0wvucakfvdp05w": 82,    # Frauen-Bundesliga 2025/26
-    "2bqrpllc5x3it55paifyfa044": 64,    # Première Ligue 2025/26 (France women)
-    "873cbl9cd9butm4air0mugxzo": 1,     # FIFA World Cup 2026 (calendar year)
-}
+#
+# Lives in config.json under `season_api_leagues` so a season rollover is one
+# write to one data file instead of an edit to this module while Streamlit is
+# hot-reloading it. CALENDAR_YEAR_LEAGUES below stays here: it is keyed by
+# API-Football league id, which is a property of the league rather than the
+# season, so it does not rot when seasons turn over.
+SEASON_TO_API_LEAGUE = _load_config_key("season_api_leagues")
 
 # League IDs whose seasons follow the calendar year (Feb-Nov), not the European
 # Aug-Jul split. For these, API-Football's ?season= parameter is the calendar
@@ -233,6 +233,115 @@ CALENDAR_YEAR_LEAGUES = {
     71,   # Brasileirão Série A
     1,    # FIFA World Cup
 }
+
+
+def extract_season_id(url_or_id):
+    """Pull a TruMedia season id out of a stats URL, or pass an id through.
+
+    TruMedia encodes filters in a url-escaped JSON `f` parameter; the season
+    list lives at `f.sseas`:
+
+        ?f=%7B%22sseas%22%3A%5B%226i6n0jkbh9zzij6s8htfjh2j8%22%5D%7D
+        -> {"sseas": ["6i6n0jkbh9zzij6s8htfjh2j8"]}
+
+    Returns the first season id found. Raises ValueError with a message meant
+    to be shown to the user if nothing usable is present.
+    """
+    from urllib.parse import urlparse, parse_qs, unquote
+
+    text = (url_or_id or "").strip()
+    if not text:
+        raise ValueError("Nothing pasted.")
+
+    # A bare id: TruMedia's are 24-25 chars of lowercase alphanumerics.
+    if re.fullmatch(r"[a-z0-9]{20,30}", text):
+        return text
+
+    if "://" not in text:
+        raise ValueError(
+            "Doesn't look like a TruMedia URL or a season id. Paste the full "
+            "URL from a TruMedia stats page, or the season id itself."
+        )
+
+    params = parse_qs(urlparse(text).query)
+    if "f" in params:
+        try:
+            filters = json.loads(unquote(params["f"][0]))
+            seasons = filters.get("sseas") or []
+            if seasons:
+                return seasons[0]
+        except (ValueError, AttributeError):
+            pass
+
+    # Fall back to scanning the whole URL - TruMedia has moved this parameter
+    # before, and an id-shaped token in the query string is still a good bet.
+    for candidate in re.findall(r"[a-z0-9]{20,30}", unquote(text)):
+        return candidate
+
+    raise ValueError(
+        "No season id found in that URL. Make sure a season is selected on "
+        "the TruMedia page before copying the address."
+    )
+
+
+def suggest_next_label(previous_label):
+    """Guess the new season's display label from the previous one.
+
+    "Premier League 2025/26" -> "Premier League 2026/27"   (split season)
+    "MLS 2026"               -> "MLS 2027"                 (calendar year)
+
+    A guess only - the form leaves it editable, and competitions that brand
+    their seasons differently just get retyped.
+    """
+    if not previous_label:
+        return ""
+
+    split = re.search(r"(\d{4})/(\d{2})$", previous_label)
+    if split:
+        start = int(split.group(1)) + 1
+        return f"{previous_label[:split.start()]}{start}/{str(start + 1)[-2:]}"
+
+    single = re.search(r"(\d{4})$", previous_label)
+    if single:
+        return f"{previous_label[:single.start()]}{int(single.group(1)) + 1}"
+
+    return previous_label
+
+
+def group_teams_by_league(config):
+    """Group config["teams"] into {league name: [team, ...]}.
+
+    Two rules, both of which used to be wrong when this logic lived inline
+    in app.py:
+
+    1. Group by LEAGUE NAME (`season_leagues`), not the season's display
+       label (`seasons`). Labels carry the season - "Premier League 2025/26"
+       - so the moment a promoted club arrives carrying only the 2026/27 id,
+       it lands in a second expander and the league splits in two. Names are
+       stable across rollovers.
+
+    2. Prefer a PRIMARY season over a secondary one. Most clubs carry both a
+       domestic id and one or more UEFA ids; picking naively (say, the
+       alphabetically first league name) files every Champions League
+       qualifier under "Champions League" and empties out the domestic
+       leagues. Teams whose only seasons are secondary - the UEFA-qualifier
+       tail that plays no league we track - still group under that
+       competition rather than falling into "Other".
+    """
+    secondary = set(config.get("secondary_seasons", []))
+    league_names = config.get("season_leagues", {})
+
+    grouped = {}
+    for team in config.get("teams", []):
+        season_ids = team.get("season_ids", [])
+        primary = next((s for s in season_ids if s not in secondary), None)
+        if primary:
+            name = league_names.get(primary, "Other")
+        else:
+            first_secondary = next((s for s in season_ids if s in secondary), None)
+            name = league_names.get(first_secondary, "Other") if first_secondary else "Other"
+        grouped.setdefault(name, []).append(team)
+    return grouped
 
 
 def load_secrets(secrets_path):
@@ -873,11 +982,41 @@ def get_motherduck_connection(token):
 
 
 def get_all_team_last_dates(con):
-    """Return dict of teamId -> most recent event Date for all teams in MotherDuck."""
+    """Return dict of teamId -> most recent event Date for all teams in MotherDuck.
+
+    Season-blind. Kept for callers that genuinely want one cutoff per team;
+    prefer `get_team_season_last_dates` for incremental downloads, which need
+    a cutoff per competition (see that function's docstring).
+    """
     rows = con.execute(
         "SELECT teamId, MAX(Date) FROM events GROUP BY teamId"
     ).fetchall()
     return {team_id: last_date for team_id, last_date in rows if last_date}
+
+
+def get_team_season_last_dates(con):
+    """Return dict of (teamId, seasonId) -> most recent event Date.
+
+    A single cutoff per team is wrong once a team plays in more than one
+    competition, which is nearly all of them. Arsenal's newest event might be
+    a Champions League tie in late May while their league season ended a week
+    earlier; a team-wide cutoff taken from the later date silently skips the
+    gap. Worse, a team with a complete old season and an empty new one gets a
+    cutoff from the old season's end, so a hole anywhere earlier can never be
+    backfilled incrementally.
+
+    Per (team, season) each competition is fetched from its own last game, and
+    a season with no rows yet returns nothing - so the caller passes
+    since_date=None and pulls the season whole.
+
+    Safe because events.seasonId is fully populated (verified Aug 2026: zero
+    nulls across 5.3M rows).
+    """
+    rows = con.execute(
+        "SELECT teamId, seasonId, MAX(Date) FROM events GROUP BY teamId, seasonId"
+    ).fetchall()
+    return {(team_id, season_id): last_date
+            for team_id, season_id, last_date in rows if last_date}
 
 
 # ── API-Football ──────────────────────────────────────────────────────────────

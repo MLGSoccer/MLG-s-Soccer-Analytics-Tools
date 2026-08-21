@@ -10,7 +10,7 @@ import sys
 import tempfile
 import subprocess
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from downloader import (
@@ -18,8 +18,9 @@ from downloader import (
     download_player_pool, upload_to_supabase, load_secrets,
     download_event_log, upsert_events_to_motherduck,
     download_minutes_and_cards, upsert_minutes_to_motherduck,
-    get_motherduck_connection, get_all_team_last_dates,
+    get_motherduck_connection, get_team_season_last_dates,
     fetch_and_store_fixture_data, get_games_missing_fixture_data,
+    group_teams_by_league,
 )
 
 st.set_page_config(
@@ -52,43 +53,82 @@ os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
 
 
-def load_last_updated():
-    if os.path.exists(LAST_UPDATED_PATH):
-        with open(LAST_UPDATED_PATH) as f:
-            return json.load(f)
+# These two files are display-only caches: they drive the "last downloaded"
+# columns and nothing else. Incremental cutoffs come from MotherDuck, so a
+# lost or malformed file costs a blank column and nothing more.
+#
+# They were keyed by team abbrev until Aug 2026, which silently merged teams:
+# 444 teams share only 432 abbrevs, and POR is Porto, Portsmouth AND Portugal.
+# Downloading one stamped all three. Now keyed by team_id, which is unique.
+_ABBREV_TO_TEAM_ID = {}
+_AMBIGUOUS_ABBREVS = set()
+for _t in config.get("teams", []):
+    _ab = _t.get("abbrev")
+    if _ab in _ABBREV_TO_TEAM_ID:
+        _AMBIGUOUS_ABBREVS.add(_ab)
+    _ABBREV_TO_TEAM_ID[_ab] = _t["team_id"]
+
+_KNOWN_TEAM_IDS = {t["team_id"] for t in config.get("teams", [])}
+
+
+def _migrate_timestamp_keys(data):
+    """Convert an abbrev-keyed timestamp file to team_id keys.
+
+    Idempotent - entries already keyed by team_id pass straight through, so
+    this is safe to run on every load. Colliding abbrevs are DROPPED rather
+    than guessed: a single POR timestamp cannot be attributed to Porto,
+    Portsmouth or Portugal, and "Never" is more honest than a date belonging
+    to another club. Those self-heal on the next download.
+    """
+    migrated = {}
+    for key, value in data.items():
+        if key in _KNOWN_TEAM_IDS:
+            migrated[key] = value
+        elif key in _AMBIGUOUS_ABBREVS:
+            continue
+        elif key in _ABBREV_TO_TEAM_ID:
+            migrated[_ABBREV_TO_TEAM_ID[key]] = value
+        # unknown key: a team removed from config. Drop it.
+    return migrated
+
+
+def _load_timestamps(path):
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return _migrate_timestamp_keys(json.load(f))
     return {}
+
+
+def _save_timestamps(path, data):
+    with open(path, 'w', encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
+def load_last_updated():
+    return _load_timestamps(LAST_UPDATED_PATH)
 
 
 def save_last_updated(data):
-    with open(LAST_UPDATED_PATH, 'w') as f:
-        json.dump(data, f, indent=2)
+    _save_timestamps(LAST_UPDATED_PATH, data)
 
 
 def load_minutes_last_updated():
-    if os.path.exists(MINUTES_LAST_UPDATED_PATH):
-        with open(MINUTES_LAST_UPDATED_PATH) as f:
-            return json.load(f)
-    return {}
+    return _load_timestamps(MINUTES_LAST_UPDATED_PATH)
 
 
 def save_minutes_last_updated(data):
-    with open(MINUTES_LAST_UPDATED_PATH, 'w') as f:
-        json.dump(data, f, indent=2)
+    _save_timestamps(MINUTES_LAST_UPDATED_PATH, data)
 
 
 # ── League grouping ───────────────────────────────────────────────────────────
-_secondary = set(config.get("secondary_seasons", []))
-_season_names = config.get("seasons", {})
+# Grouped by league NAME via the shared helper, not by season display label.
+# Labels carry the season ("Premier League 2025/26"), so a promoted club that
+# only holds the 2026/27 id would open a second Premier League expander and
+# split the league in two. See downloader.group_teams_by_league.
+leagues = group_teams_by_league(config)  # league_name -> [team_dict, ...]
 
-leagues = {}  # league_name -> [team_dict, ...]
-for _team in config["teams"]:
-    _primary = next((s for s in _team["season_ids"] if s not in _secondary), None)
-    if _primary:
-        _league_name = _season_names.get(_primary, "Other")
-    else:
-        _first_sec = next((s for s in _team["season_ids"] if s in _secondary), None)
-        _league_name = _season_names.get(_first_sec, "Other") if _first_sec else "Other"
-    leagues.setdefault(_league_name, []).append(_team)
+_season_names = config.get("seasons", {})
+_season_leagues = config.get("season_leagues", {})
 
 POOL_DISPLAY = {
     "europe": "Europe",
@@ -289,8 +329,31 @@ st.caption("Downloads event logs and player minutes from TruMedia and upserts to
 TEST_DOWNLOAD_DIR = os.path.join(BASE_DIR, "data", "test_downloads")
 
 
-def _run_downloads(teams_to_download, incremental=True, download_only=False,
+def _season_label(season_id):
+    """Display name for a season id, falling back to league name then id."""
+    return (_season_names.get(season_id)
+            or _season_leagues.get(season_id)
+            or f"{season_id[:10]}...")
+
+
+def _run_downloads(teams_to_download, season_filter=None, mode="incremental",
+                   date_from=None, date_to=None, download_only=False,
                    do_events=True, do_minutes=True, fetch_player_minutes=True):
+    """Download events (and optionally minutes) for the given teams.
+
+    season_filter: a single season_id to restrict to, or None for every season
+        each team carries. Events are always fetched ONE SEASON AT A TIME so
+        each competition gets its own incremental cutoff - a team-wide cutoff
+        takes the latest date across all competitions and silently skips
+        anything older that is still missing.
+
+    mode: "incremental" (since each (team, season)'s own last game),
+        "full" (re-download the whole season), or "range" (date_from/date_to).
+
+    Re-downloading is safe at any scope: upsert_events_to_motherduck deletes
+    only the (gameId, teamId) pairs present in the incoming file, so a
+    season-scoped refresh cannot touch another season's rows.
+    """
     session = create_session(st.session_state["cookies"])
     progress = st.progress(0)
     status = st.empty()
@@ -303,57 +366,85 @@ def _run_downloads(teams_to_download, incremental=True, download_only=False,
     last_dates = {}
     if not download_only:
         con = get_motherduck_connection(MOTHERDUCK_TOKEN)
-        if incremental and do_events:
-            last_dates = get_all_team_last_dates(con)
+        if mode == "incremental" and do_events:
+            last_dates = get_team_season_last_dates(con)
 
     if download_only:
         os.makedirs(TEST_DOWNLOAD_DIR, exist_ok=True)
 
-    for i, team in enumerate(teams_to_download):
-        # ── Event log ──────────────────────────────────────────────────────
-        if do_events:
-            status.text(f"Downloading events: {team['name']}... ({i+1}/{n})")
-            tmp_path = None
-            try:
-                since = None
-                if incremental and team["team_id"] in last_dates:
-                    last = last_dates[team["team_id"]]
-                    since = str((datetime.strptime(last, "%Y-%m-%d") - timedelta(days=1)).date())
+    def _seasons_for(team):
+        if season_filter:
+            return [season_filter] if season_filter in team["season_ids"] else []
+        return list(team["season_ids"])
 
-                if download_only:
-                    save_path = os.path.join(TEST_DOWNLOAD_DIR, f"{team['abbrev']}.csv")
-                    rows, _ = download_event_log(
-                        session, team["team_id"], team["season_ids"], save_path, since_date=since
-                    )
-                    results.append((True, f"{team['name']} events: {rows:,} rows saved to data/test_downloads/{team['abbrev']}.csv"))
-                else:
+    for i, team in enumerate(teams_to_download):
+        # ── Event log, one request per (team, season) ──────────────────────
+        if do_events:
+            for season_id in _seasons_for(team):
+                sl = _season_label(season_id)
+                status.text(
+                    f"Downloading events: {team['name']} — {sl}... ({i+1}/{n})"
+                )
+                tmp_path = None
+                try:
+                    since = until = None
+                    if mode == "incremental":
+                        last = last_dates.get((team["team_id"], season_id))
+                        if last:
+                            since = str(
+                                (datetime.strptime(str(last), "%Y-%m-%d")
+                                 - timedelta(days=1)).date()
+                            )
+                    elif mode == "range":
+                        since, until = date_from, date_to
+
+                    if download_only:
+                        save_path = os.path.join(
+                            TEST_DOWNLOAD_DIR, f"{team['abbrev']}_{season_id[:8]}.csv"
+                        )
+                        rows, _ = download_event_log(
+                            session, team["team_id"], [season_id], save_path,
+                            since_date=since, until_date=until,
+                        )
+                        results.append((True, f"{team['name']} — {sl}: {rows:,} rows saved to data/test_downloads/"))
+                        continue
+
                     with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
                         tmp_path = tmp.name
                     rows, _ = download_event_log(
-                        session, team["team_id"], team["season_ids"], tmp_path, since_date=since
+                        session, team["team_id"], [season_id], tmp_path,
+                        since_date=since, until_date=until,
                     )
                     upsert_events_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
-                    last_updated[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
-                    label = f"(since {since})" if since else "(full)"
-                    results.append((True, f"{team['name']} events: {rows:,} rows upserted {label}"))
-            except Exception as e:
-                results.append((False, f"{team['name']} events: {e}"))
-            finally:
-                if tmp_path and os.path.exists(tmp_path):
-                    os.remove(tmp_path)
+                    last_updated[team["team_id"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+                    scope = f"since {since}" if since else "full season"
+                    if until:
+                        scope += f" to {until}"
+                    results.append((True, f"{team['name']} — {sl}: {rows:,} rows upserted ({scope})"))
+                except Exception as e:
+                    results.append((False, f"{team['name']} — {sl}: {e}"))
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
 
         # ── Minutes & cards ────────────────────────────────────────────────
+        # Sent as one request covering the relevant seasons: this endpoint
+        # returns season totals per player-game rather than an event stream,
+        # so there is no incremental cutoff to get wrong.
         if do_minutes and not download_only:
             status.text(f"Downloading minutes: {team['name']}... ({i+1}/{n})")
             tmp_path = None
             try:
+                minutes_seasons = _seasons_for(team)
+                if not minutes_seasons:
+                    raise ValueError("no matching season for this team")
                 with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
                     tmp_path = tmp.name
                 rows, _ = download_minutes_and_cards(
-                    session, team["team_id"], team["season_ids"], tmp_path
+                    session, team["team_id"], minutes_seasons, tmp_path
                 )
                 upsert_minutes_to_motherduck(MOTHERDUCK_TOKEN, tmp_path, con=con)
-                minutes_lu[team["abbrev"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
+                minutes_lu[team["team_id"]] = datetime.now().strftime("%b %d, %Y  %H:%M")
                 results.append((True, f"{team['name']} minutes: {rows:,} player-game rows upserted"))
             except Exception as e:
                 results.append((False, f"{team['name']} minutes: {e}"))
@@ -431,113 +522,155 @@ if "download_results" in st.session_state:
 
 last_updated_data = load_last_updated()
 minutes_last_updated_data = load_minutes_last_updated()
+
+# A download answers three independent questions - which season, which teams,
+# how much - so the UI asks them in that order. Season comes first because
+# after a rollover "refresh Premier League 2026/27" is the actual intent, and
+# because scoping by season keeps every request narrow.
+#
+# The per-league freshness tables that used to sit here now live on the Health
+# page: they are a status question, and interleaving them with the selection
+# controls was most of what made this page hard to drive.
+
+_season_ids_in_use = []
+for _t in config["teams"]:
+    for _s in _t["season_ids"]:
+        if _s not in _season_ids_in_use:
+            _season_ids_in_use.append(_s)
+_season_ids_in_use.sort(key=lambda s: _season_label(s))
+
+ALL_SEASONS = "All seasons"
+_season_choice = st.selectbox(
+    "Season",
+    options=[ALL_SEASONS] + _season_ids_in_use,
+    format_func=lambda s: s if s == ALL_SEASONS else _season_label(s),
+    help="Scopes the whole download. 'All seasons' fetches every season each "
+         "selected team carries, one request per season.",
+)
+_season_filter = None if _season_choice == ALL_SEASONS else _season_choice
+
+if _season_filter:
+    _eligible = [t for t in config["teams"] if _season_filter in t["season_ids"]]
+else:
+    _eligible = list(config["teams"])
+
 _stale_cutoff = datetime.now() - timedelta(days=7)
 
-# Per-league expanders
-for _league_name, _teams in leagues.items():
-    with st.expander(f"{_league_name}  ({len(_teams)} teams)"):
-        _rows = []
-        for t in _teams:
-            _last_ev = last_updated_data.get(t["abbrev"], "Never")
-            _last_min = minutes_last_updated_data.get(t["abbrev"], "Never")
-            _rows.append({
-                "Team": t["name"],
-                "Events Last Downloaded": _last_ev,
-                "Minutes Last Downloaded": _last_min,
-            })
 
-        def _highlight_stale(val):
-            if val == "Never":
-                return "color: #FF6B6B"
-            try:
-                if datetime.strptime(val.strip(), "%b %d, %Y  %H:%M") < _stale_cutoff:
-                    return "color: #FF6B6B"
-            except ValueError:
-                pass
-            return ""
+def _is_stale(team):
+    val = last_updated_data.get(team["team_id"])
+    if not val:
+        return True
+    try:
+        return datetime.strptime(str(val).strip(), "%b %d, %Y  %H:%M") < _stale_cutoff
+    except ValueError:
+        return True
 
-        _df = pd.DataFrame(_rows)
-        st.dataframe(
-            _df.style.map(_highlight_stale, subset=["Events Last Downloaded", "Minutes Last Downloaded"]),
-            hide_index=True,
-            use_container_width=True,
-        )
 
-        _col1, _col2 = st.columns([4, 1])
-        with _col1:
-            st.multiselect("Teams", options=[t["name"] for t in _teams],
-                           key=f"sel_{_league_name}")
-        with _col2:
-            st.write("")
-            st.button(
-                "Select All",
-                key=f"all_{_league_name}",
-                on_click=lambda names=_teams, ln=_league_name: st.session_state.update(
-                    {f"sel_{ln}": [t["name"] for t in names]}
-                ),
-            )
+_n_stale = sum(1 for t in _eligible if _is_stale(t))
+st.caption(
+    f"{len(_eligible)} teams · {_n_stale} not downloaded in the last 7 days"
+)
 
-# Build full selected list
-_name_to_team = {t["name"]: t for t in config["teams"]}
-_selected_teams = []
-for _league_name in leagues:
-    for _name in st.session_state.get(f"sel_{_league_name}", []):
-        if _name in _name_to_team:
-            _selected_teams.append(_name_to_team[_name])
+# ── Teams ─────────────────────────────────────────────────────────────────────
+_eligible_names = sorted(t["name"] for t in _eligible)
+_sel_key = f"team_sel_{_season_choice}"
 
-_total = len(_selected_teams)
-st.write(f"**{_total} team{'s' if _total != 1 else ''} selected**")
-
-_opt_col1, _opt_col2, _opt_col3 = st.columns(3)
-with _opt_col1:
-    _do_events = st.checkbox("Download event logs", value=True)
-    _incremental = st.checkbox("Incremental (events only)", value=True,
-                               disabled=not _do_events,
-                               help="Only download events since last update")
-    _download_only = st.checkbox(
-        "Save to file only (skip DB upsert)",
-        value=False,
-        disabled=not _do_events,
-        help="Saves event CSVs to data/test_downloads/ for inspection"
+_tcol, _bcol1, _bcol2 = st.columns([6, 1, 1])
+with _tcol:
+    _selected_names = st.multiselect(
+        "Teams", options=_eligible_names, key=_sel_key,
+        placeholder="Leave empty to download every team in scope",
     )
-with _opt_col2:
-    _do_minutes = st.checkbox("Download minutes & cards", value=True)
-with _opt_col3:
+with _bcol1:
+    st.write("")
+    st.button("All", key=f"all_{_season_choice}",
+              on_click=lambda k=_sel_key, n=_eligible_names:
+                  st.session_state.update({k: n}))
+with _bcol2:
+    st.write("")
+    st.button("None", key=f"none_{_season_choice}",
+              on_click=lambda k=_sel_key: st.session_state.update({k: []}))
+
+_name_to_team = {t["name"]: t for t in config["teams"]}
+_selected_teams = [_name_to_team[n] for n in _selected_names if n in _name_to_team]
+_targets = _selected_teams or _eligible
+
+# ── Mode ──────────────────────────────────────────────────────────────────────
+_mode_col, _data_col = st.columns([3, 2])
+with _mode_col:
+    _mode_label = st.radio(
+        "Mode",
+        ["Incremental", "Full re-download", "Date range"],
+        horizontal=False,
+        help="Incremental picks up from each team's last game IN THE SELECTED "
+             "SEASON, so competitions running concurrently don't shadow each "
+             "other. Re-downloading never touches other seasons' rows.",
+    )
+    _mode = {"Incremental": "incremental",
+             "Full re-download": "full",
+             "Date range": "range"}[_mode_label]
+
+    _date_from = _date_to = None
+    if _mode == "range":
+        _d1, _d2 = st.columns(2)
+        _date_from = str(_d1.date_input("From", value=date.today() - timedelta(days=30)))
+        _date_to = str(_d2.date_input("To", value=date.today()))
+
+with _data_col:
+    _do_events = st.checkbox("Event logs", value=True)
+    _do_minutes = st.checkbox("Minutes & cards", value=True)
     _fetch_pm = st.checkbox(
-        "Fetch red cards & own goals (API-Football)",
+        "Red cards & own goals (API-Football)",
         value=True,
         disabled=not apifootball_configured or not _do_events,
-        help="After downloading events, fetch red card timing and own goals for chart annotations."
+        help="Fetched after events, for chart annotations."
              + ("" if apifootball_configured else " (API_FOOTBALL_KEY not configured)"),
     )
-
-_col_a, _col_b = st.columns([1, 1])
-with _col_a:
-    _dl_selected = st.button(
-        "Download Selected", type="primary",
-        disabled=not authenticated or (not motherduck_configured and not _download_only)
-                 or _total == 0 or (not _do_events and not _do_minutes)
-    )
-with _col_b:
-    _dl_all = st.button(
-        "Download All Teams",
-        disabled=not authenticated or (not motherduck_configured and not _download_only)
-                 or (not _do_events and not _do_minutes)
+    _download_only = st.checkbox(
+        "Save to file only (skip DB upsert)", value=False, disabled=not _do_events,
+        help="Writes event CSVs to data/test_downloads/ for inspection.",
     )
 
-if _dl_selected:
-    _run_downloads(
-        _selected_teams,
-        incremental=_incremental,
-        download_only=_download_only,
-        do_events=_do_events,
-        do_minutes=_do_minutes and not _download_only,
-        fetch_player_minutes=_fetch_pm and not _download_only,
+# ── Summary + go ──────────────────────────────────────────────────────────────
+if _season_filter:
+    _n_requests = len(_targets)
+    _scope = _season_label(_season_filter)
+else:
+    _n_requests = sum(len(t["season_ids"]) for t in _targets)
+    _scope = "all seasons"
+
+_bits = []
+if _do_events:
+    _bits.append(f"events ({_n_requests} request{'s' if _n_requests != 1 else ''})")
+if _do_minutes and not _download_only:
+    _bits.append("minutes & cards")
+_what = " + ".join(_bits) if _bits else "nothing selected"
+
+_who = (f"{len(_selected_teams)} selected team{'s' if len(_selected_teams) != 1 else ''}"
+        if _selected_teams else f"all {len(_targets)} teams")
+
+st.info(f"**{_who} × {_scope}** — {_mode_label.lower()} — {_what}")
+
+if not _selected_teams and len(_targets) > 60:
+    st.warning(
+        f"No teams selected, so this covers all {len(_targets)} in scope "
+        f"({_n_requests} requests). Pick teams above to narrow it."
     )
-if _dl_all:
+
+if st.button(
+    "Download", type="primary",
+    disabled=not authenticated
+             or (not motherduck_configured and not _download_only)
+             or not _targets
+             or (not _do_events and not _do_minutes),
+):
     _run_downloads(
-        list(_name_to_team.values()),
-        incremental=_incremental,
+        _targets,
+        season_filter=_season_filter,
+        mode=_mode,
+        date_from=_date_from,
+        date_to=_date_to,
         download_only=_download_only,
         do_events=_do_events,
         do_minutes=_do_minutes and not _download_only,
