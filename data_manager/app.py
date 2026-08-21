@@ -532,18 +532,36 @@ minutes_last_updated_data = load_minutes_last_updated()
 # page: they are a status question, and interleaving them with the selection
 # controls was most of what made this page hard to drive.
 
-_season_ids_in_use = []
+# Every registered season is listed, including ones no team carries yet. A
+# season added through the Add Season form starts with zero teams - listing
+# only seasons in use would make it vanish the moment it was created, with
+# nothing on screen explaining why.
+_teams_per_season = {}
 for _t in config["teams"]:
     for _s in _t["season_ids"]:
-        if _s not in _season_ids_in_use:
-            _season_ids_in_use.append(_s)
+        _teams_per_season[_s] = _teams_per_season.get(_s, 0) + 1
+
+_season_ids_in_use = list(config.get("seasons", {}))
+for _s in _teams_per_season:
+    if _s not in _season_ids_in_use:
+        _season_ids_in_use.append(_s)
 _season_ids_in_use.sort(key=lambda s: _season_label(s))
 
+
 ALL_SEASONS = "All seasons"
+
+
+def _season_option_label(season_id):
+    if season_id == ALL_SEASONS:
+        return season_id
+    n = _teams_per_season.get(season_id, 0)
+    return _season_label(season_id) + ("" if n else "  ·  no teams yet")
+
+
 _season_choice = st.selectbox(
     "Season",
     options=[ALL_SEASONS] + _season_ids_in_use,
-    format_func=lambda s: s if s == ALL_SEASONS else _season_label(s),
+    format_func=_season_option_label,
     help="Scopes the whole download. 'All seasons' fetches every season each "
          "selected team carries, one request per season.",
 )
@@ -567,10 +585,21 @@ def _is_stale(team):
         return True
 
 
-_n_stale = sum(1 for t in _eligible if _is_stale(t))
-st.caption(
-    f"{len(_eligible)} teams · {_n_stale} not downloaded in the last 7 days"
-)
+if _season_filter and not _eligible:
+    # Registered but no squad attached yet - the state every freshly added
+    # season starts in. Say so here rather than showing an empty team list.
+    st.warning(
+        f"**{_season_label(_season_filter)} has no teams yet.** The season is "
+        f"registered, but no team carries its id, so there is nothing to "
+        f"download. Open **Discover Teams**, scan this season, and apply the "
+        f"diff — that pulls the squad list from TruMedia and handles "
+        f"promotions and relegations."
+    )
+else:
+    _n_stale = sum(1 for t in _eligible if _is_stale(t))
+    st.caption(
+        f"{len(_eligible)} teams · {_n_stale} not downloaded in the last 7 days"
+    )
 
 # ── Teams ─────────────────────────────────────────────────────────────────────
 _eligible_names = sorted(t["name"] for t in _eligible)
