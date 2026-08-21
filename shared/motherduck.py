@@ -53,7 +53,11 @@ _CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data_manager', 'co
 
 
 def _load_config():
-    with open(_CONFIG_PATH) as f:
+    # encoding is explicit: config.json holds accented team and league names
+    # (Bayern Munchen, Atletico de Madrid, Premiere Ligue). Without it, open()
+    # uses the platform default - UTF-8 on Streamlit Cloud but cp1252 on
+    # Windows, which mojibakes every one of them locally.
+    with open(_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
 
 

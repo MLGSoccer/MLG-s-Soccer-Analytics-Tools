@@ -35,7 +35,7 @@ SECRETS_PATH = os.path.join(BASE_DIR, "secrets.env")
 LAST_UPDATED_PATH = os.path.join(BASE_DIR, "data", "last_updated.json")
 MINUTES_LAST_UPDATED_PATH = os.path.join(BASE_DIR, "data", "minutes_last_updated.json")
 
-with open(CONFIG_PATH) as f:
+with open(CONFIG_PATH, encoding="utf-8") as f:
     config = json.load(f)
 
 secrets = load_secrets(SECRETS_PATH)
