@@ -14,6 +14,46 @@ from datetime import date, timedelta, datetime as _dt
 
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SECRETS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "secrets.env")
+
+
+def save_config(config, con=None, token=None):
+    """Write config.json AND mirror it to MotherDuck, in one action.
+
+    Every place that changes the config must go through here. config.json is a
+    local file; the deployed chart maker reads the MotherDuck copy. Writing them
+    separately - or writing only the file and relying on someone to commit it -
+    is what let a downloaded season stay invisible to the chart maker.
+
+    The file write comes first and is not conditional on MotherDuck: losing the
+    local copy because the network blipped would be worse than a stale mirror.
+
+    Returns (mirrored_at, error). `mirrored_at` is None if the mirror did not
+    happen; `error` carries why. Callers should SURFACE that rather than ignore
+    it - a silently failed mirror recreates the exact divergence this avoids.
+    """
+    import sys
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    try:
+        from shared.config_store import write_config
+    except Exception as e:                                    # pragma: no cover
+        return None, f"config_store unavailable: {e}"
+
+    try:
+        if con is None:
+            if token is None:
+                token = load_secrets(SECRETS_PATH).get("MOTHERDUCK_TOKEN")
+            if not token:
+                return None, "no MOTHERDUCK_TOKEN - local file written, mirror skipped"
+            con = get_motherduck_connection(token)
+        return write_config(con, config), None
+    except Exception as e:
+        return None, f"mirror to MotherDuck failed: {e}"
 
 
 def _load_config_key(key, default=None):
@@ -955,6 +995,18 @@ CREATE TABLE IF NOT EXISTS player_game_minutes (
 """
 
 
+def _ensure_config_table(con):
+    """Create the shared-config table. Best effort - never break a data connection."""
+    import sys
+    if _REPO_ROOT not in sys.path:
+        sys.path.insert(0, _REPO_ROOT)
+    try:
+        from shared.config_store import CONFIG_DDL
+        con.execute(CONFIG_DDL)
+    except Exception:
+        pass
+
+
 def get_motherduck_connection(token):
     """Open a connection to MotherDuck and ensure the database and tables exist."""
     # Connect to default database first to create our database if needed
@@ -970,6 +1022,7 @@ def get_motherduck_connection(token):
     con.execute(OWN_GOALS_DDL)
     con.execute(CARDS_DDL)
     con.execute(PLAYER_GAME_MINUTES_DDL)
+    _ensure_config_table(con)
     con.execute("ALTER TABLE games ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS seasonId VARCHAR")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS PassType VARCHAR")

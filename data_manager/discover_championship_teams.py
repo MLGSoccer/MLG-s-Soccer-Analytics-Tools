@@ -119,8 +119,8 @@ def main():
         return
 
     config["teams"].extend(new_teams)
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2, ensure_ascii=False)
+    from downloader import save_config
+    save_config(config)
 
     print(f"\nAdded {len(new_teams)} teams to config.json.")
     print("\nNext steps:")

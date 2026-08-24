@@ -52,13 +52,64 @@ _OUTCOME_MAP = {
 _CONFIG_PATH = os.path.join(os.path.dirname(__file__), '..', 'data_manager', 'config.json')
 
 
-def _load_config():
+def _load_config_file():
     # encoding is explicit: config.json holds accented team and league names
     # (Bayern Munchen, Atletico de Madrid, Premiere Ligue). Without it, open()
     # uses the platform default - UTF-8 on Streamlit Cloud but cp1252 on
     # Windows, which mojibakes every one of them locally.
     with open(_CONFIG_PATH, encoding="utf-8") as f:
         return json.load(f)
+
+
+@st.cache_data(ttl=3600)
+def _load_config():
+    """Config for the chart maker, read from MotherDuck first.
+
+    The Data Manager writes config.json locally and mirrors it to MotherDuck in
+    the same action. This app reads the mirror, so a new season or a promoted
+    team is live as soon as it is downloaded - no commit, no deploy, no human
+    step in between. That gap is what made downloaded seasons invisible here.
+
+    The local file is the fallback: it covers a fresh database with nothing
+    written yet, and any moment MotherDuck cannot be reached. If both fail there
+    is nothing to degrade to, so the error propagates.
+
+    Logs which source won. Cached, so this is once an hour, not per page - and
+    it is there for the failure case: if a newly added season does not show up,
+    the first question is which copy this app read, and that took an hour to
+    answer by hand once already.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    try:
+        from shared.config_store import read_config, config_status
+        con = get_connection()
+        cfg = read_config(con)
+        if cfg:
+            updated_at, _ = config_status(con)
+            log.info("config source=motherduck updated_at=%s seasons=%d teams=%d",
+                     updated_at, len(cfg.get("seasons", {})), len(cfg.get("teams", [])))
+            return cfg
+        log.warning("config source=file reason=motherduck app_config empty")
+    except Exception as e:
+        log.warning("config source=file reason=%s: %s", type(e).__name__, e)
+    cfg = _load_config_file()
+    log.info("config source=file seasons=%d teams=%d",
+             len(cfg.get("seasons", {})), len(cfg.get("teams", [])))
+    return cfg
+
+
+def _season_leagues():
+    """seasonId -> league name, from whichever config source is live.
+
+    Deliberately not the module-level import from shared.season_to_league: that
+    one reads the file at import time, which is right for the local tools but
+    would pin this app to a file that no longer ships.
+    """
+    try:
+        return _load_config().get("season_leagues", {}) or _SEASON_TO_LEAGUE
+    except Exception:
+        return _SEASON_TO_LEAGUE
 
 
 def season_label(season_id, season_name=None):
@@ -82,9 +133,10 @@ def season_label(season_id, season_name=None):
 
 def _get_team_league(season_ids):
     """Return the highest-priority league bucket for a list of season IDs."""
+    season_leagues = _season_leagues()
     matched = set()
     for sid in season_ids:
-        league = _SEASON_TO_LEAGUE.get(sid)
+        league = season_leagues.get(sid)
         if league:
             matched.add(league)
     for league in LEAGUE_ORDER:

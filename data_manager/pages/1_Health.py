@@ -100,6 +100,25 @@ def load_season_games(token):
 
 
 @st.cache_data(ttl=600)
+def load_shared_config(token):
+    """(mirror, updated_at, n_versions) for the copy the chart maker reads.
+
+    mirror is None when nothing has been written yet. Everything else on this
+    page checks config.json, which is the file the DATA MANAGER reads - the
+    chart maker reads the MotherDuck mirror, so the two being out of step is a
+    silent failure this page would otherwise miss entirely.
+    """
+    if not token:
+        return None, None, 0
+    sys.path.insert(0, os.path.dirname(os.path.dirname(
+        os.path.dirname(os.path.abspath(__file__)))))
+    from shared.config_store import config_status, read_config
+    con = get_motherduck_connection(token)
+    updated_at, n_versions = config_status(con)
+    return read_config(con), updated_at, n_versions
+
+
+@st.cache_data(ttl=600)
 def load_window_counts(token, window_start):
     """seasonId -> games inside the rolling player-pool window."""
     if not token:
@@ -248,6 +267,55 @@ for league_name, (sid, last_d) in sorted(league_latest.items()):
         ))
 
 
+# 7. Is the shared copy in step with the local file? The chart maker reads the
+#    MotherDuck mirror, not config.json - so if the mirror is behind, everything
+#    on this page can look correct while the deployed app runs on older wiring.
+#    That gap used to be permanent (config.json travelled by git push) and is the
+#    reason the 2026/27 seasons were invisible in the chart maker for three days.
+config_mirror, config_synced_at, config_versions = None, None, 0
+config_in_sync = None
+if MOTHERDUCK_TOKEN:
+    try:
+        config_mirror, config_synced_at, config_versions = \
+            load_shared_config(MOTHERDUCK_TOKEN)
+        config_in_sync = (config_mirror == config)
+        if config_mirror is None:
+            findings.append((
+                "critical", "Shared config never written", "MotherDuck",
+                "The chart maker reads its config from MotherDuck and there is "
+                "nothing there, so it is falling back to whatever config.json was "
+                "last deployed. Save any change in Add Season or Discover Teams "
+                "to write it.",
+            ))
+        elif not config_in_sync:
+            missing = sorted(set(config.get("seasons", {}))
+                             - set(config_mirror.get("seasons", {})))
+            extra = sorted(set(config_mirror.get("seasons", {}))
+                           - set(config.get("seasons", {})))
+            bits = []
+            if missing:
+                bits.append(f"{len(missing)} season(s) local-only: "
+                            + ", ".join(label(s) for s in missing[:4]))
+            if extra:
+                bits.append(f"{len(extra)} season(s) only in the shared copy")
+            n_local, n_mirror = len(config.get("teams", [])), \
+                len(config_mirror.get("teams", []))
+            if n_local != n_mirror:
+                bits.append(f"teams: {n_mirror} shared vs {n_local} local")
+            findings.append((
+                "critical", "Shared config is behind config.json", "MotherDuck",
+                "The chart maker is running on older wiring than this file. "
+                + ("; ".join(bits) if bits else "The two copies differ.")
+                + f"  Shared copy last written {config_synced_at}. Re-save in "
+                "Add Season or Discover Teams to bring it level.",
+            ))
+    except Exception as e:
+        findings.append((
+            "warning", "Could not check the shared config", "MotherDuck",
+            f"{type(e).__name__}: {e}",
+        ))
+
+
 # ── Summary tiles ────────────────────────────────────────────────────────────
 
 sev_rank = {"critical": 0, "warning": 1, "info": 2}
@@ -262,6 +330,21 @@ c1.metric("Critical", n_crit, help="Silently breaks part of the pipeline")
 c2.metric("Warning", n_warn, help="Degrades quality or hides a gap")
 c3.metric("Advisory", n_info, help="Worth knowing; nothing is broken")
 c4.metric("Seasons tracked", len(seasons))
+
+# The mirror is what the chart maker actually runs on, so state it plainly even
+# when nothing is wrong: a tick here right after adding a league is the
+# confirmation that it is already live, without going near the Cloud logs.
+if config_in_sync:
+    st.caption(
+        f"Shared config (MotherDuck): in step with config.json  ·  "
+        f"last written {config_synced_at}  ·  "
+        f"{config_versions} prior version(s) retained"
+    )
+elif config_in_sync is False:
+    st.caption(
+        f"Shared config (MotherDuck): **behind** config.json  ·  "
+        f"last written {config_synced_at} — see the critical finding below"
+    )
 
 if not findings:
     st.success("All checks clean — config, MotherDuck and the pools agree.")

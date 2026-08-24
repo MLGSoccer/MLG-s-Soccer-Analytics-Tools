@@ -31,6 +31,7 @@ from downloader import (  # noqa: E402
     CALENDAR_YEAR_LEAGUES,
     extract_season_id,
     load_secrets,
+    save_config,
     search_api_football_leagues,
     suggest_next_label,
 )
@@ -326,11 +327,14 @@ if st.button("Add season to config.json", type="primary"):
         if season_id not in sec:
             sec.append(season_id)
 
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(fresh, f, indent=2, ensure_ascii=False)
-        f.write("\n")
+    _mirrored, _mirror_err = save_config(fresh)
 
     st.success(f"Added **{label}**.")
+    if _mirror_err:
+        st.warning(
+            f"Saved locally, but the shared copy in MotherDuck was not updated "
+            f"- the chart maker will not see this season yet. {_mirror_err}"
+        )
     st.markdown(
         "**Next:** no teams carry this season yet, so downloads will not find "
         "it. Open **Discover Teams**, scan this season, and apply the diff — "

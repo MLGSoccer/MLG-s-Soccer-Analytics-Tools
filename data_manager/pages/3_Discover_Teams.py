@@ -22,6 +22,7 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from downloader import (  # noqa: E402
+    save_config,
     create_session,
     discover_teams_for_season,
     apply_team_discovery,
@@ -189,11 +190,18 @@ if results:
             type="primary",
         ):
             added, updated = apply_team_discovery(config, results)
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump(config, f, indent=2, ensure_ascii=False)
+            _mirrored, _mirror_err = save_config(config)
             st.success(
-                f"Wrote config.json: {added} new team(s), {updated} season_id "
+                f"Saved: {added} new team(s), {updated} season_id "
                 "addition(s) to existing team(s)."
+                + ("  Shared copy updated - the chart maker will pick this up."
+                   if _mirrored else "")
             )
+            if _mirror_err:
+                st.warning(
+                    "Saved locally, but the shared copy in MotherDuck was not "
+                    f"updated - the chart maker will not see these teams yet. "
+                    f"{_mirror_err}"
+                )
             st.session_state.pop("_discovery_results", None)
             st.balloons()
