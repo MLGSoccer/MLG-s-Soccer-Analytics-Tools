@@ -15,6 +15,7 @@ from mostly_finished_charts.player_rollingxg_chart import (
 )
 from shared.motherduck import (
     get_teams_by_league, get_players_with_minutes_for_team, get_player_game_log,
+    season_label,
 )
 from pages.streamlit_utils import custom_title_inputs
 
@@ -200,7 +201,7 @@ if data_source == "Database":
             for m in matches:
                 sid = m["season"]
                 if sid and sid not in seen:
-                    seen[sid] = m["season_name"] or sid
+                    seen[sid] = season_label(sid, m["season_name"])
             # seen is ordered by first appearance (chronological since matches sorted ASC)
             season_options = list(seen.values())
             if len(season_options) > 1:

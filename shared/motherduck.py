@@ -61,6 +61,25 @@ def _load_config():
         return json.load(f)
 
 
+def season_label(season_id, season_name=None):
+    """Display label for a season. Never returns empty for a real season id.
+
+    `season_name` comes from config.json's `seasons` map, so a season that has
+    games in MotherDuck but no config entry resolves to ''. Callers used to test
+    `if season_id and season_name`, which silently dropped that season from the
+    Season dropdown and made its games unreachable in the UI - the failure looked
+    like missing data rather than a missing label.
+
+    Falling back to a marked id keeps the games reachable and points at the real
+    cause, which is a config.json that has not been committed/deployed.
+    """
+    if season_name:
+        return season_name
+    if not season_id:
+        return ""
+    return f"Unlabelled season ({season_id[:8]})"
+
+
 def _get_team_league(season_ids):
     """Return the highest-priority league bucket for a list of season IDs."""
     matched = set()

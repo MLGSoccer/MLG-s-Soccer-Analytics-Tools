@@ -15,7 +15,10 @@ from mostly_finished_charts.team_rollingxg_chart import (
     create_individual_charts
 )
 from pages.streamlit_utils import custom_title_inputs
-from shared.motherduck import get_teams_by_league, get_games_for_team, get_team_rolling_xg_data
+from shared.motherduck import (
+    get_teams_by_league, get_games_for_team, get_team_rolling_xg_data,
+    season_label,
+)
 
 st.set_page_config(page_title="Team Rolling xG", page_icon="📈", layout="wide")
 
@@ -162,7 +165,7 @@ if data_source == "Database":
     seen_seasons = {}
     for g in games:
         sid = g.get('season_id')
-        sname = g.get('season_name') or sid or ''
+        sname = season_label(sid, g.get('season_name'))
         if sid and sid not in seen_seasons:
             seen_seasons[sid] = sname
 

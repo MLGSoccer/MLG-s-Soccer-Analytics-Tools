@@ -27,7 +27,7 @@ from mostly_finished_charts.shot_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import (
-    get_teams_by_league, get_games_for_team,
+    get_teams_by_league, get_games_for_team, season_label,
     build_shot_chart_single, build_shot_chart_multi, build_shots_for_player,
     get_player_game_count, get_player_total_minutes, get_player_all_minutes,
 )
@@ -378,8 +378,9 @@ if data_source == "Database":
         if mode == "Single Match":
             season_options = {}
             for g in games:
-                if g.get('season_id') and g.get('season_name'):
-                    season_options[g['season_id']] = g['season_name']
+                if g.get('season_id'):
+                    season_options[g['season_id']] = season_label(
+                        g['season_id'], g.get('season_name'))
             filtered_games = games
             if len(season_options) > 1:
                 season_labels = list(season_options.values())
@@ -491,8 +492,9 @@ if data_source == "Database":
             # Competition filter
             unique_seasons = {}
             for g in games:
-                if g.get('season_id') and g.get('season_name'):
-                    unique_seasons[g['season_id']] = g['season_name']
+                if g.get('season_id'):
+                    unique_seasons[g['season_id']] = season_label(
+                        g['season_id'], g.get('season_name'))
 
             season_filter_col, comp_col = st.columns([1, 2])
 

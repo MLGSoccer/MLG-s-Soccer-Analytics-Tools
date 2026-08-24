@@ -15,7 +15,7 @@ from mostly_finished_charts.xg_race_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import (
-    get_teams_by_league, get_games_for_team, build_shots_from_game,
+    get_teams_by_league, get_games_for_team, build_shots_from_game, season_label,
     get_own_goals_for_game, get_goal_scorers_for_game, get_red_cards_for_game,
 )
 from pages.streamlit_utils import custom_title_inputs
@@ -122,8 +122,9 @@ if data_source == "Database":
             if games:
                 season_options = {}
                 for g in games:
-                    if g.get('season_id') and g.get('season_name'):
-                        season_options[g['season_id']] = g['season_name']
+                    if g.get('season_id'):
+                        season_options[g['season_id']] = season_label(
+                            g['season_id'], g.get('season_name'))
                 if len(season_options) > 1:
                     season_labels = list(season_options.values())
                     selected_season_name = st.selectbox("Season", options=season_labels)
