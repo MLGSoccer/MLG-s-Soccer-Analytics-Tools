@@ -82,6 +82,30 @@ def resolve_figsize(aspect: str, category: str = "broadcast") -> tuple[float, fl
     return BROADCAST_FIGSIZE
 
 
+def fit_fontsize(fig, text, nominal, *, max_frac=0.94, floor=10, bold=True):
+    """Largest fontsize <= `nominal` at which `text` fits `max_frac` of the width.
+
+    Landscape frames are 12-16in wide and almost nothing overruns them, so the
+    charts have historically hard-coded a title size. A 9in-wide portrait frame
+    is a different proposition: "Wolverhampton Wanderers 2-2 Brighton and Hove
+    Albion" overruns a 9in frame by a third at any title size worth using, and
+    the failure is silent — matplotlib draws it and lets the ends fall off the
+    canvas. Measure before committing to a size.
+
+    Returns a size, and draws nothing. `bold` should match how the text will
+    actually be drawn; bold is wider, so leaving it True is the safe default.
+    """
+    probe = fig.text(0.5, 0.5, text, fontsize=nominal,
+                     fontweight='bold' if bold else 'normal')
+    fig.canvas.draw()
+    frac = (probe.get_window_extent(renderer=fig.canvas.get_renderer()).width
+            / (fig.get_size_inches()[0] * fig.dpi))
+    probe.remove()
+    if frac <= max_frac:
+        return nominal
+    return max(floor, int(nominal * max_frac / frac))
+
+
 def style_axis(ax):
     """Apply consistent CBS Sports styling to axis."""
     ax.spines['top'].set_visible(False)

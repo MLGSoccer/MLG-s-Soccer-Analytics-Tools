@@ -12,6 +12,13 @@ MUTED_COLOR = '#555555'
 MUTED_ALPHA = 0.18
 MUTED_ZORDER = 5  # Below highlighted shots (zorder=10)
 
+# How far inside the bottom of a half pitch an out-of-range shot is pinned,
+# in opta length units, and how far below it the chevron sits. The pad has to
+# clear BOTH — at 2.2 the chevron sat 0.4 units off the floor and the axis
+# clipped its point, which looked like a rendering fault rather than a flag.
+EDGE_PIN_PAD = 4.0
+EDGE_PIN_CHEVRON_DROP = 2.4
+
 
 def compute_ylim_floor(shots_df, flip_coords=False, default_floor=60, margin=3):
     """Return the lower y-axis bound for a vertical half-pitch chart.
@@ -49,9 +56,13 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
     highlight_mode:
         'All' - normal rendering for all shots
         'Open Play' / 'Set Piece' - matching shots in team color, others muted
+
+    Returns the number of shots pinned to the bottom edge because they were
+    struck from outside the visible half — callers can caption that count.
+    Requires ax.set_ylim() to have run already; the pin reads the axis.
     """
     if shots_df.empty:
-        return
+        return 0
 
     # Classify highlight if not already done
     if '_highlighted' not in shots_df.columns:
@@ -61,6 +72,20 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
     shots_df = shots_df.sort_values('xG', ascending=True, kind='stable')
 
     has_per_row_flip = '_needs_flip' in shots_df.columns
+
+    # A half pitch stops at the halfway line, so a shot struck from a team's
+    # own half has nowhere to go and was previously drawn outside the axes —
+    # silently, with no gap in the data to notice. Rare in one match; over a
+    # season a side will have several, and they are the memorable ones.
+    #
+    # Pin those to the bottom edge instead and flag each with a chevron
+    # beneath it. The position is then wrong by a few yards, which is a
+    # smaller lie than the shot not existing: this chart's job is "how many,
+    # how good, from roughly where", and an edge marker answers all three
+    # while announcing that the third is approximate.
+    y_lo, y_hi = ax.get_ylim()
+    edge_x = min(y_lo, y_hi) + EDGE_PIN_PAD
+    displaced = 0
 
     for _, shot in shots_df.iterrows():
         x = shot['EventX']  # Length (towards goal)
@@ -80,6 +105,11 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
 
         if should_flip:
             x = 100 - x
+
+        is_pinned = x < edge_x
+        if is_pinned:
+            x = edge_x
+            displaced += 1
 
         # Scale marker size by xG
         base_size = 50
@@ -111,6 +141,17 @@ def plot_shots_vertical(ax, pitch, shots_df, team_color, flip_coords=False,
             edgecolors='white', linewidths=edge_width,
             alpha=alpha, zorder=zorder, ax=ax
         )
+
+        if is_pinned:
+            # Chevron below the marker: "this one came from further back".
+            # Sized off the marker so it stays proportionate to a big chance.
+            pitch.scatter(
+                x - EDGE_PIN_CHEVRON_DROP, y, s=max(26, size * 0.28),
+                c=fill_color, marker='v', edgecolors='white', linewidths=1.0,
+                alpha=alpha, zorder=zorder, ax=ax
+            )
+
+    return displaced
 
 
 def plot_shots_horizontal(ax, pitch, shots_df, team_color, flip_x=False,

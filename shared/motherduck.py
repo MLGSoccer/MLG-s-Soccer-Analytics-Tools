@@ -74,10 +74,13 @@ def _load_config():
     written yet, and any moment MotherDuck cannot be reached. If both fail there
     is nothing to degrade to, so the error propagates.
 
-    Logs which source won. Cached, so this is once an hour, not per page - and
-    it is there for the failure case: if a newly added season does not show up,
-    the first question is which copy this app read, and that took an hour to
-    answer by hand once already.
+    Logs which source won, at WARNING for BOTH outcomes. Nothing in this app
+    configures a logging level, so Python falls back to its last-resort
+    handler at WARNING and silently drops INFO - which meant the success line
+    never reached the Streamlit Cloud log and only a failure was visible. A
+    diagnostic that is silent when things work cannot answer "which copy did
+    this app read", which is the only question it exists to answer. The
+    hour-long cache keeps it to one line an hour, not one per page.
     """
     import logging
     log = logging.getLogger(__name__)
@@ -87,15 +90,15 @@ def _load_config():
         cfg = read_config(con)
         if cfg:
             updated_at, _ = config_status(con)
-            log.info("config source=motherduck updated_at=%s seasons=%d teams=%d",
+            log.warning("config source=motherduck updated_at=%s seasons=%d teams=%d",
                      updated_at, len(cfg.get("seasons", {})), len(cfg.get("teams", [])))
             return cfg
         log.warning("config source=file reason=motherduck app_config empty")
     except Exception as e:
         log.warning("config source=file reason=%s: %s", type(e).__name__, e)
     cfg = _load_config_file()
-    log.info("config source=file seasons=%d teams=%d",
-             len(cfg.get("seasons", {})), len(cfg.get("teams", [])))
+    log.warning("config source=file seasons=%d teams=%d",
+                len(cfg.get("seasons", {})), len(cfg.get("teams", [])))
     return cfg
 
 
@@ -292,6 +295,7 @@ def build_shot_chart_single(game_id):
         SELECT e.EventXDecimal, e.EventYDecimal, e.xG, e.playType,
                e.teamFullName, e.newestTeamColor, e.Date,
                e.homeTeam, e.awayTeam, e.ShotPlayStyle, e.shooter,
+               e.gameClock,
                g.homeFinalScore, g.awayFinalScore
         FROM events e
         JOIN games g ON e.gameId = g.gameId
@@ -306,7 +310,8 @@ def build_shot_chart_single(game_id):
     team_colors = {}
     meta = None
 
-    for ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter, h_score, a_score in rows:
+    for (ex, ey, xg, play_type, team_full, color, date, home, away,
+         shot_style, shooter, game_clock, h_score, a_score) in rows:
         _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
         team_display = clean_name if clean_name else team_full
 
@@ -337,12 +342,60 @@ def build_shot_chart_single(game_id):
             'Team': team_display,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            # gameClock is seconds elapsed; the per-shot block wants a minute.
+            'minute': (float(game_clock) / 60) if game_clock is not None else None,
         })
 
     return pd.DataFrame(data), meta or {}, team_colors
 
 
 @st.cache_data(ttl=3600)
+
+def season_span_label(season_ids):
+    """Label the season(s) a set of shots actually spans.
+
+    Inferring this from the min and max YEAR of the shot dates - which is what
+    the shot charts did - is wrong for the first half of every split-year
+    season: every Premier League match played before January falls in one
+    calendar year, so a 2025/26 chart reads "2025" until a January fixture
+    lands, then silently corrects itself.
+
+    The data already knows. `events.seasonId` is on every row and fully
+    populated, so the honest answer is the distinct seasons present, resolved
+    through config. That is also the only approach that survives the two ways
+    these charts are scoped: an arbitrary set of gameIds, and
+    build_shots_for_player, which spans a player's whole record across clubs
+    and seasons.
+
+    Returns the YEARS only. The competition is printed separately by the
+    charts, and repeating it here would duplicate it in the common case and
+    produce "Bundesliga 2023/24 - Premier League 2025/26" in the rare one.
+    """
+    ids = [s for s in dict.fromkeys(season_ids) if s]
+    if not ids:
+        return ''
+    cfg = _load_config()
+    names = cfg.get('seasons', {})
+    leagues = cfg.get('season_leagues', {})
+
+    def _years(sid):
+        label = names.get(sid)
+        if not label:
+            return ''
+        league = leagues.get(sid)
+        # The config label fuses competition and years ("Premier League
+        # 2025/26"). Removing a KNOWN prefix is safe; parsing years out of an
+        # arbitrary string would not be.
+        if league and label.startswith(league):
+            return label[len(league):].strip() or label
+        return label
+
+    spans = sorted({y for y in (_years(s) for s in ids) if y})
+    if not spans:
+        return ''
+    return spans[0] if len(spans) == 1 else f"{spans[0]}-{spans[-1]}"
+
+
 def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     """Build multi-match shot chart data for a team from MotherDuck.
 
@@ -363,7 +416,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter
+               ShotPlayStyle, shooter, seasonId
         FROM events
         WHERE gameId IN ({placeholders})
           AND {team_clause}
@@ -375,7 +428,8 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
         return pd.DataFrame(), {}, '#888888'
 
     data = []
-    for game_id, ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter in rows:
+    for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
+         away, shot_style, shooter, season_id) in rows:
         _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
         team_display = clean_name if clean_name else team_full
         data.append({
@@ -391,6 +445,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
             'awayTeam': away,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            'seasonId': season_id,
         })
 
     shots_df = pd.DataFrame(data)
@@ -447,6 +502,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
         'player_list': player_list,
         'is_player_csv': False,
         'player_name': None,
+        'season_span': season_span_label(shots_df['seasonId'].dropna()),
     }
 
     return shots_df, multi_match_info, team_color
@@ -470,7 +526,7 @@ def build_shots_for_player(shooter_name):
     rows = con.execute("""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter
+               ShotPlayStyle, shooter, seasonId
         FROM events
         WHERE shooter = ?
           AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
@@ -481,7 +537,8 @@ def build_shots_for_player(shooter_name):
         return pd.DataFrame(), {}, '#888888'
 
     data = []
-    for game_id, ex, ey, xg, play_type, team_full, color, date, home, away, shot_style, shooter in rows:
+    for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
+         away, shot_style, shooter, season_id) in rows:
         _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
         team_display = clean_name if clean_name else team_full
         data.append({
@@ -497,6 +554,7 @@ def build_shots_for_player(shooter_name):
             'awayTeam': away,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            'seasonId': season_id,
         })
 
     shots_df = pd.DataFrame(data)
@@ -529,6 +587,7 @@ def build_shots_for_player(shooter_name):
         'player_list': [shooter_name],
         'is_player_csv': False,
         'player_name': shooter_name,
+        'season_span': season_span_label(shots_df['seasonId'].dropna()),
     }
 
     return shots_df, multi_match_info, team_color

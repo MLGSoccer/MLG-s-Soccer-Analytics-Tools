@@ -220,11 +220,6 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 charts[fname2] = (caption2, f.read())
 
         if "Combined Chart" in chart_options:
-            # Combined chart supports 'default' (horizontal Pitch, 16:9) and
-            # '9x16' (VerticalPitch full pitch, vertical fullscreen overlay).
-            # 9x8 would mean letterboxing a horizontal pitch into a square-ish
-            # frame, so we fall back to default for that aspect.
-            combined_aspect = aspect if aspect == '9x16' else 'default'
             fig_combined = create_combined_shot_chart(
                 shots_df, team1_name, team1_color, team1_flip,
                 team2_name, team2_color, team2_flip,
@@ -232,9 +227,9 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
-                aspect=combined_aspect,
+                aspect=aspect,
             )
-            combined_suffix = f"_{combined_aspect}" if combined_aspect != 'default' else ''
+            combined_suffix = f"_{aspect}" if aspect != 'default' else ''
             fname_combined = f"shot_chart_{team1_name.replace(' ', '_').replace('/', '-')}_vs_{team2_name.replace(' ', '_').replace('/', '-')}{combined_suffix}.png"
             path_combined = os.path.join(tmp_dir, "shot_chart_combined.png")
             fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
