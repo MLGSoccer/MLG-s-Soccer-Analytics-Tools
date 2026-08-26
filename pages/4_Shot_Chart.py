@@ -643,6 +643,24 @@ if data_source == "Database":
                         )
                         selected_player = None if player_filter == "All Players" else player_filter
 
+                    # The player's TruMedia id, taken from the rows they were
+                    # selected from. Those rows are already scoped to the chosen
+                    # team, and no team in this database fields two different
+                    # players with the same name - so the team the user picked
+                    # identifies the player exactly. Everything downstream that
+                    # leaves team scope (transfers, career minutes) needs this,
+                    # because a bare name does not survive leaving it: picking
+                    # Chelsea and then "Joao Pedro" used to return 172 shots
+                    # belonging to six different players; the Chelsea one took 91.
+                    selected_player_id = None
+                    if selected_player and 'shooterId' in shots_df.columns:
+                        _sel = shots_df[shots_df['shooter'] == selected_player]
+                        if selected_player_team:
+                            _sel = _sel[_sel['Team'] == selected_player_team]
+                        _ids = _sel['shooterId'].dropna().unique().tolist()
+                        if len(_ids) == 1:
+                            selected_player_id = _ids[0]
+
                     # For Shots For with no competition filter: load all shots for this player
                     # across all teams to handle mid-season transfers.
                     # When a season filter IS active, respect it and use shots_df only.
@@ -650,10 +668,24 @@ if data_source == "Database":
                     player_full_info = None
                     _no_filter = selected_season_id is None
                     if selected_player and not shots_against and _no_filter:
-                        player_full_shots, player_full_info, _ = build_shots_for_player(selected_player)
+                        player_full_shots, player_full_info, _ = build_shots_for_player(
+                            selected_player, shooter_id=selected_player_id
+                        )
                         if player_full_shots is not None and not player_full_shots.empty:
                             player_teams = sorted(player_full_shots['Team'].dropna().unique().tolist())
-                            if len(player_teams) > 1:
+                            n_amb = (player_full_info or {}).get('ambiguous_players')
+                            if n_amb:
+                                # Only reachable without an id. Said as a warning
+                                # and not as the transfer note below, because
+                                # those two look identical on screen and mean
+                                # opposite things - one is a career, the other is
+                                # several strangers added together.
+                                st.warning(
+                                    f"**{selected_player}** is {n_amb} different players in this "
+                                    f"database ({', '.join(player_teams)}). The totals below "
+                                    f"combine all of them. Pick a competition to narrow it down."
+                                )
+                            elif len(player_teams) > 1:
                                 st.info(
                                     f"**{selected_player}** has shots for multiple teams this season: "
                                     f"{', '.join(player_teams)}. Showing all."
@@ -665,7 +697,12 @@ if data_source == "Database":
                         if player_full_shots is not None and not player_full_shots.empty:
                             player_shots = player_full_shots
                         else:
-                            player_shots = shots_df[shots_df['shooter'] == selected_player]
+                            if selected_player_id and 'shooterId' in shots_df.columns:
+                                player_shots = shots_df[
+                                    shots_df['shooterId'] == selected_player_id]
+                            else:
+                                player_shots = shots_df[
+                                    shots_df['shooter'] == selected_player]
                             if selected_player_team:
                                 player_shots = player_shots[player_shots['Team'] == selected_player_team]
                         # Match the chart's filter so page metrics and chart stats agree.
@@ -685,10 +722,13 @@ if data_source == "Database":
                         if not shots_against:
                             try:
                                 if player_full_shots is not None and not player_full_shots.empty:
-                                    p_minutes, p_games = get_player_all_minutes(selected_player)
+                                    p_minutes, p_games = get_player_all_minutes(
+                                        selected_player, shooter_id=selected_player_id
+                                    )
                                 else:
                                     p_minutes, p_games = get_player_total_minutes(
-                                        selected_player, selected_game_ids
+                                        selected_player, selected_game_ids,
+                                        shooter_id=selected_player_id
                                     )
                                 if p_games:
                                     p_matches = p_games

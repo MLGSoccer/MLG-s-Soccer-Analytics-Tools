@@ -416,7 +416,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId
+               ShotPlayStyle, shooter, seasonId, shooterId
         FROM events
         WHERE gameId IN ({placeholders})
           AND {team_clause}
@@ -429,7 +429,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id) in rows:
+         away, shot_style, shooter, season_id, shooter_id) in rows:
         _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
         team_display = clean_name if clean_name else team_full
         data.append({
@@ -445,6 +445,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
             'awayTeam': away,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            'shooterId': shooter_id,
             'seasonId': season_id,
         })
 
@@ -509,36 +510,82 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
 
 @st.cache_data(ttl=3600)
-def build_shots_for_player(shooter_name):
-    """Get all shots for a named player across the entire database.
+def build_shots_for_player(shooter_name, shooter_id=None):
+    """Get all shots for one player across the entire database.
 
     Used when a player has transferred -- returns their complete shot record
-    regardless of which team(s) they played for.
+    regardless of which team(s) they played for. That deliberate abandonment
+    of team scope is also what made matching on the NAME unsafe: the caller
+    picks a player from ONE team's list, and this then searched every team in
+    the database for that string.
 
-    Returns (shots_df, multi_match_info, team_color) with the same structure
-    as build_shot_chart_multi().
+    Concretely, before this took an id: choosing Chelsea and then
+    "Joao Pedro" returned 172 shots belonging to SIX different players
+    (Chelsea, Gremio, Vasco da Gama, Corinthians, Remo, Atletico San Luis).
+    The Chelsea player took 91. 511 (team, player) selections across 261
+    teams were affected, including 24 in the Premier League. The chart's
+    own "has shots for multiple teams -- showing all" notice made it read as
+    one man's transfer history.
+
+    Name matching fails the other way too: one player recorded under two
+    spellings gets split. A single season holds 95 shots under
+    "F. Azeez"/"O. Azeez"; asking by name for the first returned two of them.
+
+    `shooter_id` fixes both, because an id merges every spelling of one
+    player and separates players who happen to share a name. Callers should
+    pass it -- it is on every row of the frame the player was chosen from,
+    and no team anywhere in this database fields two different players with
+    the same name, so the team the caller already picked identifies the
+    player completely.
+
+    Falling back to the name is kept for callers that have no id to hand. It
+    resolves to an id when the name is unambiguous (so the split is fixed for
+    them too) and reports the ambiguity in multi_match_info when it is not.
     """
     import pandas as pd
-    if not shooter_name:
+    if not shooter_name and not shooter_id:
         return pd.DataFrame(), {}, '#888888'
 
     con = get_connection()
-    rows = con.execute("""
-        SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
-               teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId
-        FROM events
-        WHERE shooter = ?
-          AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
-        ORDER BY Date, gameId
-    """, [shooter_name]).fetchall()
+    ambiguous = None
+    if not shooter_id:
+        ids = [r[0] for r in con.execute("""
+            SELECT DISTINCT shooterId FROM events
+            WHERE shooter = ? AND shooterId IS NOT NULL
+              AND playType IN ('Goal','PenaltyGoal','AttemptSaved','Miss','Post')
+        """, [shooter_name]).fetchall()]
+        if len(ids) == 1:
+            shooter_id = ids[0]
+        elif len(ids) > 1:
+            ambiguous = len(ids)
+
+    if shooter_id:
+        rows = con.execute("""
+            SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
+                   teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
+                   ShotPlayStyle, shooter, seasonId, shooterId
+            FROM events
+            WHERE shooterId = ?
+              AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+            ORDER BY Date, gameId
+        """, [shooter_id]).fetchall()
+    else:
+        rows = con.execute("""
+            SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
+                   teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
+                   ShotPlayStyle, shooter, seasonId, shooterId
+            FROM events
+            WHERE shooter = ?
+              AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+            ORDER BY Date, gameId
+        """, [shooter_name]).fetchall()
 
     if not rows:
         return pd.DataFrame(), {}, '#888888'
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id) in rows:
+         away, shot_style, shooter, season_id, shooter_id) in rows:
         _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
         team_display = clean_name if clean_name else team_full
         data.append({
@@ -554,6 +601,7 @@ def build_shots_for_player(shooter_name):
             'awayTeam': away,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            'shooterId': shooter_id,
             'seasonId': season_id,
         })
 
@@ -587,6 +635,10 @@ def build_shots_for_player(shooter_name):
         'player_list': [shooter_name],
         'is_player_csv': False,
         'player_name': shooter_name,
+        # Set only when a name had to stand in for an id AND matched several
+        # players. The page shows it instead of the transfer notice, which
+        # would otherwise present strangers as one man's career.
+        'ambiguous_players': ambiguous,
         'season_span': season_span_label(shots_df['seasonId'].dropna()),
     }
 
@@ -737,18 +789,32 @@ def get_players_with_minutes_for_team(team_id):
 
 
 @st.cache_data(ttl=3600)
-def get_player_total_minutes(player_name, game_ids_tuple):
+def get_player_total_minutes(player_name, game_ids_tuple, shooter_id=None):
     """Return (total_minutes, games_played) for a player across the specified games.
 
     game_ids_tuple must be a tuple (not list) for cache hashability.
-    Looks up the player's TruMedia ID via events.shooterId, then sums from
-    player_game_minutes -- no fuzzy name matching required.
-    Returns (int, int) or (None, None) if no minutes data found.
+    Sums player_game_minutes by playerId. Returns (int, int) or (None, None).
+
+    The docstring used to say "no fuzzy name matching required", and that was
+    true of the second step only: the id came out of a subquery keyed on the
+    NAME, so the id step inherited every ambiguity the name had. Summed across
+    the seven players called "J. Rodriguez" that produced 9,977 minutes over
+    142 games. Pass shooter_id where you have one -- and every caller reading
+    from a shot frame does, since shooterId is on the row.
     """
-    if not player_name or not game_ids_tuple:
+    if (not player_name and not shooter_id) or not game_ids_tuple:
         return None, None
     con = get_connection()
     placeholders = ",".join("?" * len(game_ids_tuple))
+    if shooter_id:
+        row = con.execute(f"""
+            SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
+            FROM player_game_minutes pgm
+            WHERE pgm.gameId IN ({placeholders}) AND pgm.playerId = ?
+        """, list(game_ids_tuple) + [shooter_id]).fetchone()
+        if not row or not row[0]:
+            return None, None
+        return int(row[0]), int(row[1])
     row = con.execute(f"""
         SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
         FROM player_game_minutes pgm
@@ -767,16 +833,26 @@ def get_player_total_minutes(player_name, game_ids_tuple):
 
 
 @st.cache_data(ttl=3600)
-def get_player_all_minutes(player_name):
+def get_player_all_minutes(player_name, shooter_id=None):
     """Return (total_minutes, games_played) for a player across all games in the DB.
 
     Used for multi-team players where the selected team's game_ids don't capture
     the player's full playing time (e.g. a mid-season transfer showing shots for
-    both clubs). Matches the scope of build_shots_for_player().
+    both clubs). Matches the scope of build_shots_for_player() -- including its
+    id, which matters here more than anywhere: this is unscoped by team AND by
+    season, so a shared name gathers every namesake's minutes in the database.
     """
-    if not player_name:
+    if not player_name and not shooter_id:
         return None, None
     con = get_connection()
+    if shooter_id:
+        row = con.execute("""
+            SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
+            FROM player_game_minutes pgm WHERE pgm.playerId = ?
+        """, [shooter_id]).fetchone()
+        if not row or not row[0]:
+            return None, None
+        return int(row[0]), int(row[1])
     row = con.execute("""
         SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
         FROM player_game_minutes pgm
