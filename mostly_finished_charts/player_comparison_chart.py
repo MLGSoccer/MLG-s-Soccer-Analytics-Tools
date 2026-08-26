@@ -283,7 +283,8 @@ def calculate_percentile(value, peer_values):
     return percentile
 
 
-def get_player_percentiles(df, player_name, min_minutes=900, compare_position=None):
+def get_player_percentiles(df, player_name, min_minutes=900, compare_position=None,
+                           player_id=None):
     """Calculate percentile rankings for a player vs position peers
 
     Args:
@@ -291,9 +292,21 @@ def get_player_percentiles(df, player_name, min_minutes=900, compare_position=No
         player_name: Name of player to analyze
         min_minutes: Minimum minutes for peer comparison
         compare_position: Optional position override for comparison (from POSITION_CATEGORIES)
+        player_id: TruMedia playerId. Preferred over the name where the caller
+            has one, because a name is not an identifier: 88 full names in the
+            North American pool, 7 in Europe and 1 in the women's pool belong
+            to two DIFFERENT players. Selecting one of those used to return
+            whichever had played most recently, with the other unreachable -
+            the numbers were right, they were just somebody else's.
     """
-    # Find the player - check multiple name columns
+    # Find the player - by id when we have one, otherwise by name.
     name_col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
+    if player_id and 'playerId' in df.columns:
+        player_mask = df['playerId'] == player_id
+        if player_mask.any():
+            matched = df[player_mask]
+            player_row = matched.iloc[0]
+            return _percentiles_for_row(df, player_row, min_minutes, compare_position)
     player_mask = df[name_col] == player_name
 
     # Try the other name column (exact match)
@@ -319,6 +332,17 @@ def get_player_percentiles(df, player_name, min_minutes=900, compare_position=No
     if len(matched) > 1 and 'lastGameDate' in matched.columns:
         matched = matched.sort_values('lastGameDate', ascending=False)
     player_row = matched.iloc[0]
+    return _percentiles_for_row(df, player_row, min_minutes,
+                                compare_position)
+
+
+def _percentiles_for_row(df, player_row, min_minutes=900, compare_position=None):
+    """Percentiles for an already-resolved player ROW.
+
+    Split out so that resolving a player by id and resolving one by name run
+    the identical computation afterwards. With this logic inline, the only
+    way to add an id lookup was to duplicate it.
+    """
     player_position = player_row['PositionCategory']
 
     # Use override position if provided, otherwise use player's natural position
@@ -368,6 +392,8 @@ def get_player_percentiles(df, player_name, min_minutes=900, compare_position=No
     return results, player_row, len(peers), comparison_position
 
 
+
+
 # =============================================================================
 # VISUALIZATION
 # =============================================================================
@@ -386,6 +412,8 @@ _PERCENTILE_CMAP = LinearSegmentedColormap.from_list(
         (1.00, '#2ECC71'),   # bright green
     ],
 )
+
+
 
 
 def get_color_from_percentile(pct):
@@ -940,7 +968,8 @@ def resolve_player_colors(player_rows, threshold=60):
     return colors, has_conflicts
 
 
-def get_multiple_player_percentiles(df, player_names, min_minutes=900, compare_position=None):
+def get_multiple_player_percentiles(df, player_names, min_minutes=900,
+                                    compare_position=None, player_ids=None):
     """Calculate percentile rankings for multiple players.
 
     Args:
@@ -955,31 +984,38 @@ def get_multiple_player_percentiles(df, player_names, min_minutes=900, compare_p
     """
     results_by_player = {}
     player_rows = []
+    # Keyed by id where available. Two selected players CAN share a name -
+    # that is the whole reason ids are threaded through here - and a
+    # name-keyed dict would silently drop one of them. The chart reads its
+    # display names from player_rows, not from these keys, so they only have
+    # to be unique.
+    ids = list(player_ids) if player_ids else [None] * len(player_names)
+    ids += [None] * (len(player_names) - len(ids))
 
     # Find position from first player if not specified
     first_results, first_row, first_peers, first_position = get_player_percentiles(
-        df, player_names[0], min_minutes, compare_position
+        df, player_names[0], min_minutes, compare_position, player_id=ids[0]
     )
 
     if first_results is None:
         return None, None, None, None
 
-    results_by_player[player_names[0]] = first_results
+    results_by_player[ids[0] or player_names[0]] = first_results
     player_rows.append(first_row)
 
     # Use first player's position as the comparison position
     comparison_position = first_position
 
     # Get percentiles for remaining players
-    for player_name in player_names[1:]:
+    for player_name, pid in zip(player_names[1:], ids[1:]):
         results, player_row, peer_count, _ = get_player_percentiles(
-            df, player_name, min_minutes, comparison_position
+            df, player_name, min_minutes, comparison_position, player_id=pid
         )
 
         if results is None:
             return None, None, None, None
 
-        results_by_player[player_name] = results
+        results_by_player[pid or player_name] = results
         player_rows.append(player_row)
 
     # Use peer count from first player (same position comparison)

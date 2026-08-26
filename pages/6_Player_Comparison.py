@@ -74,11 +74,11 @@ def _load_player_data_cached(file_content):
 
 @st.cache_data(show_spinner=False)
 def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=(),
-                                    custom_title=None, custom_subtitle=None):
+                                    custom_title=None, custom_subtitle=None, player_id=None):
     """Generate single-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results, player_row, peer_count, final_position = get_player_percentiles(
-        df, player_name, min_minutes, compare_position
+        df, player_name, min_minutes, compare_position, player_id=player_id
     )
     if results is None:
         return None, None, None
@@ -116,11 +116,11 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
 
 @st.cache_data(show_spinner=False)
 def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position, color_overrides=(),
-                                   custom_title=None, custom_subtitle=None):
+                                   custom_title=None, custom_subtitle=None, player_ids=()):
     """Generate multi-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
-        df, selected_players, min_minutes, compare_position
+        df, selected_players, min_minutes, compare_position, player_ids=player_ids
     )
     if results_by_player is None:
         return None, None, None
@@ -233,7 +233,7 @@ def _display_charts():
         st.success("Multi-player charts generated successfully!")
 
 
-def _get_team_overrides(selected_players, df):
+def _get_team_overrides(selected_players, df, selected_ids=None):
     """Look up current team name and color from MotherDuck for selected players.
 
     Returns a tuple of (player_name, team_name, color) triples for use as a cache key.
@@ -246,11 +246,15 @@ def _get_team_overrides(selected_players, df):
     name_col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
     overrides = []
 
-    for player_name in selected_players:
-        mask = df[name_col] == player_name
-        if not mask.any():
-            continue
-        player_id = df[mask].iloc[0].get(id_col)
+    ids = list(selected_ids or []) + [None] * len(selected_players)
+    for i, player_name in enumerate(selected_players):
+        # Prefer the id the picker already resolved; fall back to the name.
+        player_id = ids[i]
+        if not player_id:
+            mask = df[name_col] == player_name
+            if not mask.any():
+                continue
+            player_id = df[mask].iloc[0].get(id_col)
         if not player_id:
             continue
         try:
@@ -267,19 +271,21 @@ def _get_team_overrides(selected_players, df):
 
 
 def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None,
-                    custom_title=None, custom_subtitle=None):
+                    custom_title=None, custom_subtitle=None, selected_ids=None):
     """Run chart generation and store results in session state."""
     st.session_state["player_comparison_charts"] = None
 
     # Look up current team name and color from MotherDuck
-    color_overrides = _get_team_overrides(selected_players, df) if df is not None else ()
+    color_overrides = (_get_team_overrides(selected_players, df, selected_ids)
+                       if df is not None else ())
 
     with st.spinner(f"Analyzing {'players' if len(selected_players) > 1 else selected_players[0]}..."):
         if comparison_mode == "Single Player":
             player_name = selected_players[0]
             charts, peer_count, final_position = _generate_single_player_charts(
                 file_content, player_name, min_minutes, compare_position, color_overrides,
-                custom_title=custom_title, custom_subtitle=custom_subtitle
+                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                player_id=(selected_ids or [None])[0]
             )
             if charts is None:
                 st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
@@ -295,7 +301,8 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
         else:
             charts, peer_count, final_position = _generate_multi_player_charts(
                 file_content, tuple(selected_players), min_minutes, compare_position, color_overrides,
-                custom_title=custom_title, custom_subtitle=custom_subtitle
+                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                player_ids=tuple(selected_ids or ())
             )
             if charts is None:
                 st.error("One or more players not found or don't meet minimum minutes.")
@@ -310,7 +317,52 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             }
 
 
-def _sidebar_controls(player_list, df=None):
+def _build_label_index(pools):
+    """Map picker label -> {name, player_id, team, pools}.
+
+    Built from ROWS, not from unique names. A name is not an identifier: 88
+    full names in the North American pool, 7 in Europe and 1 in the women's
+    pool belong to two DIFFERENT players. A picker built from `.unique()`
+    collapsed each pair into one entry, so one of the two was unreachable and
+    selecting the name handed you whichever had played most recently - with
+    nothing on screen saying a choice had been made.
+
+    Only colliding names get a "(Team)" qualifier. Everyone else keeps the
+    plain name they have always had, so the list does not turn into a
+    database dump to solve a problem affecting ~1% of it.
+    """
+    label_index = {}
+    name_counts = {}
+    for pool_key, data in pools.items():
+        df = data["df"]
+        col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
+        has_id = 'playerId' in df.columns
+        cols = [c for c in (col, 'playerId', 'newestTeam', 'teamName')
+                if c in df.columns]
+        for _, row in df[cols].iterrows():
+            nm = row.get(col)
+            if not isinstance(nm, str) or not nm:
+                continue
+            pid = str(row.get('playerId')) if has_id and row.get('playerId') else None
+            key = pid or nm
+            e = name_counts.setdefault(nm, {})
+            e.setdefault(key, {"name": nm, "player_id": pid,
+                               "team": row.get('newestTeam') or row.get('teamName') or "",
+                               "pools": []})
+            if pool_key not in e[key]["pools"]:
+                e[key]["pools"].append(pool_key)
+
+    for nm, by_key in name_counts.items():
+        collision = len(by_key) > 1
+        for entry in by_key.values():
+            label = f"{nm} ({entry['team']})" if collision and entry["team"] else nm
+            while label in label_index:          # same name AND same club
+                label += " "
+            label_index[label] = entry
+    return label_index
+
+
+def _sidebar_controls(player_list, df=None, label_index=None):
     """Render sidebar controls and return (comparison_mode, selected_players, min_minutes, compare_position, can_generate)."""
     st.sidebar.header("Settings")
 
@@ -356,7 +408,11 @@ def _sidebar_controls(player_list, df=None):
             player_positions = []
             for pname in selected_players:
                 col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
-                mask = df[col] == pname
+                pid = (label_index or {}).get(pname, {}).get("player_id")
+                if pid and 'playerId' in df.columns:
+                    mask = df['playerId'] == pid
+                else:
+                    mask = df[col] == pname
                 if mask.any():
                     pos = df[mask].iloc[0].get('PositionCategory', None)
                     if pos:
@@ -405,30 +461,26 @@ if not use_manual:
         st.error("No player pools available. Use manual mode or run the Data Manager to update pools.")
         st.stop()
 
-    # Build player → pool(s) lookup
-    player_to_pools = {}
-    for pool_key, data in pools.items():
-        df = data["df"]
-        col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
-        for player in df[col].dropna().unique():
-            if player not in player_to_pools:
-                player_to_pools[player] = []
-            player_to_pools[player].append(pool_key)
-
-    all_players = sorted(player_to_pools.keys())
+    label_index = _build_label_index(pools)
+    all_players = sorted(label_index.keys())
 
     # Sidebar controls
-    comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
-        all_players
+    comparison_mode, selected_labels, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
+        all_players, label_index=label_index
     )
+    # Labels are for the picker; everything downstream works in names + ids.
+    selected_players = [label_index[l]["name"] for l in selected_labels
+                        if l in label_index]
+    selected_ids = [label_index[l]["player_id"] for l in selected_labels
+                    if l in label_index]
 
     # Pool routing for selected players
     file_content = None
-    if selected_players:
+    if selected_labels:
         # Find which pools the selected players are in
         player_pools_found = set()
-        for p in selected_players:
-            for pk in player_to_pools.get(p, []):
+        for l in selected_labels:
+            for pk in label_index.get(l, {}).get("pools", []):
                 player_pools_found.add(pk)
 
         if not player_pools_found:
@@ -473,16 +525,17 @@ if not use_manual:
         if st.button("Generate Charts", type="primary"):
             # Determine which df to use for player ID lookup
             _df = None
-            if selected_players:
+            if selected_labels:
                 pool_keys = set()
-                for p in selected_players:
-                    for pk in player_to_pools.get(p, []):
+                for l in selected_labels:
+                    for pk in label_index.get(l, {}).get("pools", []):
                         pool_keys.add(pk)
                 if pool_keys:
                     _df = pools[next(iter(pool_keys))]["df"]
             _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df,
-                            custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc)
-    elif not selected_players:
+                            custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc,
+                            selected_ids=selected_ids)
+    elif not selected_labels:
         if comparison_mode == "Single Player":
             st.info("Select a player from the sidebar to analyze")
         else:
