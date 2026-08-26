@@ -39,6 +39,31 @@ LEAGUE_ORDER = [
     "Other",
 ]
 
+# Competitions played by NATIONAL teams rather than clubs.
+#
+# These have to be held out of any lookup that spans a player's whole record,
+# because such a lookup is asking "what does this footballer do for his club"
+# and a World Cup is a different question with different opposition, a
+# different squad and a separate minutes pool. Today it is one competition;
+# qualifiers, Nations League and continental tournaments will land in the same
+# bucket, which is why this is a set of LEAGUE NAMES and not a season id.
+#
+# Left in place everywhere the competition is chosen explicitly: picking the
+# World Cup in the Season/Competition dropdown scopes the whole page to it, so
+# international charts stay fully reachable. This only bites the unscoped
+# career path, where the two were being silently added together - 488 players
+# carry both, and it was 16% of Mbappe's shot map, 39% of De Bruyne's and 93%
+# of Lamine Yamal's, with 211,418 international minutes free to pool into club
+# per-90 rates.
+INTERNATIONAL_LEAGUES = {"World Cup 2026"}
+
+
+def international_season_ids():
+    """Season ids belonging to national-team competitions."""
+    return {sid for sid, lg in _season_leagues().items()
+            if lg in INTERNATIONAL_LEAGUES}
+
+
 # TruMedia playType -> chart outcome mapping
 _OUTCOME_MAP = {
     'Goal': 'Goal',
@@ -510,7 +535,8 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
 
 @st.cache_data(ttl=3600)
-def build_shots_for_player(shooter_name, shooter_id=None):
+def build_shots_for_player(shooter_name, shooter_id=None,
+                           include_international=False):
     """Get all shots for one player across the entire database.
 
     Used when a player has transferred -- returns their complete shot record
@@ -541,6 +567,12 @@ def build_shots_for_player(shooter_name, shooter_id=None):
     Falling back to the name is kept for callers that have no id to hand. It
     resolves to an id when the name is unambiguous (so the split is fixed for
     them too) and reports the ambiguity in multi_match_info when it is not.
+
+    National-team competitions are held out by default - see
+    INTERNATIONAL_LEAGUES. This function is unscoped by season precisely so a
+    transfer is not cut in half, and that same reach was quietly folding a
+    World Cup into a club record. The count that was dropped comes back in
+    multi_match_info so the page can say so rather than silently shrink.
     """
     import pandas as pd
     if not shooter_name and not shooter_id:
@@ -559,26 +591,21 @@ def build_shots_for_player(shooter_name, shooter_id=None):
         elif len(ids) > 1:
             ambiguous = len(ids)
 
-    if shooter_id:
-        rows = con.execute("""
-            SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
-                   teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-                   ShotPlayStyle, shooter, seasonId, shooterId
-            FROM events
-            WHERE shooterId = ?
-              AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
-            ORDER BY Date, gameId
-        """, [shooter_id]).fetchall()
-    else:
-        rows = con.execute("""
-            SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
-                   teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-                   ShotPlayStyle, shooter, seasonId, shooterId
-            FROM events
-            WHERE shooter = ?
-              AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
-            ORDER BY Date, gameId
-        """, [shooter_name]).fetchall()
+    intl = set() if include_international else international_season_ids()
+    key_col = "shooterId" if shooter_id else "shooter"
+    key_val = shooter_id or shooter_name
+    rows = con.execute(f"""
+        SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
+               teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
+               ShotPlayStyle, shooter, seasonId, shooterId
+        FROM events
+        WHERE {key_col} = ?
+          AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
+        ORDER BY Date, gameId
+    """, [key_val]).fetchall()
+    intl_shots = sum(1 for r in rows if r[12] in intl)
+    if intl:
+        rows = [r for r in rows if r[12] not in intl]
 
     if not rows:
         return pd.DataFrame(), {}, '#888888'
@@ -639,6 +666,7 @@ def build_shots_for_player(shooter_name, shooter_id=None):
         # players. The page shows it instead of the transfer notice, which
         # would otherwise present strangers as one man's career.
         'ambiguous_players': ambiguous,
+        'international_shots_excluded': intl_shots,
         'season_span': season_span_label(shots_df['seasonId'].dropna()),
     }
 
@@ -833,7 +861,8 @@ def get_player_total_minutes(player_name, game_ids_tuple, shooter_id=None):
 
 
 @st.cache_data(ttl=3600)
-def get_player_all_minutes(player_name, shooter_id=None):
+def get_player_all_minutes(player_name, shooter_id=None,
+                           include_international=False):
     """Return (total_minutes, games_played) for a player across all games in the DB.
 
     Used for multi-team players where the selected team's game_ids don't capture
@@ -845,15 +874,21 @@ def get_player_all_minutes(player_name, shooter_id=None):
     if not player_name and not shooter_id:
         return None, None
     con = get_connection()
+    intl = () if include_international else tuple(international_season_ids())
+    excl = ""
+    if intl:
+        excl = ("AND pgm.gameId NOT IN (SELECT gameId FROM games WHERE seasonId "
+                "IN (" + ",".join("?" * len(intl)) + "))")
     if shooter_id:
-        row = con.execute("""
+        row = con.execute(f"""
             SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
-            FROM player_game_minutes pgm WHERE pgm.playerId = ?
-        """, [shooter_id]).fetchone()
+            FROM player_game_minutes pgm
+            WHERE pgm.playerId = ? {excl}
+        """, [shooter_id, *intl]).fetchone()
         if not row or not row[0]:
             return None, None
         return int(row[0]), int(row[1])
-    row = con.execute("""
+    row = con.execute(f"""
         SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
         FROM player_game_minutes pgm
         WHERE pgm.playerId IN (
@@ -861,8 +896,8 @@ def get_player_all_minutes(player_name, shooter_id=None):
             FROM events
             WHERE shooter = ?
               AND shooterId IS NOT NULL
-        )
-    """, [player_name]).fetchone()
+        ) {excl}
+    """, [player_name, *intl]).fetchone()
     if not row or not row[0]:
         return None, None
     return int(row[0]), int(row[1])

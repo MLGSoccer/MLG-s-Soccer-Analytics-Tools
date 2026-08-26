@@ -690,6 +690,17 @@ if data_source == "Database":
                                     f"**{selected_player}** has shots for multiple teams this season: "
                                     f"{', '.join(player_teams)}. Showing all."
                                 )
+                            # Said out loud, because a career view that quietly
+                            # shrank would be the same class of problem as one
+                            # that quietly grew.
+                            n_intl = (player_full_info or {}).get(
+                                'international_shots_excluded') or 0
+                            if n_intl:
+                                st.caption(
+                                    f"Club football only — {n_intl} international "
+                                    f"shot{'s' if n_intl != 1 else ''} excluded. "
+                                    f"Pick the international competition above to chart those."
+                                )
 
                     p_minutes = None  # total minutes played; populated below if player selected + data available
 
