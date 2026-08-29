@@ -68,13 +68,52 @@ STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠",
 st.title("Campaign")
 
 # ── Where are we writing? ────────────────────────────────────────────────────
-local_db = os.environ.get(LOCAL_DB_ENV)
-if local_db:
-    st.info(f"**Practice mode** — writing to `{local_db}`, not production. "
-            f"Unset `{LOCAL_DB_ENV}` to write to MotherDuck.")
+# An explicit choice on the page, defaulting to practice, rather than an
+# environment variable you have to remember to set.
+#
+# The rest of the tool defaults to production deliberately - flipping that
+# would mean someone runs a familiar action expecting to update the real
+# database and quietly updates a file instead. This page is different: it is
+# new, nobody has habits about it, and it can rewrite thousands of matches. A
+# wrong default here is not a surprise, it is an accident.
+#
+# LOCAL_DB_ENV still works and still wins, so scripts and tests are unchanged.
+st.header("Target")
+
+_env_db = os.environ.get(LOCAL_DB_ENV)
+DEFAULT_PRACTICE = _env_db or os.path.join(
+    tempfile.gettempdir(), "data_manager_practice.duckdb")
+
+if _env_db:
+    st.info(f"`{LOCAL_DB_ENV}` is set, so everything here writes to "
+            f"`{_env_db}` regardless of the choice below.")
+
+target = st.radio(
+    "Write to", ["Practice (a local file)", "Production (MotherDuck)"],
+    index=0, horizontal=True,
+    help="Practice writes to a DuckDB file with the identical schema. "
+         "Nothing reaches the real database until you choose Production.")
+is_practice = target.startswith("Practice")
+
+if is_practice:
+    practice_path = st.text_input("Practice file", value=DEFAULT_PRACTICE)
+    write_target = practice_path
+    st.success(f"Writing to `{practice_path}`. Production is untouched.")
 else:
-    st.warning("Writing to **production MotherDuck**. Set "
-               f"`{LOCAL_DB_ENV}` to a file path to practise first.")
+    write_target = _env_db      # None unless the env var overrides
+    if _env_db:
+        st.info(f"Overridden by `{LOCAL_DB_ENV}` — still writing locally.")
+    else:
+        st.error("**Writing to production MotherDuck.** Games are replaced "
+                 "at `gameId`. There is no undo.")
+        if not st.checkbox("I mean it — write to production"):
+            st.stop()
+
+
+def open_target():
+    """The one place a connection is opened, so the choice cannot be bypassed."""
+    return get_motherduck_connection(MOTHERDUCK_TOKEN, local_path=write_target)
+
 
 if "cookies" not in st.session_state:
     st.error("Not authenticated — paste a cURL command on the main page first.")
@@ -116,7 +155,7 @@ if st.button("Build the work list", type="primary"):
     if fx.empty:
         st.warning("No fixtures returned for those seasons.")
         st.stop()
-    con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+    con = open_target()
     try:
         work = build_work_list(con, fx)
     finally:
@@ -177,7 +216,7 @@ if st.button(f"Download {n:,} games", type="primary", disabled=not n):
             seen.append(f"⚠️ `{gid}` {note}")
 
     with tempfile.TemporaryDirectory() as tmp:
-        con = get_motherduck_connection(MOTHERDUCK_TOKEN)
+        con = open_target()
         try:
             written, failed, skipped = run_campaign(
                 session, MOTHERDUCK_TOKEN, work, work, tmp,
