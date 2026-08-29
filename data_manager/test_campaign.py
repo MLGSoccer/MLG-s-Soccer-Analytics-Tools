@@ -93,14 +93,18 @@ done_ids = set(subset["gameId"])
 still = set(work2[work2["state"] == dl.WORK_MISSING]["gameId"])
 check("no written game is still on the list", not (done_ids & still))
 
-print("\n[4] the stop callback lands on a game boundary")
+print("\n[4] the stop callback lands on a BATCH boundary")
+# batch_size=1 so the stop is testable at all: batches are grouped by home
+# team, so four games can share one batch and stop() is then polled once.
+# That is the documented behaviour, not a bug - the interrupt still lands
+# between whole matches. Exercised at batch_size=1 to isolate the mechanism.
 subset2 = work2[work2["state"] == dl.WORK_MISSING].head(4).copy()
 calls = {"n": 0}
 
 
 def _stop():
     calls["n"] += 1
-    return calls["n"] > 2        # stop before the 3rd game
+    return calls["n"] > 2        # stop before the 3rd batch
 
 
 with tempfile.TemporaryDirectory() as tmp:
@@ -108,7 +112,7 @@ with tempfile.TemporaryDirectory() as tmp:
     try:
         w2, f2, sk2 = dl.run_campaign(
             session, "INVALID", fx, subset2, tmp, [SEASON],
-            states=(dl.WORK_MISSING,), con=con, stop=_stop)
+            states=(dl.WORK_MISSING,), con=con, stop=_stop, batch_size=1)
     finally:
         con.close()
 check("stopped early", w2 == 2 and sk2 == 2, f"wrote={w2} skipped={sk2}")
@@ -120,8 +124,9 @@ sides = con.execute("SELECT gameId, count(DISTINCT teamId) FROM events "
 con.close()
 check("NO game was left half-written", not sides, str(sides))
 check("interrupted campaign is resumable",
-      dl.work_list_summary(partial)[dl.WORK_COMPLETE] == 7,
-      f"complete={dl.work_list_summary(partial)[dl.WORK_COMPLETE]}")
+      dl.work_list_summary(partial)[dl.WORK_COMPLETE] == 5 + w2,
+      f"complete={dl.work_list_summary(partial)[dl.WORK_COMPLETE]}, "
+      f"expected 5 from the first run + {w2} from the interrupted one")
 
 print(f"\n{'=' * 62}\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

@@ -1755,21 +1755,53 @@ def work_list_summary(work):
     return {s: int(counts.get(s, 0)) for s in WORK_ORDER}
 
 
+# Batches are grouped by HOME TEAM, and that is not an arbitrary choice.
+#
+# THE TRAP: the event query anchors on a team, and the anchor FILTERS. A game
+# returns events only if the anchor plays in it - an unrelated anchor returns
+# zero rows, and a mixed batch silently drops every game the anchor is not in.
+# Measured: batching 20 arbitrary games lost Manchester United v Arsenal
+# because its batch was anchored on Crystal Palace. Nothing errored. The row
+# count looked plausible. Only counting DISTINCT GAMES caught it.
+#
+# Every game has exactly one home team, so grouping by homeTeamId covers each
+# game precisely once with an anchor guaranteed to be in it.
+#
+# The cost works out the same as the path being replaced: a 380-game season is
+# 20 teams x ~19 home games = 20 event requests + 20 minutes requests, against
+# the old 20 teams x 2. Batching one game per request would have been 760.
+MAX_GAMES_PER_REQUEST = 40
+
+
 def run_campaign(session, token, fixtures, work, output_dir, season_ids,
                  states=(WORK_MISSING, WORK_ONE_SIDED), con=None,
-                 progress=None, stop=None):
+                 progress=None, stop=None, batch_size=MAX_GAMES_PER_REQUEST,
+                 with_minutes=True):
     """Download and write every game in `work` whose state is in `states`.
 
+    Fetches events AND minutes, both at game grain. Minutes are not optional
+    in practice: refreshing events alone leaves `player_game_minutes` stale,
+    so every per-90 axis divides a new numerator by an old denominator without
+    anything appearing wrong.
+
     Resumable BY CONSTRUCTION: progress is the database, not a side file. Each
-    game is written atomically, so re-running recomputes the work list and the
-    finished games simply drop out of it. Nothing to corrupt, nothing to
-    reconcile - which is what the queued pause/resume tracker was for.
+    batch is written in a transaction, so re-running recomputes the work list
+    and the finished games simply drop out of it. Nothing to corrupt, nothing
+    to reconcile - which is what the queued pause/resume tracker was for.
 
-    `progress(done, total, gameId, state, note)` is called after each game.
-    `stop()` is polled between games so a UI can interrupt cleanly, at a game
-    boundary, never mid-write.
+    `progress(done, total, label, state, note)` is called after each batch.
 
-    Returns (written, failed, skipped).
+    `stop()` is polled between BATCHES, not between games - so an interrupt
+    can take up to `batch_size` games to take effect. That is the price of
+    batching and it is a small one: a batch is bounded by the games one club
+    hosts in the scoped seasons, and finishes in seconds. What it is NOT is a
+    correctness problem - the interrupt still lands between whole matches, and
+    the batch that was in flight was written in a transaction.
+
+    Pass `batch_size=1` for a responsive stop at the cost of one request per
+    game.
+
+    Returns (written, failed, skipped) counted in GAMES.
     """
     fixture_map = {r["gameId"]: {"homeTeamId": r["homeTeamId"],
                                  "awayTeamId": r["awayTeamId"],
@@ -1779,36 +1811,59 @@ def run_campaign(session, token, fixtures, work, output_dir, season_ids,
     todo = work[work["state"].isin(states)]
     total = len(todo)
     written = failed = skipped = 0
+    # Group by home team: every game has exactly one, so each game is covered
+    # once by an anchor that is guaranteed to play in it. See the note on
+    # MAX_GAMES_PER_REQUEST for what happens otherwise.
+    by_anchor = {}
+    for idx_row in todo.iterrows():
+        by_anchor.setdefault(idx_row[1]["homeTeamId"], []).append(idx_row)
+    batches = []
+    for anchor_id, rows in by_anchor.items():
+        for i in range(0, len(rows), max(1, batch_size)):
+            batches.append((anchor_id, rows[i:i + max(1, batch_size)]))
+
     own_con = con is None
     if own_con:
         con = get_motherduck_connection(token)
     try:
-        for i, (_, row) in enumerate(todo.iterrows(), 1):
+        done = 0
+        for bi, (anchor, batch) in enumerate(batches, 1):
             if stop is not None and stop():
-                skipped = total - i + 1
+                skipped = total - done
                 break
-            gid = row["gameId"]
+            gids = [r["gameId"] for _, r in batch]
             note = ""
             try:
-                path = os.path.join(output_dir, f"game_{gid}.csv")
-                download_game_events(session, row["homeTeamId"], season_ids,
-                                     [gid], path)
-                _, n = upsert_game_events(token, path, fixture_map, con=con)
-                written += 1
-                note = f"{n:,} rows"
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+                ev_path = os.path.join(output_dir, f"batch_{bi}_events.csv")
+                download_game_events(session, anchor, season_ids, gids, ev_path)
+                _, n = upsert_game_events(token, ev_path, fixture_map, con=con)
+                note = f"{n:,} events"
+                if with_minutes:
+                    mn_path = os.path.join(output_dir, f"batch_{bi}_min.csv")
+                    download_game_minutes(session, season_ids, gids, mn_path)
+                    m = upsert_game_minutes(token, mn_path, con=con)
+                    note += f", {m:,} minute rows"
+                    _quiet_remove(mn_path)
+                _quiet_remove(ev_path)
+                written += len(batch)
             except Exception as e:
-                failed += 1
+                failed += len(batch)
                 note = f"{type(e).__name__}: {e}"[:160]
+            done += len(batch)
             if progress:
-                progress(i, total, gid, row.get("state"), note)
+                progress(done, total, f"batch {bi}/{len(batches)}",
+                         batch[0][1].get("state"), note)
     finally:
         if own_con:
             con.close()
     return written, failed, skipped
+
+
+def _quiet_remove(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 
 
 def download_game_events(session, anchor_team_id, season_ids, game_ids,
@@ -1938,15 +1993,126 @@ def upsert_game_events(token, csv_path, fixtures, con=None):
         events_df, ecols = _align_to_table(con, events_df, "events")
         con.register("_e_stage", events_df)
         # The whole match, both sides. This is the point of the rework.
-        con.execute("DELETE FROM events WHERE gameId IN "
-                    "(SELECT DISTINCT gameId FROM _e_stage)")
-        con.execute(f"INSERT INTO events ({ecols}) "
-                    f"SELECT {ecols} FROM _e_stage")
+        #
+        # In a transaction, because DELETE-then-INSERT is two statements and
+        # DuckDB autocommits each one: a failure between them - a dropped
+        # connection, an expired session mid-batch - would leave the games
+        # deleted and not replaced. That is worse than the half-match state
+        # this rework exists to remove.
+        con.execute("BEGIN TRANSACTION")
+        try:
+            con.execute("DELETE FROM events WHERE gameId IN "
+                        "(SELECT DISTINCT gameId FROM _e_stage)")
+            con.execute(f"INSERT INTO events ({ecols}) "
+                        f"SELECT {ecols} FROM _e_stage")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
         con.unregister("_e_stage")
     finally:
         if own_con:
             con.close()
     return events_df["gameId"].nunique(), len(events_df)
+
+
+def build_game_minutes_statement(season_ids, game_ids):
+    """Minutes and cards for whole games, BOTH sides, no team predicate.
+
+    Verified 2026-08-29 against the per-team pull for the same fixture:
+    identical players, identical minutes (max diff 0), 1,980 total = two full
+    sides. So this replaces the per-team-season minutes call outright rather
+    than approximating it.
+
+    It matters that minutes move to the same grain as events. Left per-team,
+    a per-game re-download would refresh `events` and leave
+    `player_game_minutes` untouched - so every per-90 axis, the minimum-minutes
+    filter and `compute_per90_min_minutes` would be dividing new numerators by
+    stale denominators, silently.
+    """
+    season_id_str = ",".join(f"'{s}'" for s in season_ids)
+    gids_str = ",".join(f"'{g}'" for g in game_ids)
+    return (
+        f"{MINUTES_SELECT} "
+        f"FROM player 'p' BY game "
+        f"WHERE ((season.seasonId IN ({season_id_str}))) "
+        f"AND (game.gameId IN ({gids_str})) "
+        f"QUALIFY BY [GM] > 0 "
+        f"LIMIT 100000 "
+        f"CALCULATE total"
+    )
+
+
+def download_game_minutes(session, season_ids, game_ids, output_path):
+    """Fetch minutes for whole games. Returns (rows, size_kb)."""
+    payload = {
+        "format": "MIXED",
+        "statement": build_game_minutes_statement(season_ids, game_ids),
+        "export": "csv",
+        "pageDescriptorName": "pageSoccerPlayersInPossession",
+        "exportOptions": {"includeCalculations": False,
+                          "includeVideoData": False},
+    }
+    resp = _post_export_with_retry(session, payload)
+    if not resp.ok:
+        raise ValueError(f"HTTP {resp.status_code} {resp.reason}: "
+                         f"{resp.text[:500]}")
+    content = resp.content
+    if b'<!DOCTYPE html>' in content[:500] or b'<html' in content[:500]:
+        raise ValueError(
+            "Received an HTML page instead of CSV data. "
+            "Your session has likely expired - paste a fresh cURL command.")
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, 'wb') as f:
+        f.write(content)
+    return max(0, content.count(b'\n') - 1), len(content) / 1024
+
+
+def upsert_game_minutes(token, csv_path, con=None):
+    """Replace minutes for whole games. DELETE at gameId, like events.
+
+    INSERT OR REPLACE alone would update rows that still exist and leave
+    behind any player who no longer appears - a substitute removed from a
+    corrected team sheet would keep his minutes forever, and per-90 rates
+    would divide by a squad that never played.
+    """
+    df = pd.read_csv(csv_path, encoding='utf-8')
+    if df.empty:
+        return 0
+    df = df.rename(columns={'Min': 'minutes', 'Yellow': 'yellowCards',
+                            'RedCardsTotal': 'redCards'})
+    for col in ['playerId', 'gameId', 'playerFullName', 'player', 'teamId',
+                'teamAbbrevName', 'teamFullName', 'date']:
+        if col not in df.columns:
+            df[col] = None
+    for col in ['minutes', 'yellowCards', 'redCards']:
+        df[col] = (pd.to_numeric(df.get(col), errors='coerce')
+                   .fillna(0).astype(int))
+    df = df[df["gameId"].notna()]
+    if df.empty:
+        return 0
+
+    own_con = con is None
+    if own_con:
+        con = get_motherduck_connection(token)
+    try:
+        df, cols = _align_to_table(con, df, "player_game_minutes")
+        con.register("_m_stage", df)
+        con.execute("BEGIN TRANSACTION")
+        try:
+            con.execute("DELETE FROM player_game_minutes WHERE gameId IN "
+                        "(SELECT DISTINCT gameId FROM _m_stage)")
+            con.execute(f"INSERT INTO player_game_minutes ({cols}) "
+                        f"SELECT {cols} FROM _m_stage")
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
+        con.unregister("_m_stage")
+    finally:
+        if own_con:
+            con.close()
+    return len(df)
 
 
 def _games_frame_from_fixtures(df, fixtures):
