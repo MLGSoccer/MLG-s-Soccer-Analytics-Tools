@@ -403,6 +403,29 @@ On `per-game-ingest`, with `DATA_MANAGER_LOCAL_DB` set the whole time.
 
 ### A2. Re-download everything · *database*
 
+**GATE PASSED 2026-08-29.** A full Premier League 25/26 season was ingested
+per-game into a practice file and smoke-tested:
+
+```
+380 games · 20 batches · 41 requests · 2.2 minutes
+621,984 events · 11,492 minute rows · 48 play types · 0 half-written
+
+smoke_chart_data.py:  OK 58   EMPTY 3   ERROR 0   SKIP 9
+```
+
+Zero errors across every CBS and DP entry point on the wider feed. Better
+than the baseline: `build_stat_poster_payload`, `build_v_compare_payload`
+and `build_v8_compare_payload` ERROR against the local mirror and pass here,
+because the per-game download carries `qualifierBlocked`.
+
+The 3 EMPTY are goal scorers, own goals and red cards on a match the harness
+sampled that finished 0-0 with no sending-off. Verified rather than assumed:
+the same functions return correctly on a game that has them.
+
+Request cost is at parity with the path being replaced - 41 against ~40 for
+a 20-team season - because batches are grouped by home team. One discovery
+call per SEASON, then one events and one minutes call per home team.
+
 Per-game, resumable, auditable. Roughly 900 requests.
 
 Fixes, as a by-product: the 22.6% half-matches, the 1,299-row mixed card
@@ -483,7 +506,7 @@ Alternates are irreducibly authored.
 | 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode | next |
 | 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
 | 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
-| 5 | **A2 re-download** | **database** | **NO** | gated |
+| 5 | **A2 re-download** | **database** | **NO** | **gate PASSED — see below** |
 | 6 | A3 delete API-Football | tool + db | schema drop | |
 | 7 | B2 CBS colour flip | charts | yes | needs 4 |
 | 8 | B3 alternates | data | deferred | deferred |
