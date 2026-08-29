@@ -1,0 +1,553 @@
+{
+ "q25": [
+  "Shot Attempts From Corners Off Target",
+  "Shot Attempts From Corners On Target",
+  "Chances Created From Set Play",
+  "Goals From Corners",
+  "Goals From Set Play",
+  "Assists From Corners",
+  "Assists From Set Play",
+  "Shots From Set Play (Excluding Blocks)",
+  "Shots On Target From Set Play",
+  "Shots Off Target From Set Play",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "The event occurred following a corner",
+  "Shots from Corner Kicks (including Blocks)",
+  "Expected Goals Generated from Corner Kicks",
+  "Set Piece Goals",
+  "Set Piece Goals",
+  "Set Piece Goals Against",
+  "Set Play Shots",
+  "Set Play Shots Against",
+  "Set Piece xG",
+  "Set Piece xG Against",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q26": [
+  "Percentage Of Freekicks On Target",
+  "Shot Attempts From Free Kick Off Target",
+  "Shot Attempts From Free Kick On Target",
+  "Chances Created From Set Play",
+  "Goals From Direct Free Kick",
+  "Goals From Set Play",
+  "Direct Free Kick Shot Attempts (Excluding Blocks)",
+  "Blocked Direct Free Kicks",
+  "Assists From Set Play",
+  "Shots From Set Play (Excluding Blocks)",
+  "Shots On Target From Set Play",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Set Piece Goals",
+  "Set Piece Goals",
+  "Set Piece Goals Against",
+  "Set Play Shots",
+  "Set Play Shots Against",
+  "Set Piece xG",
+  "Set Piece xG Against",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q160": [
+  "Chances Created From Set Play",
+  "Goals From Set Play",
+  "Shot Attempts From Throws Off Target",
+  "Shot Attempts From Throws On Target",
+  "Assists From Set Play",
+  "Shots From Set Play (Excluding Blocks)",
+  "Shots On Target From Set Play",
+  "Shots Off Target From Set Play",
+  "Goals From Throws",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Set Piece Goals",
+  "Set Piece Goals",
+  "Set Piece Goals Against",
+  "Set Play Shots",
+  "Set Play Shots Against",
+  "Set Piece xG",
+  "Set Piece xG Against",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q24": [
+  "Chances Created From Set Play",
+  "Goals From Set Play",
+  "Assists From Free Kick",
+  "Assists From Set Play",
+  "Shots From Set Play (Excluding Blocks)",
+  "Shots On Target From Set Play",
+  "Shots Off Target From Set Play",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Set Piece Goals",
+  "Set Piece Goals",
+  "Set Piece Goals Against",
+  "Set Play Shots",
+  "Set Play Shots Against",
+  "Set Piece xG",
+  "Set Piece xG Against",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q6": [
+  "Crosses From Open Play",
+  "Percentage Of Corners Successful From Left",
+  "Percentage Of Corners Successful From Right",
+  "Corners Taken",
+  "Short Corners",
+  "Pass Completion Percentage Of Crosses From A Corner",
+  "Cross Accuracy Pct On Corners",
+  "Cross Accuracy Pct In Open Play",
+  "Key Passes From Corners",
+  "Opponent Corners",
+  "Shots (Including Blocks) Directly from Corners",
+  "Shots on Target Directly from Corner Kicks",
+  "Shots off Target Directly from Corner Kicks",
+  "Crosses on Corner Kicks",
+  "Successful Crosses on Corner Kicks",
+  "Inswinger, Outswinger, Short, Other",
+  "Goal from Corner Kick Taken",
+  "Corner Passes Received (excluding Short Corners)",
+  "PassType",
+  "PassType"
+ ],
+ "q82": [
+  "Shots (Excluding Blocks)",
+  "Shots On Target",
+  "Shots Blocked (Shooter)",
+  "Defensive Touches",
+  "Goalkeeper Touches",
+  "Shots On Target Against",
+  "Saves",
+  "Big Chances Blocked",
+  "Shots Blocked With Right Foot",
+  "Saves Inside Box",
+  "Saves Outside Box",
+  "Save When Attacker Was 1 On 1 With GK",
+  "Saves Caught Or Collected By GK",
+  "Expected Goals Against On Target",
+  "MissedShots"
+ ],
+ "q2": [
+  "Passes Completed",
+  "Passes Attempted",
+  "Passes Received (Excludes Crosses)",
+  "Crosses From Open Play",
+  "Short Corners",
+  "Pass Completion Percentage Of Crosses From A Corner",
+  "Crosses Attempted",
+  "Cross Accuracy Pct",
+  "Cross Accuracy Pct On Corners",
+  "Cross Accuracy Pct In Open Play",
+  "Crosses on Corner Kicks",
+  "Successful Crosses on Corner Kicks",
+  "Inswinger, Outswinger, Short, Other",
+  "Crosses Attempted (Receiver)",
+  "Exp PV from Crosses"
+ ],
+ "q23": [
+  "Open Play Goals",
+  "Open Play Shots On Target",
+  "Shot Attempts From Open Play Off Target",
+  "Assists From Open Play",
+  "Shots From Fast Breaks (Excluding Blocks)",
+  "Goals From Open Play",
+  "Goals From Fast Breaks",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q9": [
+  "Penalties Won",
+  "Penalty Shots Taken",
+  "Penalty Shots Off Target",
+  "Penalty Shots On Target",
+  "Penalties Conceded",
+  "Penalty Goals",
+  "Penalty Shots Saved (Shooter)",
+  "Non-penalty Goals",
+  "Penalty Saves (GK)",
+  "Expected Goals Excluding Penalties",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Non-Penalty Kick Expected Goals",
+  "Non-Penalty Kick Expected Goals Against",
+  "Non-Penalty Goals Against"
+ ],
+ "q101": [
+  "Shots (Excluding Blocks)",
+  "Shots On Target",
+  "Shots Blocked (Shooter)",
+  "Shots On Target Against",
+  "Saves",
+  "Save Percentage",
+  "Big Chances Blocked",
+  "Shots From Outside The Box Cleared Off Line",
+  "Shots From Inside The Box Cleared Off Line",
+  "Shots Cleared Off Line",
+  "Shots Blocked With Right Foot",
+  "Saves Inside Box",
+  "Saves Outside Box",
+  "Expected Goals Against On Target"
+ ],
+ "q22": [
+  "Open Play Goals",
+  "Open Play Shots On Target",
+  "Shot Attempts From Open Play Off Target",
+  "Assists From Open Play",
+  "Goals From Open Play",
+  "Shot Pattern Of Play",
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)",
+  "Non-penalty xG Against",
+  "Non-penalty xG against per game",
+  "Non-penalty xG difference",
+  "Non-penalty xGD per game",
+  "Non-penalty xG",
+  "Non-penalty xG per game"
+ ],
+ "q15": [
+  "Headed Clearance",
+  "Percentage Of Shots Headed",
+  "Headed Shots (Excluding Blocks)",
+  "Headed Goals",
+  "Headed Shots Blocked",
+  "Headed Shots Off Target",
+  "Headed Shots On Target",
+  "Body Part Used for the Shot",
+  "Body Part",
+  "Headed Shots Directly From Corner Kicks",
+  "Headed Shots On Target Directly From Corner Kicks",
+  "Headed Shots Off Target, Directly From Corner Kicks"
+ ],
+ "q107": [
+  "Passes Completed",
+  "Passes Attempted",
+  "Passes Received (Excludes Crosses)",
+  "Throw Ins",
+  "Throw Ins To Opposition Player",
+  "Key Passes From Throw In",
+  "Assists From Throw Ins",
+  "Throw Ins (Receiver)",
+  "PassType",
+  "PassType"
+ ],
+ "q72": [
+  "Percentage Of Shots Via Left Foot",
+  "Left Footed Goals",
+  "Left Footed Shots Blocked",
+  "Left Footed Shots (Excluding Blocks)",
+  "Left Footed Shots On Target",
+  "Left Footed Shots Off Target",
+  "Body Part Used for the Shot",
+  "Body Part"
+ ],
+ "q20": [
+  "Percentage Of Shots Via Right Foot",
+  "Right Footed Shots (Excluding Blocks)",
+  "Shots On Target With Right Foot",
+  "Shots Off Target With Right Foot",
+  "Shots Blocked With Right Foot",
+  "Right Footed Goals",
+  "Body Part Used for the Shot",
+  "Body Part"
+ ],
+ "q211": [
+  "Turnover",
+  "Successful Duels",
+  "Take-Ons Overrun",
+  "Times Tackled",
+  "Duels Lost",
+  "Ground Duels Won",
+  "Ground Duels Lost"
+ ],
+ "q124": [
+  "Assists From Goal Kick",
+  "Key Passes From Goal Kick",
+  "Goal Kicks",
+  "Successful Goal Kicks",
+  "Goal Kick",
+  "PassType",
+  "PassType"
+ ],
+ "q139": [
+  "Shots Against",
+  "Shots On Target Against",
+  "Saves",
+  "Save Percentage",
+  "Saves Inside Box",
+  "Saves Outside Box"
+ ],
+ "q123": [
+  "Passes Completed",
+  "Passes Attempted",
+  "Passes Received (Excludes Crosses)",
+  "Goalkeeper Throws",
+  "Successful Goalkeeper Throws"
+ ],
+ "q218": [
+  "Assists",
+  "Key Passes + Assists",
+  "Big Chances Created",
+  "Second Assists",
+  "First and Second Assists"
+ ],
+ "q94": [
+  "Shots Blocked By Outfielder",
+  "Saves",
+  "Clearances Off The Line",
+  "Save When Attacker Was 1 On 1 With GK",
+  "Saves Caught Or Collected By GK"
+ ],
+ "q264": [
+  "Aerial Duels Won",
+  "Aerial Duels",
+  "Ground Duels Won",
+  "Ground Duels Lost",
+  "Aerial Duels Lost"
+ ],
+ "q1": [
+  "Long Ball Percentage",
+  "Pass Completion Percentage On Long Passes (Over 32 Metres)",
+  "Short Corners",
+  "Long Balls Attempted",
+  "Long Balls Completed"
+ ],
+ "q5": [
+  "Crosses From Open Play",
+  "Cross Accuracy Pct In Open Play",
+  "Key Passes From Free Kicks",
+  "Crosses From Free Kicks",
+  "Crosses Completed From Free Kicks"
+ ],
+ "q214": [
+  "Big Chances Missed",
+  "Big Chances Scored",
+  "Total Big Chances",
+  "Big Chances Blocked",
+  "Big Chances On Target"
+ ],
+ "q242": [
+  "Successful Duels",
+  "Duels Lost",
+  "Ground Duels Won",
+  "Ground Duels Lost"
+ ],
+ "q13": [
+  "Successful Duels",
+  "Duels Lost",
+  "Ground Duels Won",
+  "Ground Duels Lost"
+ ],
+ "q12": [
+  "Successful Duels",
+  "Duels Lost",
+  "Ground Duels Won",
+  "Ground Duels Lost"
+ ],
+ "q185": [
+  "Clearances",
+  "Crosses Blocked (Defender)",
+  "Blocked Crosses (Defender)"
+ ],
+ "q190": [
+  "Saves",
+  "Save When Attacker Was 1 On 1 With GK",
+  "Saves Caught Or Collected By GK"
+ ],
+ "q21": [
+  "Blocked Non-Foot/Head Shot",
+  "Goals From Non-Head/Foot Body Part",
+  "Saves Body"
+ ],
+ "q168": [
+  "Flick Ons",
+  "Successful Flick Ons",
+  "Unsuccessful Flick Ons"
+ ],
+ "q322": [
+  "Expected Goals On Target Using Post-Shot xG Model (Fully Available Since August 2018)",
+  "Expected Goals On Target Conceded (Fully Available Since August 2018)",
+  "Expected Goals on Target"
+ ],
+ "q224": [
+  "Inswinger, Outswinger, Short, Other",
+  "Outswinging Corner Kick Taken",
+  "Corner Passes Received (excluding Short Corners)"
+ ],
+ "q223": [
+  "Inswinger, Outswinger, Short, Other",
+  "Inswinging Corner Kick Taken",
+  "Corner Passes Received (excluding Short Corners)"
+ ],
+ "q225": [
+  "Inswinger, Outswinger, Short, Other",
+  "Straight Corner Kick Taken",
+  "Corner Passes Received (excluding Short Corners)"
+ ],
+ "q33": [
+  "Yellow Cards",
+  "Straight Reds"
+ ],
+ "q32": [
+  "Yellow Cards",
+  "Second Yellows"
+ ],
+ "q4": [
+  "Through Balls Attempted",
+  "Through Balls Completed"
+ ],
+ "q232": [
+  "Successful Duels",
+  "Ground Duels Won"
+ ],
+ "q263": [
+  "Successful Corners From The Left",
+  "Successful Corners From The Right"
+ ],
+ "q14": [
+  "Clearances Off The Line",
+  "Last Man Tackles"
+ ],
+ "q157": [
+  "Accurate Launches",
+  "Total Launches"
+ ],
+ "q156": [
+  "Successful Layoffs",
+  "Unsuccessful Layoffs"
+ ],
+ "q3": [
+  "Headed Passes Attempted",
+  "Headed Passes Completed"
+ ],
+ "q155": [
+  "Chipped Passes Attempted",
+  "Chipped Passes Completed"
+ ],
+ "q196": [
+  "Switch Of Play Passes Attempted",
+  "Switch Of Play Passes Completed"
+ ],
+ "q133": [
+  "Deflected Goals",
+  "Deflected Shots"
+ ],
+ "q215": [
+  "Shots Unassisted (Excluding Blocks)",
+  "Goals Unassisted/Shots Unassisted"
+ ],
+ "q488": [
+  "Corners Taken from opposing 8-Second Violation",
+  "Opponent Corners conceded due to 8-Second Violation"
+ ],
+ "q170": [
+  "Errors Leading to Goals"
+ ],
+ "q169": [
+  "Errors Leading To Shots"
+ ],
+ "q154": [
+  "Intentional Assists"
+ ],
+ "q236": [
+  "Crosses Blocked (Passer)"
+ ],
+ "q171": [
+  "Red Cards Rescinded"
+ ],
+ "q108": [
+  "Goals From Volleys"
+ ],
+ "q467": [
+  "Duels Lost"
+ ],
+ "q10": [
+  "Handballs Conceded"
+ ],
+ "q176": [
+  "Saves Caught"
+ ],
+ "q177": [
+  "Saves Collected"
+ ],
+ "q179": [
+  "Saves Diving"
+ ],
+ "q183": [
+  "Saves Feet"
+ ],
+ "q175": [
+  "Saves Fingertip"
+ ],
+ "q182": [
+  "Saves Hands"
+ ],
+ "q174": [
+  "Saves Parried Danger"
+ ],
+ "q173": [
+  "Saves Parried Safe"
+ ],
+ "q181": [
+  "Saves Reaching"
+ ],
+ "q178": [
+  "Saves Standing"
+ ],
+ "q180": [
+  "Saves Stooping"
+ ],
+ "q195": [
+  "Pull Back"
+ ],
+ "q286": [
+  "Offensive Duels"
+ ],
+ "q285": [
+  "Defensive Duels"
+ ],
+ "q89": [
+  "Save When Attacker Was 1 On 1 With GK"
+ ],
+ "q328": [
+  "Shots Attempted (Inc Blocks) First Time Without Another Touch To Control The Ball"
+ ],
+ "q42": [
+  "Substitution Reason"
+ ],
+ "q41": [
+  "Substitution Reason"
+ ],
+ "q335": [
+  "Events With A VAR Investigation "
+ ],
+ "q336": [
+  "Events With A VAR Investigation "
+ ],
+ "q112": [
+  "Style of Play from which Shot Was Taken (Open, Corner, Penalty, etc.)"
+ ]
+}

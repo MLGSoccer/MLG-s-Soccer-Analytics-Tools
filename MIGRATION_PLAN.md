@@ -615,6 +615,70 @@ existing worked example of the target shape.
 
 ---
 
+## NEXT: capture the Opta qualifiers (sized 2026-08-29)
+
+Widening `event.toucher` -> `event.primary` changed WHICH EVENTS arrive. It
+did not change HOW MUCH IS KNOWN about each one. Those are independent axes
+and only the first has been widened.
+
+**Qualifiers are opt-in, one named column at a time.** Today we take nine:
+q6/q107/q124 folded into `PassType`, q82 as `qualifierBlocked`, and
+q31/q32/q33/q171 as the card columns. Everything else Opta tags an event with
+is simply not selected - a Corner arrives with no delivery type, a
+substitution with no reason, a shot with no body part.
+
+### Sized, from the catalogue
+
+`dp-proxy-show-stats-custom?showTransforms=true&showEquations=true` returns
+**10,511 stats** with their equations. Referenced across them:
+
+```
+79 distinct qualifiers    77 flags, 2 that only look value-bearing (q9, q10)
+```
+
+Storage measured by building boolean columns into a copy of a real season at
+varying densities:
+
+```
+TRUE on  1.7%   0.7 MB/col across the whole database
+TRUE on  5.0%   1.0 MB/col
+TRUE on 20.0%   2.1 MB/col
+TRUE on 58.0%   1.2 MB/col
+
+ALL 79 QUALIFIERS  ~0.19 GB   (~7% of the database, 2% of the allowance)
+```
+
+**Density barely matters at this width.** 8.5M rows x 79 booleans is 671 MB
+uncompressed and columnar compression takes that to a fraction. The intuition
+that dense qualifiers are expensive is wrong here - a boolean column is a
+boolean column.
+
+### Decision: take all 79
+
+Selective depth per league was considered and rejected. It would save ~100 MB
+and **reintroduce the vintage-invisibility trap** - a game would read as
+`complete`, be complete, and quietly lack the qualifiers a chart needs. That
+is the same shape as the `old_feed` bug, for a trivial saving.
+
+### How, without a second full re-download
+
+`gameEventIndex` is stable across re-fetches at **99.72%**, so this is a
+narrow pull of the new columns with a `playType` + `gameClock` guard,
+re-downloading only the games that fail the guard. Costed at ~7.6% of a full
+download. The option was preserved deliberately before the migration.
+
+The 79 ids are in `data_manager/opta_qualifiers_referenced.json`, each mapped
+to the stats that reference it - which is what says what it MEANS. Names are
+readable from those: q2 passes, q1 long ball, q5 cross, q15 headed, q20/q72
+right/left foot, q25 from corner, q26 from free kick, q214 big chance,
+q211 duels, q264 aerial, q218 assist.
+
+**Do NOT guess qualifier names.** Fields that do not exist are accepted by the
+query and return NULL forever - `event.optaEventId` is the standing example.
+Enumerate from the catalogue.
+
+---
+
 ## Standing rules
 
 - **Practice mode for all download work.** `DATA_MANAGER_LOCAL_DB=<path>`.
