@@ -342,7 +342,28 @@ migration, and A1/A2 stop being a synchronised big-bang.
 
 ## TRACK A — the data
 
-### A0. Fallback readers · *charts only · no risk*
+### A0. Fallback readers — **DONE 2026-08-29** · *charts only · no risk*
+
+Committed, not pushed. CBS `4a97b5d` + `fd8f998`, DP `8c2decd` + `d41cc29`.
+Seven call sites across both products now go through shared helpers.
+`test_fallback_readers.py` covers all three states including the post-A3
+world where the tables are gone. Own goals read from events today; cards
+fall back until the predicate swap.
+
+Two things verified on live data while doing it, both worth carrying into
+step A1a:
+
+- **`game.home` / `game.away` are BOOLEAN side flags, not team names.** The
+  fixture-discovery query above must take names from `team.game.fullName` /
+  `opponent.game.fullName`.
+- **`((event.q33) OR (event.q32))` and `((event.q171))` work as WHERE
+  predicates**, so targeted scans cost a few KB rather than full seasons.
+
+And one question closed: a red card in the data ALWAYS means the player left
+the pitch — 760 measured, 696 settled against minutes played, 0 played to
+the end. Rescinded reds are included, deliberately.
+
+*(original spec below)*
 
 Six call sites read `own_goals.credited_team`; one reads `cards`. Rewrite
 each to read `events` first, fall back to the old table.
@@ -456,16 +477,16 @@ Alternates are irreducibly authored.
 
 ## The order, flattened
 
-| # | Step | Touches | Reversible |
-|---|---|---|---|
-| 1 | A0 fallback readers | charts | yes |
-| 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode |
-| 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes |
-| 4 | B1 registry — lands in `pages/3` | tool + charts | yes |
-| 5 | **A2 re-download** | **database** | **NO** |
-| 6 | A3 delete API-Football | tool + db | schema drop |
-| 7 | B2 CBS colour flip | charts | yes |
-| 8 | B3 alternates | data | deferred |
+| # | Step | Touches | Reversible | Status |
+|---|---|---|---|---|
+| 1 | A0 fallback readers | charts | yes | **DONE** 2026-08-29 |
+| 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode | next |
+| 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
+| 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
+| 5 | **A2 re-download** | **database** | **NO** | gated |
+| 6 | A3 delete API-Football | tool + db | schema drop | |
+| 7 | B2 CBS colour flip | charts | yes | needs 4 |
+| 8 | B3 alternates | data | deferred | deferred |
 
 1–4 are all reversible and can be done in any order, or in parallel. **Step 5
 is the only one-way door.**
