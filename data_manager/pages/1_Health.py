@@ -413,11 +413,129 @@ st.dataframe(
 st.divider()
 
 
+# ── Match coverage ───────────────────────────────────────────────────────────
+# The question the freshness table below cannot answer: is each match WHOLE?
+#
+# Events are fetched one team at a time and DELETEd at (gameId, teamId), so a
+# match can hold one side and both of its teams still look up to date - each
+# was downloaded, just never together. Measured 2026-08-29: 1,116 of 4,930
+# games (22.6%) hold ONE side, and nothing in this tool could see it. Every
+# chart reading those games is reading half a match.
+#
+# Computed from `games` and `events` alone, deliberately: this page works
+# without a TruMedia session and that is worth keeping. The cost is stated in
+# the caption - a fixture never downloaded at all is not in `games`, so it
+# cannot be counted here. The Campaign page discovers fixtures and can.
+
+st.header("Match coverage")
+
+OLD_FEED_TYPES = (
+    'Pass', 'BallTouch', 'Clearance', 'TakeOn', 'Tackle', 'FreeKick',
+    'Dispossessed', 'Interception', 'BlockedPass', 'AttemptSaved', 'Save',
+    'Miss', 'OffsidePass', 'Goal', 'Claim', 'DropOfBall', 'Punch', 'Post',
+    'PenaltyGoal', 'Smother', 'GoodSkill', 'OwnGoal',
+)
+
+
+@st.cache_data(ttl=300)
+def load_coverage(token):
+    con = get_motherduck_connection(token)
+    try:
+        types_sql = ",".join(f"'{t}'" for t in OLD_FEED_TYPES)
+        return con.execute(f"""
+            WITH per_game AS (
+                SELECT gameId,
+                       count(DISTINCT teamId) AS sides,
+                       max(CASE WHEN playType NOT IN ({types_sql})
+                                THEN 1 ELSE 0 END) AS new_feed
+                FROM events GROUP BY gameId
+            )
+            SELECT g.seasonId,
+                   count(*)                                        AS games,
+                   count(*) FILTER (WHERE p.sides = 2)             AS complete,
+                   count(*) FILTER (WHERE p.sides = 1)             AS one_sided,
+                   count(*) FILTER (WHERE p.sides IS NULL)         AS no_events,
+                   count(*) FILTER (WHERE p.new_feed = 1)          AS per_game_feed
+            FROM games g LEFT JOIN per_game p ON p.gameId = g.gameId
+            GROUP BY 1
+        """).df()
+    finally:
+        con.close()
+
+
+try:
+    cov = load_coverage(MOTHERDUCK_TOKEN)
+except Exception as e:
+    cov = None
+    st.error(f"Could not read coverage: {e}")
+
+if cov is not None and not cov.empty:
+    tot = int(cov["games"].sum())
+    whole = int(cov["complete"].sum())
+    half = int(cov["one_sided"].sum())
+    none_ = int(cov["no_events"].sum())
+    newf = int(cov["per_game_feed"].sum())
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Games", f"{tot:,}")
+    c2.metric("Whole", f"{whole:,}", f"{100.0 * whole / max(tot, 1):.1f}%")
+    c3.metric("Half a match", f"{half:,}",
+              f"-{100.0 * half / max(tot, 1):.1f}%" if half else "0%",
+              delta_color="inverse")
+    c4.metric("No events", f"{none_:,}")
+
+    if half:
+        st.warning(
+            f"**{half:,} games hold only one team's events.** Every chart "
+            f"reading them is reading half a match. The Campaign page finds "
+            f"and fixes these; the freshness table below cannot see them, "
+            f"because both teams were downloaded — just never together.")
+
+    st.caption(
+        f"**Feed vintage:** {newf:,} of {tot:,} games "
+        f"({100.0 * newf / max(tot, 1):.1f}%) carry play types the old "
+        f"`event.toucher` feed could not return — cards, substitutions, "
+        f"corners. That is migration progress, per game.")
+    st.caption(
+        "Counted from `games`, so a fixture that was never downloaded at all "
+        "is invisible here. The Campaign page discovers fixtures from the "
+        "season and can see those.")
+
+    rows = []
+    for _, r in cov.iterrows():
+        sid = r["seasonId"]
+        rows.append({
+            "Season": seasons.get(sid) or season_leagues.get(sid) or f"{str(sid)[:10]}…",
+            "Games": int(r["games"]),
+            "Whole": int(r["complete"]),
+            "Half a match": int(r["one_sided"]),
+            "No events": int(r["no_events"]),
+            "New feed": int(r["per_game_feed"]),
+            "Complete %": round(100.0 * r["complete"] / max(r["games"], 1), 1),
+        })
+    df_cov = pd.DataFrame(rows).sort_values(
+        ["Half a match", "Complete %"], ascending=[False, True])
+
+    def _flag_half(v):
+        return "color: #FF6B6B" if isinstance(v, (int, float)) and v else ""
+
+    st.dataframe(df_cov.style.map(_flag_half, subset=["Half a match", "No events"]),
+                 hide_index=True, use_container_width=True)
+
+
 # ── Download freshness, per league ───────────────────────────────────────────
 # Moved here from the Downloads page: this is a health question, and it kept
 # the selection UI over there tangled up with a status table.
+#
+# SUPERSEDED by Match coverage above, and kept only while Bulk Actions still
+# runs. "When was this team last fetched" is the wrong question once ingest is
+# per game: it is exactly the measure under which a half-ingested match looks
+# fine. Retire it with Bulk Actions.
 
 st.header("Download freshness")
+st.caption("Per TEAM, and superseded by Match coverage above — a team can be "
+           "freshly downloaded while its matches are half empty. Kept while "
+           "Bulk Actions is still in use.")
 
 
 def _load_json(path):
