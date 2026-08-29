@@ -426,6 +426,41 @@ Request cost is at parity with the path being replaced - 41 against ~40 for
 a 20-team season - because batches are grouped by home team. One discovery
 call per SEASON, then one events and one minutes call per home team.
 
+**AND the hostile shape, UEFA Champions League 25/26** - the most
+structurally different competition in the database, chosen precisely because
+a 20-team domestic league is the tidiest case and proving only that would
+have proved little:
+
+```
+226 games · 56 clubs · 9 stages · 1 neutral site · 56 batches · 113 requests
+373,586 events · 6,987 minute rows · 49 play types · 0 half-written · 1.8 min
+minutes/game 1,870-2,640   <- 2,640 = 120 min x 22, extra time, unhandled and correct
+
+smoke_chart_data.py:  OK 55  EMPTY 2  ERROR 4  SKIP 9
+```
+
+The 4 errors are all `player_id not found in pool 'europe'` - the Supabase
+player pools, fetched from `storage/v1/object/player-pools/*.csv` and
+entirely outside the database. Per-game ingest cannot affect them and the
+same error occurs today. That is the deferred Supabase workstream, already
+recorded as outside this migration's coverage. **Zero migration-caused
+errors.**
+
+Every season in config was also run through the WORK LIST (read-only, one
+request each): all 26 discovered cleanly, no failures. Full re-download is
+~1,250 requests, ~45 minutes.
+
+## Recommended production sequence
+
+1. A small season first - WSL (132) or Frauen-Bundesliga (182). First write
+   to production, cheapest possible.
+2. Check Health: feed vintage should jump from 0 to that season's count, and
+   "half a match" should fall.
+3. Big-5, one season per run.
+4. Cups and the rest.
+
+Resumable throughout, so stopping between seasons costs nothing.
+
 Per-game, resumable, auditable. Roughly 900 requests.
 
 Fixes, as a by-product: the 22.6% half-matches, the 1,299-row mixed card
@@ -506,7 +541,7 @@ Alternates are irreducibly authored.
 | 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode | next |
 | 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
 | 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
-| 5 | **A2 re-download** | **database** | **NO** | **gate PASSED — see below** |
+| 5 | **A2 re-download** | **database** | **NO** | **GATE CLOSED — ready to run** |
 | 6 | A3 delete API-Football | tool + db | schema drop | |
 | 7 | B2 CBS colour flip | charts | yes | needs 4 |
 | 8 | B3 alternates | data | deferred | deferred |
