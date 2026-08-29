@@ -1132,7 +1132,9 @@ def get_red_cards_for_game(game_id):
     """Return red cards and second yellows. Events first, `cards` as fallback.
 
     Returns [{minute, period, player, playerId, teamId, team, card_type,
-    source}]. Empty when neither source has anything.
+    rescinded, source}]. Empty when neither source has anything.
+
+    Rescinded cards ARE included - see the note on the query below.
 
     On the events path `playerId` and `teamId` are populated and `Period` is
     real; on the fallback they are None and the period is inferred, because
@@ -1148,9 +1150,21 @@ def get_red_cards_for_game(game_id):
     # so no card event exists in production today regardless of the qualifier
     # columns being present. This is live the moment a game is re-ingested.
     #
-    # A rescinded card is excluded rather than reported - it was struck from
-    # the record, and a chart showing a red card that no longer exists is
-    # worse than one showing none.
+    # RESCINDED CARDS ARE INCLUDED. The chart depicts the match, and a red
+    # card sent a player off: the team played the rest of it a man down, and
+    # that is the fact the annotation exists to explain. Rescission is an
+    # administrative act taken days later and does not restore the eleventh
+    # player retroactively. Dropping the card would leave an xG race or a
+    # momentum chart with an hour of one-sided play and nothing to account
+    # for it.
+    #
+    # `rescinded` is returned so a caller could surface it, but these are
+    # ordinary red cards as far as the charts are concerned.
+    #
+    # OPEN: whether Opta's q171 also covers an IN-MATCH VAR overturn, which
+    # would be a different thing entirely - the player stays on and the match
+    # is 11v11. Unverifiable until card data actually lands; check it against
+    # a known VAR-overturned red on the first migration download.
     rows = []
     if _events_has(con, 'qualifierRed', 'qualifierSecondYellow',
                    'qualifierCardRescinded', 'primaryPlayer',
@@ -1159,11 +1173,11 @@ def get_red_cards_for_game(game_id):
             SELECT CAST(gameClock AS DOUBLE) / 60.0 AS minute,
                    primaryPlayer, primaryPlayerId, teamId, teamFullName, Period,
                    CASE WHEN qualifierSecondYellow THEN 'second_yellow'
-                        ELSE 'red' END AS card_type
+                        ELSE 'red' END AS card_type,
+                   COALESCE(qualifierCardRescinded, FALSE) AS rescinded
             FROM events
             WHERE gameId = ?
               AND (qualifierRed OR qualifierSecondYellow)
-              AND NOT COALESCE(qualifierCardRescinded, FALSE)
             ORDER BY Period, gameClock
         """, [game_id]).fetchall()
     if rows:
@@ -1171,14 +1185,15 @@ def get_red_cards_for_game(game_id):
                  'period': int(r[5]) if r[5] is not None else 1,
                  'player': r[1], 'playerId': r[2],
                  'teamId': r[3], 'team': r[4],
-                 'card_type': r[6], 'source': 'events'}
+                 'card_type': r[6], 'rescinded': bool(r[7]),
+                 'source': 'events'}
                 for r in rows]
 
     return [{'minute': r[0],
              'period': _infer_period_from_minute(r[0]),
              'player': r[1], 'playerId': None,
              'teamId': None, 'team': r[2],
-             'card_type': r[3], 'source': 'cards'}
+             'card_type': r[3], 'rescinded': False, 'source': 'cards'}
             for r in _fallback_rows(
                 con,
                 "SELECT minute, playerName, teamName, card_type FROM cards "
