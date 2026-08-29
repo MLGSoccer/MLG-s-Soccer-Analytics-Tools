@@ -785,25 +785,52 @@ def build_shots_from_game(game_id):
 
 @st.cache_data(ttl=3600)
 def get_own_goals_for_game(game_id):
-    """Return own goal events for a game from the own_goals table.
+    """Return own goal events for a game. Events first, own_goals as fallback.
 
-    Returns list of {minute, period, credited_team} dicts, or empty list
-    if none found. Period is heuristic (see _infer_period_from_minute)
-    because the own_goals table stores minute = elapsed + extra collapsed.
+    Returns [{minute, period, teamId, credited_team, source}].
+
+    `teamId` is the CONCEDING side - the team whose player put it in their
+    own net - which is the same thing `own_goals.credited_team` means.
+    Verified against production 2026-08-29: 329 same side, 0 opposite.
+
+    PREFER teamId. `credited_team` is a NAME, and it comes from
+    API-Football's naming while `games` uses TruMedia's, so consumers have
+    had to fuzzy-match the two. That is the bug class fixed across the shot
+    maps on 2026-08-29; it is kept here only so existing callers do not
+    break, and it is empty on the events path.
+
+    The events path is also strictly more accurate: `Period` is real rather
+    than inferred, because `own_goals.minute` collapses elapsed + extra so
+    a 45+2 own goal is indistinguishable from a 45th-minute one.
     """
     if not game_id:
         return []
     con = get_connection()
-    rows = con.execute(
-        "SELECT minute, credited_team FROM own_goals WHERE gameId = ? ORDER BY minute",
-        [game_id]
-    ).fetchall()
-    return [
-        {"minute": r[0],
-         "period": _infer_period_from_minute(r[0]),
-         "credited_team": r[1]}
-        for r in rows
-    ]
+
+    rows = con.execute("""
+        SELECT CAST(gameClock AS DOUBLE) / 60.0 AS minute, teamId, Period
+        FROM events
+        WHERE gameId = ? AND playType = 'OwnGoal'
+        ORDER BY Period, gameClock
+    """, [game_id]).fetchall()
+    if rows:
+        return [{"minute": int(r[0]) if r[0] is not None else None,
+                 "period": int(r[2]) if r[2] is not None else 1,
+                 "teamId": r[1],
+                 "credited_team": None,
+                 "source": "events"}
+                for r in rows]
+
+    # Fallback: API-Football's table, for games not yet re-ingested.
+    return [{"minute": r[0],
+             "period": _infer_period_from_minute(r[0]),
+             "teamId": None,
+             "credited_team": r[1],
+             "source": "own_goals"}
+            for r in _fallback_rows(
+                con,
+                "SELECT minute, credited_team FROM own_goals "
+                "WHERE gameId = ? ORDER BY minute", [game_id])]
 
 
 @st.cache_data(ttl=3600)
@@ -1005,6 +1032,41 @@ def get_player_game_log(player_id, player_name):
     return matches
 
 
+def _events_has(con, *cols):
+    """Does `events` carry these columns?
+
+    The card qualifiers were added in August 2026, so any database predating
+    that - the local mirror, an old snapshot, a partially-migrated copy -
+    does not have them. Querying for them there raises a BinderException,
+    which would take a chart down rather than falling back.
+
+    Checked rather than caught, so a genuine SQL error in the query still
+    surfaces instead of being swallowed as "no data".
+    """
+    try:
+        have = {r[0] for r in con.execute("DESCRIBE events").fetchall()}
+    except Exception:
+        return False
+    return set(cols) <= have
+
+
+def _fallback_rows(con, sql, params):
+    """Query a table that API-Football owns and that is scheduled for deletion.
+
+    Returns [] rather than raising if the table is gone. The migration drops
+    `own_goals`, `cards`, `player_minutes` and `game_fixtures` once the feed
+    carries their content; until then these readers try `events` first and
+    come here. Afterwards the tables vanish and this returns nothing, which
+    is correct - by then `events` is answering.
+
+    Without this the drop in step A3 would take the charts down with it.
+    """
+    try:
+        return con.execute(sql, params).fetchall()
+    except Exception:
+        return []
+
+
 def _infer_period_from_minute(minute):
     """Heuristic: minute <= 50 = first half, else second half.
 
@@ -1067,29 +1129,61 @@ def get_goal_scorers_for_game(game_id):
 
 @st.cache_data(ttl=3600)
 def get_red_cards_for_game(game_id):
-    """Return red card events for a game from the cards table.
+    """Return red cards and second yellows. Events first, `cards` as fallback.
 
-    Includes red cards and second yellows. Returns empty list if no API data
-    was fetched for this game.
-    Returns list of {minute, period, player, team, card_type} dicts. Period
-    is heuristic (see _infer_period_from_minute) because the cards table
-    stores minute = elapsed + extra collapsed.
+    Returns [{minute, period, player, playerId, teamId, team, card_type,
+    source}]. Empty when neither source has anything.
+
+    On the events path `playerId` and `teamId` are populated and `Period` is
+    real; on the fallback they are None and the period is inferred, because
+    `cards.minute` collapses elapsed + extra. PREFER the ids - `team` is a
+    name, and it is API-Football's name, not TruMedia's.
     """
     if not game_id:
         return []
     con = get_connection()
-    rows = con.execute("""
-        SELECT minute, playerName, teamName, card_type
-        FROM cards
-        WHERE gameId = ? AND card_type IN ('red', 'second_yellow')
-        ORDER BY minute
-    """, [game_id]).fetchall()
-    return [
-        {'minute': r[0],
-         'period': _infer_period_from_minute(r[0]),
-         'player': r[1], 'team': r[2], 'card_type': r[3]}
-        for r in rows
-    ]
+
+    # Events path. Nothing returns here until the predicate swap: cards are
+    # filtered out by `AND ((event.toucher))` before they ever reach the CSV,
+    # so no card event exists in production today regardless of the qualifier
+    # columns being present. This is live the moment a game is re-ingested.
+    #
+    # A rescinded card is excluded rather than reported - it was struck from
+    # the record, and a chart showing a red card that no longer exists is
+    # worse than one showing none.
+    rows = []
+    if _events_has(con, 'qualifierRed', 'qualifierSecondYellow',
+                   'qualifierCardRescinded', 'primaryPlayer',
+                   'primaryPlayerId'):
+        rows = con.execute("""
+            SELECT CAST(gameClock AS DOUBLE) / 60.0 AS minute,
+                   primaryPlayer, primaryPlayerId, teamId, teamFullName, Period,
+                   CASE WHEN qualifierSecondYellow THEN 'second_yellow'
+                        ELSE 'red' END AS card_type
+            FROM events
+            WHERE gameId = ?
+              AND (qualifierRed OR qualifierSecondYellow)
+              AND NOT COALESCE(qualifierCardRescinded, FALSE)
+            ORDER BY Period, gameClock
+        """, [game_id]).fetchall()
+    if rows:
+        return [{'minute': int(r[0]) if r[0] is not None else None,
+                 'period': int(r[5]) if r[5] is not None else 1,
+                 'player': r[1], 'playerId': r[2],
+                 'teamId': r[3], 'team': r[4],
+                 'card_type': r[6], 'source': 'events'}
+                for r in rows]
+
+    return [{'minute': r[0],
+             'period': _infer_period_from_minute(r[0]),
+             'player': r[1], 'playerId': None,
+             'teamId': None, 'team': r[2],
+             'card_type': r[3], 'source': 'cards'}
+            for r in _fallback_rows(
+                con,
+                "SELECT minute, playerName, teamName, card_type FROM cards "
+                "WHERE gameId = ? AND card_type IN ('red', 'second_yellow') "
+                "ORDER BY minute", [game_id])]
 
 
 @st.cache_data(ttl=3600)
