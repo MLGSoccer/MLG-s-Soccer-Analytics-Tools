@@ -30,6 +30,7 @@ from downloader import (  # noqa: E402
     WORK_COMPLETE,
     WORK_MISSING,
     WORK_NOT_PLAYED,
+    WORK_OLD_FEED,
     WORK_ONE_SIDED,
     WORK_ORDER,
     build_work_list,
@@ -60,10 +61,12 @@ STATE_HELP = {
     WORK_MISSING: "No events at all. Download.",
     WORK_ONE_SIDED: "Only ONE team's events are stored — half a match. "
                     "Download. This is the case the old tool cannot see.",
+    WORK_OLD_FEED: "Both sides stored, but downloaded under the OLD feed — "
+                   "22 play types, no cards, no substitutions. Re-download.",
     WORK_NOT_PLAYED: "Fixture exists, no result yet. Skip.",
     WORK_COMPLETE: "Both sides present. Skip.",
 }
-STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠",
+STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠", WORK_OLD_FEED: "🟡",
               WORK_NOT_PLAYED: "⚪", WORK_COMPLETE: "🟢"}
 
 st.title("Campaign")
@@ -178,7 +181,8 @@ for state in WORK_ORDER:
     if summary[state]:
         st.caption(f"{STATE_ICON[state]} **{state}** — {STATE_HELP[state]}")
 
-todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED) if summary[s]]
+todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED)
+               if summary[s]]
 if not todo_states:
     st.success("Every played fixture is already stored whole. Nothing to do.")
     st.stop()

@@ -54,12 +54,18 @@ w = duckdb.connect(str(DB))
 w.execute(f"ATTACH '{MIRROR}' AS m (READ_ONLY)")
 w.execute("CREATE TABLE games AS SELECT * FROM m.games WHERE gameId IN (?,?,?)",
           [g_complete, g_one_sided, g_missing])
-# complete: both sides.  one_sided: home only.  missing: no events at all.
+# The mirror is entirely OLD-FEED data, so both-sides alone is not enough to
+# be complete - that is the distinction under test. g_complete gets a
+# new-feed play type injected; without it, it is old_feed like everything
+# else in there.
 w.execute("CREATE TABLE events AS SELECT * FROM m.events WHERE gameId = ?",
           [g_complete])
 w.execute("""INSERT INTO events SELECT e.* FROM m.events e
              JOIN m.games g ON e.gameId = g.gameId
              WHERE e.gameId = ? AND e.teamId = g.homeTeamId""", [g_one_sided])
+w.execute("""INSERT INTO events (gameId, teamId, playType)
+             SELECT ?, homeTeamId, 'Booking' FROM games WHERE gameId = ?""",
+          [g_complete, g_complete])
 w.execute("DETACH m")
 w.close()
 
@@ -110,8 +116,14 @@ rs = dl.work_list_summary(real)
 tot = sum(rs.values())
 for k in dl.WORK_ORDER:
     print(f"        {k:<12} {rs[k]:>6,}  ({100.0*rs[k]/max(tot,1):.1f}%)")
-check("mirror is almost entirely complete", rs[dl.WORK_COMPLETE] > tot * 0.9,
-      f"{rs[dl.WORK_COMPLETE]:,}/{tot:,}")
+# The mirror predates the predicate swap, so EVERY whole game in it is
+# old_feed. If this ever reports `complete` instead, the feed-vintage test
+# has stopped working - which is exactly the bug that let 3,814 production
+# games read as done.
+check("every whole game in the mirror is old_feed, not complete",
+      rs[dl.WORK_COMPLETE] == 0 and rs[dl.WORK_OLD_FEED] > tot * 0.9,
+      f"old_feed={rs[dl.WORK_OLD_FEED]:,} complete={rs[dl.WORK_COMPLETE]:,} "
+      f"of {tot:,}")
 
 print(f"\n{'=' * 62}\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

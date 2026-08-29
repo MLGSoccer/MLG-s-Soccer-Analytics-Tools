@@ -1688,9 +1688,30 @@ def build_game_event_statement(anchor_team_id, season_ids, game_ids):
 # Work-list states, in the order a campaign should attack them.
 WORK_MISSING = "missing"        # no events at all
 WORK_ONE_SIDED = "one_sided"    # half a match - the 22.6% problem
+WORK_OLD_FEED = "old_feed"      # both sides, but ingested under event.toucher
 WORK_NOT_PLAYED = "not_played"  # fixture exists, no result yet
-WORK_COMPLETE = "complete"      # both sides present
-WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_NOT_PLAYED, WORK_COMPLETE]
+WORK_COMPLETE = "complete"      # both sides, on the current feed
+WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
+              WORK_NOT_PLAYED, WORK_COMPLETE]
+
+# The 22 play types `event.toucher` can return. A game holding ONLY these was
+# ingested under the old predicate.
+#
+# WHY THIS IS A SEPARATE STATE. "Both sides present" was the original test for
+# complete, and it is true of every game already in production - they were
+# downloaded a team at a time, but they were downloaded. It says nothing about
+# WHICH FEED they came from. Calling them complete meant a campaign would skip
+# them and leave them on 22 play types with no cards and no substitutions,
+# forever, while reporting the migration as finished.
+#
+# Caught before any production run: WSL showed 38 "complete" against 94
+# one-sided, and the 38 were old-feed games.
+OLD_FEED_PLAY_TYPES = (
+    'Pass', 'BallTouch', 'Clearance', 'TakeOn', 'Tackle', 'FreeKick',
+    'Dispossessed', 'Interception', 'BlockedPass', 'AttemptSaved', 'Save',
+    'Miss', 'OffsidePass', 'Goal', 'Claim', 'DropOfBall', 'Punch', 'Post',
+    'PenaltyGoal', 'Smother', 'GoodSkill', 'OwnGoal',
+)
 
 # Statuses worth attempting a download for. Checked against every season in
 # config on 2026-08-29; the full set seen was Played, Awarded, Fixture,
@@ -1740,26 +1761,34 @@ def build_work_list(con, fixtures):
     """
     if fixtures.empty:
         return fixtures.assign(sides_present=0, events_stored=0,
-                               state=WORK_MISSING)
+                               new_feed=False, state=WORK_MISSING)
     gids = list(fixtures["gameId"])
     ph = ",".join("?" * len(gids))
+    old_types = ",".join(f"'{t}'" for t in OLD_FEED_PLAY_TYPES)
     have = con.execute(
-        f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n "
+        f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n, "
+        f"       max(CASE WHEN playType NOT IN ({old_types}) THEN 1 ELSE 0 END)"
+        f"       AS new_feed "
         f"FROM events WHERE gameId IN ({ph}) GROUP BY gameId", gids
     ).fetchall()
-    sides = {g: s for g, s, _ in have}
-    counts = {g: n for g, _, n in have}
+    sides = {g: s for g, s, _, _ in have}
+    counts = {g: n for g, _, n, _ in have}
+    newfeed = {g: bool(f) for g, _, _, f in have}
 
     out = fixtures.copy()
     out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
     out["events_stored"] = out["gameId"].map(counts).fillna(0).astype(int)
+    out["new_feed"] = out["gameId"].map(newfeed).fillna(False).astype(bool)
 
     played = (out["status"].astype(str).str.lower().isin(INGESTABLE_STATUSES)
               if "status" in out.columns else True)
 
     def _state(row, is_played):
         if row["sides_present"] >= 2:
-            return WORK_COMPLETE
+            # Both sides, but which feed? A game holding only the old 22 play
+            # types still needs re-downloading - it has no cards and no
+            # substitutions, whatever its row count says.
+            return WORK_COMPLETE if row["new_feed"] else WORK_OLD_FEED
         if not is_played:
             return WORK_NOT_PLAYED
         return WORK_ONE_SIDED if row["sides_present"] == 1 else WORK_MISSING
@@ -1828,7 +1857,8 @@ def estimate_requests(todo, batch_size=MAX_GAMES_PER_REQUEST,
 
 
 def run_campaign(session, token, fixtures, work, output_dir, season_ids,
-                 states=(WORK_MISSING, WORK_ONE_SIDED), con=None,
+                 states=(WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED),
+                 con=None,
                  progress=None, stop=None, batch_size=MAX_GAMES_PER_REQUEST,
                  with_minutes=True):
     """Download and write every game in `work` whose state is in `states`.
