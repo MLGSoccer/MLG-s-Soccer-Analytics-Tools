@@ -1692,6 +1692,31 @@ WORK_NOT_PLAYED = "not_played"  # fixture exists, no result yet
 WORK_COMPLETE = "complete"      # both sides present
 WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_NOT_PLAYED, WORK_COMPLETE]
 
+# Statuses worth attempting a download for. Checked against every season in
+# config on 2026-08-29; the full set seen was Played, Awarded, Fixture,
+# Playing.
+#
+# AWARDED IS INCLUDED, and that is not obvious. It covers three different
+# things and only the events can tell them apart - measured on all five
+# awarded fixtures in the database:
+#
+#   PSG v Le Havre W        0 events      never played
+#   PSG v Fleury W          0 events      never played
+#   Strasbourg W v PSG      0 events      never played
+#   Lens W v PSG        1,973 events      PLAYED IN FULL, then awarded
+#   Nantes v Toulouse     567 events      ABANDONED after 21 minutes
+#
+# Excluding the status would silently drop a complete 94-minute match and a
+# real abandoned one. The cost of including it is that the three genuinely
+# unplayed games stay on the work list and get retried each run - three games
+# out of ~4,930, and visible rather than silent, which is the right way round.
+#
+# PLAYING IS EXCLUDED deliberately. A match in progress has partial events;
+# ingesting it would store half a game that then reads as COMPLETE - both
+# sides present - and never be refreshed. That is the exact failure this
+# rework exists to remove, arriving through the front door.
+INGESTABLE_STATUSES = {"played", "awarded"}
+
 
 def build_work_list(con, fixtures):
     """Classify every fixture against what the database actually holds.
@@ -1729,8 +1754,8 @@ def build_work_list(con, fixtures):
     out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
     out["events_stored"] = out["gameId"].map(counts).fillna(0).astype(int)
 
-    played = out["status"].astype(str).str.lower().eq("played") \
-        if "status" in out.columns else True
+    played = (out["status"].astype(str).str.lower().isin(INGESTABLE_STATUSES)
+              if "status" in out.columns else True)
 
     def _state(row, is_played):
         if row["sides_present"] >= 2:
