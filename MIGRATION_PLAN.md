@@ -718,7 +718,23 @@ Enumerate from the catalogue.
 
 ---
 
-## Beyond qualifiers: what else the feed carries
+## Beyond qualifiers: see EVENT_MODEL_EXPANSION.md
+
+**The conclusion changed after this section was written.** Do not take 227
+raw qualifiers - take the ~77 `context: ['event']` STAT TOKENS instead. They
+are TruMedia's resolved layer: `[BodyPart|EVENT]` instead of q15+q20+q72+q21,
+`[CornerType|EVENT]` instead of q223+q224+q225. One readable column instead
+of four booleans to interpret.
+
+And there is a fourth way fields arrive that none of the sections below knew
+about - stat tokens - which is where the genuinely irreplaceable data lives:
+`GKx`/`GKy`, `GoalmouthY`/`GoalmouthZ` (shot placement in 3D), `PlyrsBtwn`,
+`xGOT`, `xPVAdded`, `MatchState`, `Starter`.
+
+`EVENT_MODEL_EXPANSION.md` is the spec. What follows is kept for the sizing
+work and the derivable/not-derivable split, both of which still hold.
+
+## (superseded) Beyond qualifiers: what else the feed carries
 
 Widening the predicate changed WHICH EVENTS arrive. Qualifiers are one axis of
 "how much is known about each one" - but not the only one. The catalogue's
