@@ -177,7 +177,17 @@ def _get_team_league(season_ids):
 
 @st.cache_resource
 def get_connection():
-    """Open a cached MotherDuck connection for the Streamlit session."""
+    """Open a cached MotherDuck connection for the Streamlit session.
+
+    SOCCER_DB_PATH overrides the cloud connection with a local DuckDB file.
+    The local mirror uses identical table and column names, so every query in
+    this module works unchanged against it. Used to exercise the chart code
+    against a candidate schema without touching production, and to develop
+    locally without spending MotherDuck quota. Unset = normal cloud behaviour.
+    """
+    local = os.environ.get("SOCCER_DB_PATH")
+    if local:
+        return duckdb.connect(local, read_only=True)
     token = st.secrets.get("MOTHERDUCK_TOKEN")
     if not token:
         raise ValueError("MOTHERDUCK_TOKEN not found in Streamlit secrets.")
@@ -1175,6 +1185,31 @@ def get_shooters_for_team(team_id):
     return [r[0] for r in rows]
 
 
+# The 22 playTypes the event feed carries today. The downloader filters on
+# `event.toucher` - ball-touch events only - and the migration to
+# `event.primary` widens that to 47 types: cards, substitutions, corners, ball
+# recoveries, aerials and more.
+#
+# Those extra types are not inert for the two charts below. They carry
+# coordinates and sequenceIds, so an unpinned query silently re-bases both the
+# sequence composition and the zone denominators - the new rows change which
+# sequences clear `HAVING COUNT(*) > 1` and add touches to zones that never
+# had them. Measured at ~4% movement in the choke-point values and +111 rows
+# in the momentum feed: a change in what the chart SAYS, arriving as a side
+# effect of an ingest change nobody would connect to it.
+#
+# Pinning holds both charts on the semantics they were designed and reviewed
+# against. Widening them is an editorial decision to take deliberately, with a
+# fresh look at the chart - not one to inherit from a downloader predicate.
+CURRENT_FEED_PLAY_TYPES = (
+    'Pass', 'BallTouch', 'Clearance', 'TakeOn', 'Tackle', 'FreeKick',
+    'Dispossessed', 'Interception', 'BlockedPass', 'AttemptSaved', 'Save',
+    'Miss', 'OffsidePass', 'Goal', 'Claim', 'DropOfBall', 'Punch', 'Post',
+    'PenaltyGoal', 'Smother', 'GoodSkill', 'OwnGoal',
+)
+_FEED_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in CURRENT_FEED_PLAY_TYPES) + ")"
+
+
 @st.cache_data(ttl=3600)
 def get_sequence_choke_data(game_ids_tuple, team_id):
     """Return data for the Sequence Choke Point chart.
@@ -1197,12 +1232,13 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
     con = get_connection()
 
     # Query 1: league-wide zone shot rates (all teams, all games)
-    zone_rows = con.execute("""
+    zone_rows = con.execute(f"""
         WITH seq_info AS (
             SELECT gameId, sequenceId,
                    MAX(CASE WHEN playType IN ('Goal','PenaltyGoal','AttemptSaved','Miss','Post')
                             THEN 1 ELSE 0 END) as has_shot
             FROM events
+            WHERE playType IN {_FEED_TYPES_SQL}
             GROUP BY gameId, sequenceId
             HAVING COUNT(*) > 1
         ),
@@ -1215,6 +1251,7 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
             JOIN seq_info s ON e.gameId = s.gameId AND e.sequenceId = s.sequenceId
             WHERE e.EventXDecimal IS NOT NULL AND e.EventYDecimal IS NOT NULL
               AND e.EventXDecimal >= 0 AND e.EventYDecimal >= 0
+              AND e.playType IN {_FEED_TYPES_SQL}
         ),
         deduped AS (
             SELECT DISTINCT gameId, sequenceId, zone_x, zone_y, has_shot
@@ -1237,6 +1274,7 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
                             THEN 1 ELSE 0 END) as has_shot
             FROM events
             WHERE teamId = ? AND gameId IN ({ph})
+              AND playType IN {_FEED_TYPES_SQL}
             GROUP BY gameId, sequenceId
             HAVING COUNT(*) > 1
         ),
@@ -1247,6 +1285,7 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
             WHERE e.teamId = ? AND e.gameId IN ({ph})
               AND e.passer IS NOT NULL AND e.passer != ''
               AND e.EventXDecimal IS NOT NULL
+              AND e.playType IN {_FEED_TYPES_SQL}
         ),
         receiver_t AS (
             SELECT e.gameId, e.sequenceId, e.receiver AS player,
@@ -1255,6 +1294,7 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
             WHERE e.teamId = ? AND e.gameId IN ({ph})
               AND e.receiver IS NOT NULL AND e.receiver != ''
               AND e.PassEndXDecimal IS NOT NULL
+              AND e.playType IN {_FEED_TYPES_SQL}
         ),
         toucher_t AS (
             SELECT e.gameId, e.sequenceId, e.toucher AS player,
@@ -1263,6 +1303,7 @@ def get_sequence_choke_data(game_ids_tuple, team_id):
             WHERE e.teamId = ? AND e.gameId IN ({ph})
               AND e.toucher IS NOT NULL AND e.toucher != ''
               AND e.EventXDecimal IS NOT NULL
+              AND e.playType IN {_FEED_TYPES_SQL}
         ),
         all_touches AS (
             SELECT gameId, sequenceId, player, x, y FROM passer_t   UNION
@@ -1309,7 +1350,7 @@ def get_momentum_events(game_id):
         return pd.DataFrame(), {}
     con = get_connection()
 
-    rows = con.execute("""
+    rows = con.execute(f"""
         SELECT
             e.gameClock,
             e.Period,
@@ -1333,6 +1374,11 @@ def get_momentum_events(game_id):
         FROM events e
         JOIN games g ON e.gameId = g.gameId
         WHERE e.gameId = ?
+          -- `EventXDecimal > 66` is a catch-all on territory, not on action,
+          -- so it admits whatever the feed happens to contain. Under
+          -- `event.primary` that becomes 47 play types instead of 22 and the
+          -- final-third bucket quietly swells. Pin it.
+          AND e.playType IN {_FEED_TYPES_SQL}
           AND (
               e.playType IN ('AttemptSaved','Miss','Post','Goal','PenaltyGoal','OwnGoal')
               OR e.PassType = 'Corner'
