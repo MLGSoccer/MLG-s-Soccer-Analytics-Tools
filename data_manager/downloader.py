@@ -823,6 +823,22 @@ EVENT_LOG_SELECT = (
     # (game downloaded before this column landed) the stats payload
     # raises rather than silently undercounting blocks.
     "event.q82 AS qualifierBlocked,"
+    # `event.primary` is the event's principal actor - the analogue of
+    # event.toucher for events that are not touches. Cards, substitutions and
+    # the like leave every existing player-role column NULL, so without this
+    # a Dismissal row says only "a red card happened, this minute, this side"
+    # and never who. Populated on ordinary touch events too (for a pass it is
+    # the passer), so it is safe to select regardless of the WHERE predicate.
+    "lookup(event.primary,abbrevName) AS primaryPlayer,"
+    "event.primaryPlayerId AS primaryPlayerId,"
+    # Opta card qualifiers, from TruMedia's own stat definitions:
+    #   q31 yellow   q32 second yellow   q33 red   q171 rescinded
+    # playType alone gives Booking vs Dismissal but cannot separate a second
+    # yellow from a straight red, and cannot tell that a red was overturned.
+    "event.q31 AS qualifierYellow,"
+    "event.q32 AS qualifierSecondYellow,"
+    "event.q33 AS qualifierRed,"
+    "event.q171 AS qualifierCardRescinded,"
     "season.seasonId as seasonId,"
     "season.seasonName as seasonName"
 )
@@ -857,6 +873,9 @@ EVENTS_MD_COLS = [
     'EventXDecimal', 'EventYDecimal', 'PassEndXDecimal', 'PassEndYDecimal',
     'xG', 'xA', 'ShotDist', 'BodyPart', 'ShotPlayStyle',
     'seasonId', 'PassType', 'qualifierBlocked',
+    'primaryPlayer', 'primaryPlayerId',
+    'qualifierYellow', 'qualifierSecondYellow', 'qualifierRed',
+    'qualifierCardRescinded',
 ]
 
 GAMES_DDL = """
@@ -932,7 +951,13 @@ CREATE TABLE IF NOT EXISTS events (
     ShotPlayStyle VARCHAR,
     seasonId VARCHAR,
     PassType VARCHAR,
-    qualifierBlocked BOOLEAN
+    qualifierBlocked BOOLEAN,
+    primaryPlayer VARCHAR,
+    primaryPlayerId VARCHAR,
+    qualifierYellow BOOLEAN,
+    qualifierSecondYellow BOOLEAN,
+    qualifierRed BOOLEAN,
+    qualifierCardRescinded BOOLEAN
 )
 """
 
@@ -1007,14 +1032,32 @@ def _ensure_config_table(con):
         pass
 
 
-def get_motherduck_connection(token):
-    """Open a connection to MotherDuck and ensure the database and tables exist."""
-    # Connect to default database first to create our database if needed
-    bootstrap = duckdb.connect(f"md:?motherduck_token={token}")
-    bootstrap.execute(f"CREATE DATABASE IF NOT EXISTS {MOTHERDUCK_DB}")
-    bootstrap.close()
+# Practice mode. Set this to a file path and every write goes to a local
+# DuckDB instead of production MotherDuck.
+#
+# WHY: git can revert this file, but nothing can revert a bad write to the
+# cloud database - and because the events DELETE is scoped to
+# (gameId, teamId), a half-finished write leaves a match part-old and
+# part-new, which does not look broken. It looks like real data.
+#
+# So a change to the download path gets developed against a local file,
+# checked with smoke_chart_data.py and build_local_fullfeed.py, and only
+# pointed at production once it has been seen to work.
+#
+# DEFAULT IS PRODUCTION, deliberately. Flipping the default would mean
+# someone runs the Data Manager expecting to update the real database and
+# silently updates a file on their laptop instead - a quieter failure than
+# the one this guards against. Practice mode is opt-in.
+LOCAL_DB_ENV = "DATA_MANAGER_LOCAL_DB"
 
-    con = duckdb.connect(f"md:{MOTHERDUCK_DB}?motherduck_token={token}")
+
+def _apply_schema(con):
+    """Create/upgrade every table. Identical on local and cloud.
+
+    Shared by both targets on purpose: a practice database that differs from
+    production is not a practice database, and any drift here would show up
+    as a fake pass or a fake failure in testing.
+    """
     con.execute(GAMES_DDL)
     con.execute(EVENTS_DDL)
     con.execute(GAME_FIXTURES_DDL)
@@ -1031,7 +1074,72 @@ def get_motherduck_connection(token):
     # calculation raises loudly when NULL is encountered on a shot
     # event so we don't ship a quietly-wrong number.
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierBlocked BOOLEAN")
+    # The event's principal actor, and the Opta card qualifiers. Nullable and
+    # NULL for every row downloaded before these landed. Needed because cards
+    # and substitutions leave toucher/passer/shooter empty, so without
+    # primaryPlayer a card event cannot name the player it applies to.
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS primaryPlayer VARCHAR")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS primaryPlayerId VARCHAR")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierYellow BOOLEAN")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierSecondYellow BOOLEAN")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierRed BOOLEAN")
+    con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierCardRescinded BOOLEAN")
     return con
+
+
+def _align_to_table(con, df, table):
+    """Match a staging frame to a table's real columns. Returns (df, collist).
+
+    Inserts used to be `INSERT INTO events SELECT * FROM staging`, which is
+    POSITIONAL: it requires the frame to have every column the table has, in
+    the same order. Two ways that bites, and one of them is silent.
+
+    Loud: a CSV missing any column fails the whole team's upload with
+    "table events has 63 columns but 56 values were supplied". Only numeric
+    columns were backfilled, so a missing VARCHAR or BOOLEAN - exactly what a
+    newly-added qualifier is - took the upload down. It works today only
+    because EVENT_LOG_SELECT happens to return all 63.
+
+    Silent, and worse: if the column ORDER ever diverges from the frame's,
+    positional insert writes each value into its neighbour's column. Same
+    types, no error, wrong data.
+
+    Naming the columns fixes both. Anything the table has and the frame lacks
+    is filled with NULL, which is what a column added by ALTER means anyway;
+    anything the frame has and the table lacks is dropped rather than
+    breaking the load.
+    """
+    table_cols = [r[0] for r in con.execute(f"DESCRIBE {table}").fetchall()]
+    for col in table_cols:
+        if col not in df.columns:
+            df[col] = None
+    df = df[table_cols]
+    return df, ", ".join(f'"{c}"' for c in table_cols)
+
+
+def get_motherduck_connection(token, local_path=None):
+    """Open the write target and ensure its tables exist.
+
+    Production MotherDuck unless a local path is given, either as an argument
+    or through the LOCAL_DB_ENV environment variable. See LOCAL_DB_ENV above
+    for why practice mode exists and why it is opt-in.
+
+    The token is ignored in practice mode - a local file needs no credential,
+    and requiring one would mean a practice run could still fail for a reason
+    that has nothing to do with what is being tested.
+    """
+    local_path = local_path or os.environ.get(LOCAL_DB_ENV)
+    if local_path:
+        print(f"  [practice mode] writing to local file: {local_path}")
+        return _apply_schema(duckdb.connect(local_path))
+
+    # Connect to default database first to create our database if needed
+    bootstrap = duckdb.connect(f"md:?motherduck_token={token}")
+    bootstrap.execute(f"CREATE DATABASE IF NOT EXISTS {MOTHERDUCK_DB}")
+    bootstrap.close()
+
+    return _apply_schema(
+        duckdb.connect(f"md:{MOTHERDUCK_DB}?motherduck_token={token}"))
 
 
 def get_all_team_last_dates(con):
@@ -1647,8 +1755,10 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
         con = get_motherduck_connection(token)
 
     try:
+        games_df, games_cols = _align_to_table(con, games_df, "games")
         con.register("_games_staging", games_df)
-        con.execute("INSERT OR REPLACE INTO games SELECT * FROM _games_staging")
+        con.execute(f"INSERT OR REPLACE INTO games ({games_cols}) "
+                    f"SELECT {games_cols} FROM _games_staging")
         con.unregister("_games_staging")
 
         # Wipe THIS TEAM'S contribution for these games before inserting fresh.
@@ -1660,6 +1770,7 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
         # top of the old. We scope the DELETE to (gameId, teamId) so a team's
         # re-upload only replaces its own contribution, preserving whatever
         # rows the opposing team's download contributed.
+        events_df, events_cols = _align_to_table(con, events_df, "events")
         con.register("_events_staging", events_df)
         con.execute("""
             DELETE FROM events
@@ -1667,7 +1778,8 @@ def upsert_events_to_motherduck(token, csv_path, con=None):
                 SELECT DISTINCT gameId, teamId FROM _events_staging
             )
         """)
-        con.execute("INSERT INTO events SELECT * FROM _events_staging")
+        con.execute(f"INSERT INTO events ({events_cols}) "
+                    f"SELECT {events_cols} FROM _events_staging")
         con.unregister("_events_staging")
     finally:
         if own_con:
@@ -1781,8 +1893,10 @@ def upsert_minutes_to_motherduck(token, csv_path, con=None):
         con = get_motherduck_connection(token)
 
     try:
+        df, cols = _align_to_table(con, df, "player_game_minutes")
         con.register("_minutes_staging", df)
-        con.execute("INSERT OR REPLACE INTO player_game_minutes SELECT * FROM _minutes_staging")
+        con.execute(f"INSERT OR REPLACE INTO player_game_minutes ({cols}) "
+                    f"SELECT {cols} FROM _minutes_staging")
         con.unregister("_minutes_staging")
     finally:
         if own_con:
