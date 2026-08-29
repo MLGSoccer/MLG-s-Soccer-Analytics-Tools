@@ -1685,6 +1685,132 @@ def build_game_event_statement(anchor_team_id, season_ids, game_ids):
     )
 
 
+# Work-list states, in the order a campaign should attack them.
+WORK_MISSING = "missing"        # no events at all
+WORK_ONE_SIDED = "one_sided"    # half a match - the 22.6% problem
+WORK_NOT_PLAYED = "not_played"  # fixture exists, no result yet
+WORK_COMPLETE = "complete"      # both sides present
+WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_NOT_PLAYED, WORK_COMPLETE]
+
+
+def build_work_list(con, fixtures):
+    """Classify every fixture against what the database actually holds.
+
+    This is the thing the tool has never had. Today's equivalent is
+    "incremental since this team's last game date", which CANNOT SEE a
+    one-sided match: both teams were fetched, just never together, so both
+    look up to date while the match is half empty. That is how 1,116 of
+    4,930 games ended up holding one side with nothing flagging it.
+
+    Returns `fixtures` plus:
+        sides_present  0, 1 or 2
+        events_stored  row count
+        state          one of WORK_*
+
+    `stale` is deliberately NOT computed here. It needs the structural hash
+    pull (id + timecode per event, ~7.6% of a full download) and that is a
+    network round trip, not a database question - see MIGRATION_PLAN.md. A
+    work list that quietly reported "complete" for a game whose source had
+    changed would be worse than one that admits it only checks presence.
+    """
+    if fixtures.empty:
+        return fixtures.assign(sides_present=0, events_stored=0,
+                               state=WORK_MISSING)
+    gids = list(fixtures["gameId"])
+    ph = ",".join("?" * len(gids))
+    have = con.execute(
+        f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n "
+        f"FROM events WHERE gameId IN ({ph}) GROUP BY gameId", gids
+    ).fetchall()
+    sides = {g: s for g, s, _ in have}
+    counts = {g: n for g, _, n in have}
+
+    out = fixtures.copy()
+    out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
+    out["events_stored"] = out["gameId"].map(counts).fillna(0).astype(int)
+
+    played = out["status"].astype(str).str.lower().eq("played") \
+        if "status" in out.columns else True
+
+    def _state(row, is_played):
+        if row["sides_present"] >= 2:
+            return WORK_COMPLETE
+        if not is_played:
+            return WORK_NOT_PLAYED
+        return WORK_ONE_SIDED if row["sides_present"] == 1 else WORK_MISSING
+
+    out["state"] = [
+        _state(r, p) for (_, r), p in zip(
+            out.iterrows(),
+            played if hasattr(played, "__iter__") else [True] * len(out))
+    ]
+    return out
+
+
+def work_list_summary(work):
+    """Counts per state, in attack order. For the review step before running."""
+    if work.empty:
+        return {s: 0 for s in WORK_ORDER}
+    counts = work["state"].value_counts().to_dict()
+    return {s: int(counts.get(s, 0)) for s in WORK_ORDER}
+
+
+def run_campaign(session, token, fixtures, work, output_dir, season_ids,
+                 states=(WORK_MISSING, WORK_ONE_SIDED), con=None,
+                 progress=None, stop=None):
+    """Download and write every game in `work` whose state is in `states`.
+
+    Resumable BY CONSTRUCTION: progress is the database, not a side file. Each
+    game is written atomically, so re-running recomputes the work list and the
+    finished games simply drop out of it. Nothing to corrupt, nothing to
+    reconcile - which is what the queued pause/resume tracker was for.
+
+    `progress(done, total, gameId, state, note)` is called after each game.
+    `stop()` is polled between games so a UI can interrupt cleanly, at a game
+    boundary, never mid-write.
+
+    Returns (written, failed, skipped).
+    """
+    fixture_map = {r["gameId"]: {"homeTeamId": r["homeTeamId"],
+                                 "awayTeamId": r["awayTeamId"],
+                                 "homeTeam": r["homeTeam"],
+                                 "awayTeam": r["awayTeam"]}
+                   for _, r in fixtures.iterrows()}
+    todo = work[work["state"].isin(states)]
+    total = len(todo)
+    written = failed = skipped = 0
+    own_con = con is None
+    if own_con:
+        con = get_motherduck_connection(token)
+    try:
+        for i, (_, row) in enumerate(todo.iterrows(), 1):
+            if stop is not None and stop():
+                skipped = total - i + 1
+                break
+            gid = row["gameId"]
+            note = ""
+            try:
+                path = os.path.join(output_dir, f"game_{gid}.csv")
+                download_game_events(session, row["homeTeamId"], season_ids,
+                                     [gid], path)
+                _, n = upsert_game_events(token, path, fixture_map, con=con)
+                written += 1
+                note = f"{n:,} rows"
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            except Exception as e:
+                failed += 1
+                note = f"{type(e).__name__}: {e}"[:160]
+            if progress:
+                progress(i, total, gid, row.get("state"), note)
+    finally:
+        if own_con:
+            con.close()
+    return written, failed, skipped
+
+
 def download_game_events(session, anchor_team_id, season_ids, game_ids,
                          output_path):
     """Fetch both sides' events for the given games. Returns (rows, size_kb)."""
