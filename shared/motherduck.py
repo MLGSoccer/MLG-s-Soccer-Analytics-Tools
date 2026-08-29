@@ -1161,10 +1161,15 @@ def get_red_cards_for_game(game_id):
     # `rescinded` is returned so a caller could surface it, but these are
     # ordinary red cards as far as the charts are concerned.
     #
-    # OPEN: whether Opta's q171 also covers an IN-MATCH VAR overturn, which
-    # would be a different thing entirely - the player stays on and the match
-    # is 11v11. Unverifiable until card data actually lands; check it against
-    # a known VAR-overturned red on the first migration download.
+    # VERIFIED 2026-08-29 (`data_manager/probe_q171_semantics.py`, big-5
+    # 25/26): 760 reds and second yellows, 696 settled against minutes played.
+    # ALL 696 were sent off; NONE finished the match. The 4 carrying q171 were
+    # sent off too - so q171 is a post-match rescission, and there is no class
+    # of red where the player stayed on. An in-match VAR overturn never
+    # reaches the data as a red card event, so nothing here needs filtering.
+    #
+    # Minutes played is the signal, not "did he have events afterwards" - a
+    # substituted player and a dismissed one look identical by that measure.
     rows = []
     if _events_has(con, 'qualifierRed', 'qualifierSecondYellow',
                    'qualifierCardRescinded', 'primaryPlayer',
