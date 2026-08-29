@@ -653,6 +653,24 @@ ONE TEAM'S FULL SEASON       227   <- the real floor, 79,933 events
 whole database          probably 250-300
 ```
 
+### Typed, because the cost depends on it
+
+```
+220  booleans
+  6  numerics
+  1  categorical   q56, 4 values: Back / Right / Left / Center
+```
+
+220 x ~2.1 MB + 6 x ~20 MB + 1 dictionary-encoded ~= **0.58 GB**. The
+boolean-based estimate held because only 7 of 227 are anything else.
+
+`data_manager/opta_qualifiers_typed.json` has type, non-null count and
+cardinality for each.
+
+**DECISION: take all 227.** 0.6 GB buys never having to predict which
+qualifier you will want. The alternative is choosing a subset now and
+backfilling at 7.6% of a full download every time the guess is wrong.
+
 **227 is still a floor** - one team, one competition. Competition-specific and
 rare qualifiers will not have appeared. `data_manager/opta_qualifiers_populated.txt`
 has the 227 with occurrence counts.
@@ -666,8 +684,7 @@ TRUE on  5.0%   1.0 MB/col
 TRUE on 20.0%   2.1 MB/col
 TRUE on 58.0%   1.2 MB/col
 
-ALL 227 QUALIFIERS ~0.47 GB   (~16% of the database, 5% of the allowance)
-AT 300             ~0.63 GB
+ALL 227 QUALIFIERS ~0.58 GB   (~20% growth, 6% of the allowance)
 ```
 
 **Density barely matters at this width.** 8.5M rows x 79 booleans is 671 MB
