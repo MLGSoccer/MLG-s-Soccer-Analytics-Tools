@@ -7,6 +7,9 @@ planned the migration; this one built it, ran it, and shipped it.
 
 ## Start here
 
+0. **`EVENT_MODEL_EXPANSION.md`** — the NEXT piece of work, specified after
+   the migration finished. Take the ~77 `[Abbrev|EVENT]` stat tokens, not raw
+   qualifiers. Holds the four-ways-a-field-arrives finding.
 1. **`MIGRATION_PLAN.md`** — the living document. Architecture, the tool spec,
    step-by-step status, request costs. Read this before touching anything.
 2. `memory/project_per_game_download_architecture.md` — the query shapes and
@@ -133,6 +136,7 @@ identical to the per-team pull, max diff 0.
 |---|---|---|
 | 4 | **Team registry** | not started — the one with design in it |
 | 6 | **Delete API-Football** | unblocked, pure deletion now |
+| — | **Expand the event model** | specified in `EVENT_MODEL_EXPANSION.md`, not built |
 | 7 | CBS colour flip | needs 4 |
 | — | Retire Bulk Actions + per-team timestamps | deliberately left as the fallback |
 | — | Structural hash pull | designed, not built |
