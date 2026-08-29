@@ -718,6 +718,68 @@ Enumerate from the catalogue.
 
 ---
 
+## Beyond qualifiers: what else the feed carries
+
+Widening the predicate changed WHICH EVENTS arrive. Qualifiers are one axis of
+"how much is known about each one" - but not the only one. The catalogue's
+equations reference **150 named `event.*` fields**, of which we select 18.
+
+**Most of the other 132 are NOT worth taking, because we can build them.**
+
+```
+DERIVABLE from what we already store
+  event.x / y                    EventXDecimal / EventYDecimal
+  event.passEndX / passEndY      PassEndXDecimal / PassEndYDecimal
+  event.passAngle                atan2 of those two pairs
+  event.playTypeId               playType
+  event.next_playTypeID          LEAD() over gameEventIndex
+  event.sequenceTouchCount       COUNT(*) over sequenceId
+  event.sequencePassCount        COUNT(*) FILTER over sequenceId
+  event.sequenceStartX / StartPlayTypeId   first event in the sequence
+  event.possessionTouchCount / StartX      same, over possessionSeqNum
+  event.sequenceStartq2/q5/q6/q107/q124    the sequence's first event's flags
+  event.success / event.fail     playType semantics
+  event.onField                  player_game_minutes, approximately
+```
+
+Storing those would pay TruMedia to duplicate a `COUNT(*)` and a `LEAD()`.
+
+### The irreducible list
+
+```
+event.remoteEventsPressureReceived    77 stats
+event.remoteEventsLinesBroken         81 stats
+event.remoteEventsLastLineBroken      18 stats
+event.qv326    defensive pressure at time of shot (1=Low 2=Mod 3=High)
+event.carryLength / carryLengthX / carryStartType   39 stats, arguably
+```
+
+**The `remoteEvents*` family is computed from where the other 21 players
+were.** There is no off-ball positional data in this feed and no way to
+reconstruct it, so this is the one category where "we could build it
+ourselves" is false. Not coincidentally it is also the most analytically
+interesting - pressure on the ball, and passes that break a defensive line.
+
+`carryLength` is an Opta construct with its own start-type definition. It
+could be approximated from consecutive coordinates by the same player, but
+that invents a definition rather than recovering theirs.
+
+**So the real ask is ~233 fields: the 227 qualifier flags plus five or six
+measured ones.** Every one carries information that cannot be reconstructed.
+The rest of the catalogue is convenience over inputs already held.
+
+### The trap this took three passes to escape
+
+I probed NUMBERED namespaces - `q1..500`, `qv1..500`, `assistq1..300` - and
+kept concluding the space was small. `event.remoteEventsPressureReceived` and
+`event.carryLengthX` are NAMED fields; counting cannot find them. The
+catalogue's equations are the enumeration, not the field numbering.
+
+Also: `qv` is a real and separate namespace from `q` - qualifier VALUES
+against qualifier FLAGS. 10 populated, including the pressure one.
+
+---
+
 ## Standing rules
 
 - **Practice mode for all download work.** `DATA_MANAGER_LOCAL_DB=<path>`.
