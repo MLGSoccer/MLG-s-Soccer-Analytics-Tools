@@ -496,6 +496,38 @@ Runs in parallel. Nothing here blocks Track A or vice versa, until B3.
 
 ### B1. Team registry
 
+**A NEW CLUB IS NOT REACHABLE UNTIL THIS EXISTS.** Confirmed 2026-08-29 while
+the migration was running, because `missing` fixtures will start surfacing
+clubs the old team-list download never asked for.
+
+What already works for a club that arrives via per-game ingest:
+
+| | |
+|---|---|
+| `events` rows with teamId, teamFullName, newestTeamColor | works |
+| `games` rows with both team ids | works |
+| minutes, cards, substitutions | works |
+| **DP team picker** | works - `list_teams_for_season` reads `games` |
+| colour | works - falls back to TruMedia's newestTeamColor |
+
+What does not:
+
+- **The CBS team picker.** `get_teams_by_league()` is, in its own words,
+  "built entirely from config.json (no DB query)". The Campaign page never
+  writes config.json - that was Discover Teams' job, and it is driven by
+  player pools rather than fixtures. So the club has complete data and no way
+  to be selected.
+- **A new season** needs a `season_leagues` entry or it lands in "Other".
+- **Alternate colour** - a new club has none, so a clash has nothing to swap
+  to.
+
+This is the same blind spot recorded during testing: every test reads the
+DATABASE, so anything a chart takes from config.json passes every test while
+being entirely unexercised.
+
+Nothing breaks mid-migration - every club currently in the data is already in
+config.json. It bites the first time a genuinely new club appears.
+
 ```
 teamId  |  name  |  primary_override  |  alternate  |  provenance
 ```
