@@ -401,7 +401,35 @@ On `per-game-ingest`, with `DATA_MANAGER_LOCAL_DB` set the whole time.
 `build_local_fullfeed.py` A/B against production
 *Undo:* delete the branch. Production is never written to.
 
-### A2. Re-download everything · *database*
+### A2. Re-download everything — **DONE 2026-08-29** · *database*
+
+**Every season, 100%.** Run by the user through the Campaign page, season by
+season, checking the work list before each.
+
+```
+5,295 games   (started at 4,930 - fixture discovery added 365)
+  on the new feed  5,295  (100.0%)
+  half a match         0  (started at 1,116)
+  old feed             0
+
+52 distinct play types (was 22)
+  cards           21,992     none of this existed in the database before
+    sendings-off   1,078
+  substitutions   95,068
+  corners        101,533
+
+  events       8,540,029
+  minutes rows   164,025
+```
+
+A confirmation worth keeping: `events` now holds **445 own goals against the
+API-Football table's 408**. TruMedia has MORE, which is what the audit
+predicted - 29 of the table's apparent advantage were own goals sitting in
+matches only one side of which had ever been downloaded.
+
+Note: rewriting 8.5M rows exhausted the MotherDuck daily compute allowance.
+Expected for a one-off; worth planning around if a second full pass is ever
+needed.
 
 **GATE PASSED 2026-08-29.** A full Premier League 25/26 season was ingested
 per-game into a practice file and smoke-tested:
@@ -573,7 +601,7 @@ Alternates are irreducibly authored.
 | 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode | next |
 | 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
 | 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
-| 5 | **A2 re-download** | **database** | **NO** | **GATE CLOSED — ready to run** |
+| 5 | ~~**A2 re-download**~~ | **database** | — | **DONE 2026-08-29 · 100%** |
 | 6 | A3 delete API-Football | tool + db | schema drop | |
 | 7 | B2 CBS colour flip | charts | yes | needs 4 |
 | 8 | B3 alternates | data | deferred | deferred |
