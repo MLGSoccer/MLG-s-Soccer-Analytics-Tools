@@ -1773,6 +1773,35 @@ def work_list_summary(work):
 MAX_GAMES_PER_REQUEST = 40
 
 
+def plan_batches(todo, batch_size=MAX_GAMES_PER_REQUEST):
+    """Group games into requestable batches. Returns [(anchor_team_id, rows)].
+
+    Grouped by HOME TEAM: every game has exactly one, so each game is covered
+    once by an anchor guaranteed to play in it. See MAX_GAMES_PER_REQUEST for
+    what goes wrong otherwise.
+
+    Shared with the UI on purpose. A page that estimates the cost with its own
+    arithmetic drifts from what the runner actually does the moment either
+    changes - the Campaign page told users "one request each" for a while
+    after batching landed, which was off by a factor of nineteen.
+    """
+    by_anchor = {}
+    for idx_row in todo.iterrows():
+        by_anchor.setdefault(idx_row[1]["homeTeamId"], []).append(idx_row)
+    batches = []
+    for anchor_id, rows in by_anchor.items():
+        for i in range(0, len(rows), max(1, batch_size)):
+            batches.append((anchor_id, rows[i:i + max(1, batch_size)]))
+    return batches
+
+
+def estimate_requests(todo, batch_size=MAX_GAMES_PER_REQUEST,
+                      with_minutes=True, n_seasons=0):
+    """(batches, total_requests) for a planned campaign."""
+    n = len(plan_batches(todo, batch_size))
+    return n, n * (2 if with_minutes else 1) + n_seasons
+
+
 def run_campaign(session, token, fixtures, work, output_dir, season_ids,
                  states=(WORK_MISSING, WORK_ONE_SIDED), con=None,
                  progress=None, stop=None, batch_size=MAX_GAMES_PER_REQUEST,
@@ -1811,16 +1840,7 @@ def run_campaign(session, token, fixtures, work, output_dir, season_ids,
     todo = work[work["state"].isin(states)]
     total = len(todo)
     written = failed = skipped = 0
-    # Group by home team: every game has exactly one, so each game is covered
-    # once by an anchor that is guaranteed to play in it. See the note on
-    # MAX_GAMES_PER_REQUEST for what happens otherwise.
-    by_anchor = {}
-    for idx_row in todo.iterrows():
-        by_anchor.setdefault(idx_row[1]["homeTeamId"], []).append(idx_row)
-    batches = []
-    for anchor_id, rows in by_anchor.items():
-        for i in range(0, len(rows), max(1, batch_size)):
-            batches.append((anchor_id, rows[i:i + max(1, batch_size)]))
+    batches = plan_batches(todo, batch_size)
 
     own_con = con is None
     if own_con:

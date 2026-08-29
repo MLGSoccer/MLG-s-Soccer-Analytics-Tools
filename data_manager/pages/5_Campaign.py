@@ -1,5 +1,5 @@
 """
-Campaign — fixture-driven download, one request per game.
+Campaign — fixture-driven download, batched by home team.
 
 The replacement for Bulk Actions. Bulk Actions loops TEAMS and asks "what has
 changed since this team's last game?"; this loops FIXTURES and asks "which
@@ -35,6 +35,7 @@ from downloader import (  # noqa: E402
     build_work_list,
     create_session,
     discover_fixtures,
+    estimate_requests,
     get_motherduck_connection,
     load_secrets,
     run_campaign,
@@ -199,8 +200,19 @@ picked = st.multiselect(
     format_func=lambda s: f"{STATE_ICON[s]} {s} ({summary[s]:,})")
 n = sum(summary[s] for s in picked)
 
-st.caption(f"{n:,} games · one request each · written atomically per match. "
-           f"Safe to stop and resume — finished games drop out of the list.")
+# Cost comes from the runner's own batching, not from arithmetic repeated
+# here - the two drift apart otherwise.
+_todo = work[work["state"].isin(picked)] if picked else work.iloc[0:0]
+n_batches, n_requests = estimate_requests(_todo)
+
+st.caption(
+    f"**{n:,} games** in **{n_batches:,} batches** ≈ **{n_requests:,} requests** "
+    f"(events + minutes per batch). Games are grouped by home team, because "
+    f"a request must name a team that plays in every game it asks for.")
+st.caption(
+    "Each match is written whole, in a transaction. Stopping is safe — it "
+    "finishes the batch in flight, and finished games drop off the list, so "
+    "resuming just means running again.")
 
 if st.button(f"Download {n:,} games", type="primary", disabled=not n):
     session = create_session(st.session_state["cookies"])
