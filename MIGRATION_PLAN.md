@@ -636,6 +636,27 @@ substitution with no reason, a shot with no body part.
 79 distinct qualifiers    77 flags, 2 that only look value-bearing (q9, q10)
 ```
 
+**THAT NUMBER IS WRONG, and the method was answering the wrong question.**
+The catalogue tells you which qualifiers TruMedia built STATS on top of. It
+says nothing about what the raw Opta feed carries. The list itself contains
+q322 and q488, which gives it away.
+
+Probed empirically instead - select q1..q500 and see which ever come back
+POPULATED. Acceptance proves nothing: all 500 were accepted, because a
+non-existent field is accepted and returns NULL forever
+(`event.optaEventId` is the standing example).
+
+```
+catalogue (stat library)      79
+one game                     124
+ONE TEAM'S FULL SEASON       227   <- the real floor, 79,933 events
+whole database          probably 250-300
+```
+
+**227 is still a floor** - one team, one competition. Competition-specific and
+rare qualifiers will not have appeared. `data_manager/opta_qualifiers_populated.txt`
+has the 227 with occurrence counts.
+
 Storage measured by building boolean columns into a copy of a real season at
 varying densities:
 
@@ -645,7 +666,8 @@ TRUE on  5.0%   1.0 MB/col
 TRUE on 20.0%   2.1 MB/col
 TRUE on 58.0%   1.2 MB/col
 
-ALL 79 QUALIFIERS  ~0.19 GB   (~7% of the database, 2% of the allowance)
+ALL 227 QUALIFIERS ~0.47 GB   (~16% of the database, 5% of the allowance)
+AT 300             ~0.63 GB
 ```
 
 **Density barely matters at this width.** 8.5M rows x 79 booleans is 671 MB
@@ -653,7 +675,7 @@ uncompressed and columnar compression takes that to a fraction. The intuition
 that dense qualifiers are expensive is wrong here - a boolean column is a
 boolean column.
 
-### Decision: take all 79
+### Decision: take all of them
 
 Selective depth per league was considered and rejected. It would save ~100 MB
 and **reintroduce the vintage-invisibility trap** - a game would read as
