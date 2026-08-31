@@ -165,6 +165,19 @@ st.caption(f"{len(chosen)} of {len(all_seasons)} seasons · "
            f"{len(chosen)} discovery request"
            f"{'s' if len(chosen) != 1 else ''} to build the work list.")
 
+# A work list is only true of the database and the seasons it was built
+# against. It is cached in session state, and nothing used to invalidate it,
+# so switching Practice -> Production or changing the season left the OLD
+# answer on screen: a practice file holds nothing, so every fixture read as
+# `missing` and kept reading that way after the target changed. The count
+# being identical across different leagues is what gave it away.
+_context = (write_target or "production", tuple(sorted(chosen)))
+if st.session_state.get("campaign_context") != _context:
+    if st.session_state.pop("campaign_work", None) is not None:
+        st.warning("Target or seasons changed — the previous work list no "
+                   "longer applies. Build it again.")
+    st.session_state.pop("campaign_seasons", None)
+
 # ── 2. Discover + classify ───────────────────────────────────────────────────
 st.header("2 · What needs doing")
 
@@ -186,6 +199,8 @@ if st.button("Build the work list", type="primary"):
         con.close()
     st.session_state["campaign_work"] = work
     st.session_state["campaign_seasons"] = chosen
+    # Stamp what it was built against, so the check above can retire it.
+    st.session_state["campaign_context"] = _context
 
 work = st.session_state.get("campaign_work")
 if work is None:
