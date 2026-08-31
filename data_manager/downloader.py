@@ -763,6 +763,83 @@ def apply_team_discovery(config, results):
 
 # ── Event Log ─────────────────────────────────────────────────────────────────
 
+# ── The expanded event model ─────────────────────────────────────────────────
+# (select expression, column name, DuckDB type). ONE list, because the SELECT
+# and the schema drifting apart is exactly the failure this file already fixed
+# once - see the note on _align_to_table.
+#
+# Chosen from a measured probe of both namespaces, 2026-08-31. The reasoning,
+# the traps and the exclusions are in EVENT_MODEL_EXPANSION.md. Two things
+# worth repeating here because they are invisible at the call site:
+#
+#   * NAMED FIELDS (event.foo) return RAW values; STAT TOKENS ([Foo|EVENT])
+#     return the catalogue's DISPLAY FORMAT. That is why xG in this database
+#     has only 100 distinct values. Prefer the named field where one exists.
+#   * event.shooterExpectedGoals is ANCHOR-SCOPED - it populates for the
+#     queried team and is NULL for the opponent. Deliberately absent.
+EXPANDED_EVENT_FIELDS = [
+    # -- shot and chance quality -------------------------------------------
+    ("event.expectedGoals",                "xGRaw",              "DOUBLE"),
+    ("event.reboundAdjustedExpectedGoals", "xGRebound",          "DOUBLE"),
+    ("event.gmY",                          "GoalmouthY",         "DOUBLE"),
+    ("event.gmZ",                          "GoalmouthZ",         "DOUBLE"),
+    ("[GKx|EVENT]",                        "GKx",                "DOUBLE"),
+    ("[GKy|EVENT]",                        "GKy",                "DOUBLE"),
+    ("[xGOT|EVENT]",                       "xGOT",               "DOUBLE"),
+    ("[BlockX|EVENT]",                     "BlockX",             "INTEGER"),
+    ("[BlockY|EVENT]",                     "BlockY",             "INTEGER"),
+    ("[PlyrsBtwn|EVENT]",                  "PlayersBetween",     "VARCHAR"),
+    ("[Pressure|EVENT]",                   "ShotPressure",       "VARCHAR"),
+    ("[Keeper|EVENT]",                     "KeeperName",         "VARCHAR"),
+    ("[ShotPatternOfPlay|EVENT]",          "ShotPatternOfPlay",  "VARCHAR"),
+    ("[ShotBodyPart|EVENT]",               "ShotBodyPart",       "VARCHAR"),
+    # -- pressure, passing, carrying ---------------------------------------
+    ("event.remoteEventsPressureReceived", "PressureReceived",   "VARCHAR"),
+    ("event.remoteEventsLinesBroken",      "LinesBroken",        "INTEGER"),
+    ("event.remoteEventsLastLineBroken",   "LastLineBroken",     "VARCHAR"),
+    ("event.carryLength",                  "CarryLength",        "DOUBLE"),
+    ("event.carryLengthX",                 "CarryLengthX",       "DOUBLE"),
+    ("event.carryStartX",                  "CarryStartX",        "DOUBLE"),
+    ("event.carryStartY",                  "CarryStartY",        "DOUBLE"),
+    ("event.carryStartType",               "CarryStartType",     "VARCHAR"),
+    ("event.cross",                        "IsCross",            "BOOLEAN"),
+    ("event.chanceCreated",                "ChanceCreated",      "BOOLEAN"),
+    ("event.assist",                       "IsAssist",           "BOOLEAN"),
+    ("[CornerType|EVENT]",                 "CornerType",         "VARCHAR"),
+    ("[2ndAssisterName|EVENT]",            "SecondAssister",     "VARCHAR"),
+    # -- sequence and possession -------------------------------------------
+    ("event.possessionValueAdded",         "PossessionValueAdded", "DOUBLE"),
+    ("event.sequenceDirectSpeed",          "SequenceDirectSpeed",  "DOUBLE"),
+    ("event.sequenceFieldLength",          "SequenceFieldLength",  "DOUBLE"),
+    ("event.sequenceReachedPenaltyArea",   "SequenceReachedBox", "BOOLEAN"),
+    ("event.possessionShotCount",          "PossessionShotCount", "INTEGER"),
+    ("event.sequenceShotCount",            "SequenceShotCount",  "INTEGER"),
+    ("event.possessionScoredGoal",         "PossessionScoredGoal", "BOOLEAN"),
+    ("event.sequenceScoredGoal",           "SequenceScoredGoal", "BOOLEAN"),
+    # -- match context ------------------------------------------------------
+    ("[MatchState|EVENT]",                 "MatchState",         "VARCHAR"),
+    ("[Starter|EVENT]",                    "Starter",            "VARCHAR"),
+    ("[Position|EVENT]",                   "PlayerPosition",     "VARCHAR"),
+    ("[Formation|EVENT]",                  "Formation",          "VARCHAR"),
+    ("[OppFormation|EVENT]",               "OppFormation",       "VARCHAR"),
+    ("[MfromGoal|EVENT]",                  "MetresFromGoal",     "DOUBLE"),
+    ("event.secondsUntilNextGoal",         "SecondsUntilNextGoal", "INTEGER"),
+    ("[WinProb]",                          "WinProb",            "DOUBLE"),
+    ("[DrawProb]",                         "DrawProb",           "DOUBLE"),
+    ("[LoseProb]",                         "LoseProb",           "DOUBLE"),
+    ("[FieldLocation|EVENT]",              "FieldLocation",      "VARCHAR"),
+    ("[FieldWidth|EVENT]",                 "FieldWidth",         "VARCHAR"),
+    ("[GoalKick|EVENT]",                   "IsGoalKick",         "VARCHAR"),
+    ("[FromCorner|EVENT]",                 "FromCorner",         "VARCHAR"),
+    ("[1v1Success|EVENT]",                 "OneVOneSuccess",     "VARCHAR"),
+    ("[1v1Next|EVENT]",                    "OneVOneNext",        "VARCHAR"),
+    ("[Carry1v1|EVENT]",                   "CarryIs1v1",         "VARCHAR"),
+]
+
+_EXPANDED_SELECT = ",".join(f"{expr} AS {name}"
+                            for expr, name, _ in EXPANDED_EVENT_FIELDS)
+
+
 EVENT_LOG_SELECT = (
     "SELECT "
     "game.gameId+':'+event.gameEventIndex as eventGuid,"
@@ -840,6 +917,7 @@ EVENT_LOG_SELECT = (
     "event.q32 AS qualifierSecondYellow,"
     "event.q33 AS qualifierRed,"
     "event.q171 AS qualifierCardRescinded,"
+    + _EXPANDED_SELECT + ","
     "season.seasonId as seasonId,"
     "season.seasonName as seasonName"
 )
@@ -877,7 +955,14 @@ EVENTS_MD_COLS = [
     'primaryPlayer', 'primaryPlayerId',
     'qualifierYellow', 'qualifierSecondYellow', 'qualifierRed',
     'qualifierCardRescinded',
-]
+] + [_n for _e, _n, _t in EXPANDED_EVENT_FIELDS]
+# ^ This list is a THIRD gate the data has to pass, after the SELECT and the
+# schema, and it fails SILENTLY: upsert_game_events filters the frame through
+# it, then _align_to_table NULL-fills whatever is missing. A widened SELECT
+# whose columns are absent here ingests cleanly and stores nothing. Derive
+# the expanded half rather than retyping it - the first attempt at this
+# expansion wrote 1,581 rows with all 52 new columns NULL and reported
+# "INGEST OK".
 
 GAMES_DDL = """
 CREATE TABLE IF NOT EXISTS games (
@@ -1085,6 +1170,13 @@ def _apply_schema(con):
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierSecondYellow BOOLEAN")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierRed BOOLEAN")
     con.execute("ALTER TABLE events ADD COLUMN IF NOT EXISTS qualifierCardRescinded BOOLEAN")
+    # The expanded event model. Nullable and NULL for every game downloaded
+    # before it landed - a backfill is a re-download of those games with the
+    # widened SELECT, driven from Campaign's "re-download games already
+    # stored" checkbox. See EVENT_MODEL_EXPANSION.md.
+    for _, _name, _ddl in EXPANDED_EVENT_FIELDS:
+        con.execute(
+            f'ALTER TABLE events ADD COLUMN IF NOT EXISTS "{_name}" {_ddl}')
     return con
 
 

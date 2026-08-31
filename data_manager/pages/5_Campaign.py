@@ -201,7 +201,20 @@ for state in WORK_ORDER:
     if summary[state]:
         st.caption(f"{STATE_ICON[state]} **{state}** — {STATE_HELP[state]}")
 
+# A schema change makes stored games stale in a way the work list cannot see:
+# both sides are present and the play types are current, so they read as
+# COMPLETE. Rather than teach the classifier about column versions - which
+# would need a schema_version on `games` and a new state, for a job done once
+# - let the operator say "I know, do it anyway".
+force = st.checkbox(
+    "Re-download games already stored",
+    help="For a schema change. The games are complete, but predate columns "
+         "we now take, so a backfill means fetching them again with the "
+         "widened SELECT. Work season by season — finished games do not "
+         "drop off this list, so stopping mid-season means redoing it.")
+
 todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED)
+               + ((WORK_COMPLETE,) if force else ())
                if summary[s]]
 if not todo_states:
     st.success("Every played fixture is already stored whole. Nothing to do.")
