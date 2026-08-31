@@ -1,166 +1,241 @@
-# Next work item: expand the event model
+# Event model expansion — investigation RESOLVED, not yet built
 
-**Status: sized and specified, not built.** Written 2026-08-29 after the
-per-game migration completed. See `MIGRATION_PLAN.md` for that.
+**Status 2026-08-31: the four open questions are answered and the field map
+is measured.** Nothing is implemented. The previous version of this file was
+written from a partial probe and several of its conclusions were wrong; they
+are corrected below and the errors are recorded, because two of them were
+rebuilt twice before being caught.
 
-The migration widened **which events arrive** — 22 play types to 52. It did
-not widen **how much is known about each one**. That is a separate axis, and
-this is the spec for it.
-
----
-
-## FOUR ways a field arrives. This took all evening to work out.
-
-```
-1. named event fields     event.playType, event.gameClock, event.carryLengthX
-2. qualifier FLAGS        event.q15   (headed), event.q33 (red)
-3. qualifier VALUES       event.qv326 (1=Low 2=Moderate 3=High)
-4. STAT TOKENS            [BodyPart|EVENT], [xG|EVENT], [GKx|EVENT]
-```
-
-We currently take 18 named fields, 9 qualifiers, and 5 stat tokens.
-
-**The trap that cost the most time:** I enumerated *numbered* namespaces
-(`q1..500`, `qv1..500`, `assistq1..300`) and kept concluding the space was
-small. The valuable fields are **named** — `carryLengthX`,
-`remoteEventsPressureReceived`, `onField` — and counting cannot find them.
-Three times I told the user something was unavailable when it was.
-
-**The catalogue's equations are the enumeration**, not the field numbering:
-
-```
-dp-proxy-show-stats-custom?showTransforms=true&showEquations=true
--> 10,511 stats, each with its equation
-```
-
-Parse `event\.([A-Za-z][A-Za-z0-9_]*)` out of every equation and you have the
-real field list: **150 named fields**, of which we take 18.
+The per-game migration (`MIGRATION_PLAN.md`) widened **which events arrive**,
+22 play types to 52. This is the other axis: **how much is known about each
+one.** We store 63 columns per event.
 
 ---
 
-## TAKE THE STAT TOKENS, NOT THE RAW QUALIFIERS
+## The namespace map — I had this wrong
 
-Qualifiers are Opta's *tagging* layer. Stat tokens are TruMedia's *resolved*
-layer, and they are strictly better to store:
+There is no single list of "available fields". There are at least four
+namespaces, and the first version of this document probed one of them and
+treated it as the universe.
 
 ```
-q15 + q20 + q72 + q21   ->  [BodyPart|EVENT] = 'Head' / 'Right foot' / ...
-q223 + q224 + q225      ->  [CornerType|EVENT] = 'Inswinger' / 'Outswinger' / ...
-qv326                   ->  [Pressure|EVENT] = 'High' / 'Moderate' / 'Low'
+1. stat tokens        [BodyPart|EVENT]          77 catalogued, 74 live
+2. named fields       event.carryLength         233 in equations, ~178 live
+3. qualifier flags    event.q33                 227 found by brute force
+4. qualifier values   event.qv326               3 confirmed working
+5. PREFIXED qualifiers  event.shot_q22          16 seen, count unknown
+                        event.assist_q223
+                        event.save_q177
 ```
 
-One readable column instead of four booleans you have to interpret. We
-already do this for `BodyPart`, `ShotPlayStyle`, `xG`, `xA`, `ShotDist` —
-proof of the pattern.
+**`context: ['event']` is a CATEGORY, not a capability flag.** Across 10,511
+catalogue stats: `inPossession` 6,228 · `outOfPossession` 1,232 ·
+`goalkeeping` combinations 2,579 · **`event` 77**. The 77 are event
+*descriptors*; the rest are *aggregates*. Filtering on it finds one namespace,
+not everything selectable per event.
 
-**77 stats carry `context: ['event']`** and are selectable per-event as
-`[Abbrev|EVENT]`. That is the shortlist.
+**213 of the 233 named fields have no token**, so the token probe could never
+have seen them — and that is where the best material turned out to be.
+
+**The prefixed namespaces are a structural dimension nothing else exposes**: a
+shot row can carry the qualifiers of the assist that led to it.
+
+### The ceiling, stated honestly
+
+The catalogue only names fields TruMedia wrote an equation against. The
+qualifier count already proved the size of that gap — **~70 named in the
+catalogue, 227 found by brute-force enumeration.** The same is certainly true
+of named fields and the prefixed namespaces. Brute-forcing the numbered spaces
+would close part of it; **the user's call on 2026-08-31 was not to** —
+"anything that's that hard to find we don't need."
 
 ---
 
-## What we cannot rebuild ourselves
+## The four open questions — ANSWERED
 
-Everything below was verified populated against a real Premier League
-team-season (79,933 events).
+### 1. Per-event or row-level? PER-EVENT. The worry was an artefact.
 
-### Positional data — no way to reconstruct it
+`GKx`, `GoalmouthZ`, `xGOT`, `MatchState`, `Starter` were recorded as
+"non-null on every row". They are not. Two measurement bugs stacked (see
+TRAPS): numeric zero-fill, and 20% of returned rows not being events.
+Corrected, `GKx`/`GoalmouthZ`/`xGOT` populate **only on shots, 0.5–1.5%**, and
+vary within a game as they should.
 
-| token | what it is |
-|---|---|
-| `GKx` / `GKy` | goalkeeper's coordinates at the moment of the shot |
-| `PlyrsBtwn` | defenders between shooter and goal |
-| `GoalmouthY` / `GoalmouthZ` | where the shot crossed the line, in Y **and Z** |
-| `Pressure` | defensive pressure on the shooter, High/Moderate/Low |
-| `remoteEventsPressureReceived` | pressure on the receiver, with coordinates |
-| `remoteEventsLinesBroken` | line-breaking passes |
+Genuine per-game constants: `Formation`, `OppFormation`, `Opponent`,
+`Season`, `Team`. Those belong on `games`, not on 8.5M event rows.
 
-`GoalmouthZ` is shot HEIGHT. Today a shot chart can show where a shot was
-taken from and never where it went.
+### 2. Which of the 77 populate? 74. Three are dead.
 
-### Model outputs
+`EventID`, `OpenPlaySequence`, `TrueOpenPlaySequence` return nothing on real
+events.
 
-`xGOT` (post-shot xG) · `xPVAdded` (expected possession value added) ·
-`WinProb` / `DrawProb` / `LoseProb`
+### 3. Does it hold outside the Premier League? YES — cleanly.
 
-### Context
+Man City 2025/26, PL (64,049 events, 38 games) vs UCL (16,588 events, 10
+games): **identical token set, identical levels, identical types, identical
+categorical value sets** on all 14 categoricals. The only differences are
+`Formation`/`OppFormation`, because different teams played.
 
-`MatchState` (Ahead/Behind/Tied *before* the event) · `Formation` /
-`OppFormation` · `Position` · **`Starter`** (the flag noted missing during
-the API-Football audit) · `TimeStamp` (UTC) · `MfromGoal` · `CarryX` /
-`CarryY` / `carryLength` · `1v1Success` / `1v1Next` · `Chance` ·
-`CornerType` · `EventID`
+An earlier claim that UCL gained a `ShotPatternOfPlay` value was **wrong** —
+it compared truncated 5-item sample lists, not value sets.
 
-**`EventID` is worth testing.** Memory records `event.optaEventId` as always
-NULL and "not a usable key" — this is a different token and may work. A real
-Opta event id would be a better join key than `gameId + gameEventIndex`.
+### 4. Is `EventID` a usable join key? NO.
+
+Constant `'0'` across 80,395 rows. `event.optaEventId` is independently EMPTY.
+Two methods, same answer. `gameId + gameEventIndex` remains the key.
 
 ---
 
-## What NOT to take — we already own the inputs
+## TRAPS — every one of these produced a confident wrong answer first
 
-```
-event.x / y                  EventXDecimal / EventYDecimal
-event.passEndX / passEndY    PassEndXDecimal / PassEndYDecimal
-event.passAngle              atan2 of those two pairs
-event.playTypeId             playType
-event.next_playTypeID        LEAD() over gameEventIndex
-event.sequenceTouchCount     COUNT(*) over sequenceId
-event.sequencePassCount      COUNT(*) FILTER over sequenceId
-event.sequenceStartX/Y       first event in the sequence
-event.possessionTouchCount   same, over possessionSeqNum
-event.sequenceStartq2/q5/q6  the sequence's first event's flags
-event.success / event.fail   playType semantics
-event.onField                player_game_minutes, approximately
-```
-
-Storing these would pay TruMedia to duplicate a `COUNT(*)` and a `LEAD()`.
-**~132 of the 150 named fields fall here.**
-
----
-
-## Cost
-
-Measured by building columns into a copy of a real season at varying
-densities, then scaling by 13.7 (database / one PL season):
-
-```
-sparse boolean    ~0.7 MB per column across the whole database
-dense boolean     ~2.1 MB
-227 qualifiers    ~0.58 GB     <- if taken raw, which is NOT recommended
-~77 stat tokens   well under that, and far more useful per column
-```
-
-Against 2.85 GB today and a 10 GB allowance. **Cost is not the constraint.**
+1. **The export ZERO-FILLS numerics.** `GKx` is `'0.0'` on a pass, not NULL.
+   Counting non-nulls says every numeric shot field is universal.
+2. **...but zero is a VALUE on some fields.** Over-correcting and suppressing
+   all numeric zeros made `OpponentScore` read 26% when it is 100% populated
+   and 0 means "they have not scored". Report non-null **and** non-zero
+   separately; never collapse them.
+3. **20% of returned rows are not events.** `FROM team BY event` returns
+   `Sequence` and `Possession` aggregate rows. `upsert_game_events` drops them
+   (flagged neither `is_team` nor `is_opp`) and production holds zero of 8.5M.
+   Any probe must select those flags or its denominator is wrong.
+4. **Sample lists are not value sets.** Comparing first-5 samples invented a
+   competition difference that does not exist.
+5. **ANCHOR-SCOPED FIELDS.** `shooterExpectedGoals` populates on all 594
+   anchor-team shots and **zero of 369 opponent shots**, and where it
+   populates it is identical to `expectedGoals`. It is not player-attributed
+   xG; it is raw xG masked by the queried team. In the per-game architecture
+   this yields a silently half-empty column. **Excluded.** Same trap class as
+   `lookup(team.event.primary, ...)` returning identical values on every row.
+6. **The level test cannot discriminate on boolean flags.** A field that is
+   only ever `True`-or-NULL shows one distinct value per game and reads as
+   "per-game". ~80 fields are affected; read that label as "flag".
+7. **`storage_info.historical_bytes`** reported 29.46 GB and a whole plan was
+   built on it before its meaning was checked. It was never established what
+   that column measures. See `project_motherduck_fragmentation.md` — the same
+   view produced a retracted finding three days earlier.
 
 ---
 
-## How to do it without a second full re-download
+## Findings worth acting on
 
-`gameEventIndex` is stable across re-fetches at **99.72%**, so this is a
-narrow pull of the new columns with a `playType` + `gameClock` guard,
-re-downloading only the games that fail the guard. **~7.6% of a full
-download.** That option was preserved deliberately before the migration.
+### Pressure — two different fields, and the useful one is not the token
+
+```
+Pressure|EVENT  (== qv326)        963 events   1.5%   SHOTS
+                                  High / Low / Moderate
+
+remoteEventsPressureReceived   31,129 events  48.6%   passes, take-ons,
+                                  high / low / medium  clearances, ball touches
+```
+
+They **disagree where both populate** (99 events read `Low` on the token and
+`high` on the other), so they are different measures — pressure on the shooter
+at the shot, versus pressure on the player receiving the ball. Pressure is
+what prompted this work; **`remoteEventsPressureReceived` is the one with
+reach.** `qv326` is the token's numeric code — take one, not both.
+
+`remoteEventsPressureCreated` is EMPTY. **There is no presser attribution and
+no presser location**, so player-level pressing remains unavailable.
+
+### Stat tokens return DISPLAY-FORMATTED values. Named fields return raw.
+
+```
+[xG|EVENT]            0.19                    stored: 100 distinct, 0.01-1.00
+event.expectedGoals   0.1945270746946334      948 distinct in ONE team-season
+```
+
+`EVENT_LOG_SELECT` line 52 takes `[xG|EVENT]`, `[xA|EVENT]`, `[ShotDist|EVENT]`
+— so stored `xG` is 2dp, `xA` 4dp, `ShotDist` 1dp, and `EventX/Y` are
+explicitly format-capped. **Switching to the named field is a free precision
+fix**: same column, same cost.
+
+### Our xG is unadjusted; TruMedia's own team xG is not
+
+The catalogue defines its own stat as:
+
+```
+team:   sum(event.reboundAdjustedExpectedGoals)
+player: sum(event.shooterExpectedGoals)
+```
+
+`[xG|EVENT]` follows `expectedGoals` (23/23 on rows where they diverge), so
+every aggregate we produce is unadjusted.
+
+```
+Man City 2025/26, both sides    raw 118.82   rebound-adjusted 116.77
+```
+
+1.75% over a season — invisible. But **up to 0.70 on a single shot** (a
+rebound goal reads 0.89 raw, 0.19 adjusted), which is a visible step in the
+wrong place on a match xG race. `expectedGoals == optaExpectedGoals` exactly
+(963/963), so that is a duplicate name, not a third model.
+
+**Not a bug — a definitional choice nobody made.** Take both columns and pick
+per chart. **Deferred by the user 2026-08-31; do not change silently.**
 
 ---
 
-## Open, before building
+## What to take — ~53 columns plus the catalogued qualifier flags
 
-1. **Row-level vs event-level.** `GKx`, `GoalmouthZ`, `xGOT`, `MatchState`,
-   `Starter` came back non-null on *every* row, including `Sequence` and
-   `Possession` aggregate rows. Establish whether they are genuinely
-   per-event or carried at row level before storing 8.5M copies of a
-   per-match value.
-2. **The full 77.** Only a sample was tested. Pull all of them against one
-   team-season and check which populate, on what, and with what cardinality.
-3. **Other competitions.** Everything was verified on one PL team-season.
-   UCL alone showed 3 qualifiers the PL did not, and shootout play types
-   (`shootoutgoal`, `missedshootout`) exist and we have none.
-4. **`EventID`** — see above.
+| group | n | notable |
+|---|---|---|
+| shot / chance quality | 16 | `expectedGoals`, `reboundAdjustedExpectedGoals`, `gmY`, **`gmZ`** (shot HEIGHT — charts show where a shot came from, never where it went), `GKx`/`GKy`, `PlyrsBtwn`, `Pressure`, `xGOT`, `BlockX/Y`, `Keeper`, `ShotPatternOfPlay` |
+| pressure + passing | 15 | **`remoteEventsPressureReceived`**, `remoteEventsLinesBroken`, `remoteEventsLastLineBroken`, the carry family, `cross`, `chanceCreated` |
+| sequence / possession | 8 | `possessionValueAdded`, `sequenceDirectSpeed`, `sequenceFieldLength`, `sequenceReachedPenaltyArea` |
+| match context | 14 | `MatchState`, `Starter`, `Position`, formations (→ `games`), `CornerType`, `secondsUntilNextGoal`, win probabilities |
 
-## What is NOT available, so nobody goes looking
+**Excluded:** `optaExpectedGoals` (duplicate) · `shooterExpectedGoals`
+(anchor-scoped) · `TimeStamp` (230 MB, all-unique, and the user does not want
+time-of-day) · the 3 dead tokens · the 35 EMPTY named fields · case-duplicate
+pairs — **field names are case-insensitive**, so `PossessionStartX` and
+`possessionStartX` are one field.
 
-- **Player-level pressing.** `remoteEventsPressureCreated` is named in the
-  equations and returns nothing. Pressure is recorded against the player
-  RECEIVING it; there is no presser attribution and no presser location.
-- **Off-ball positions generally.** `GKx`/`GKy` and `PlyrsBtwn` are the only
-  positional data about players other than the actor.
+**Classified as derivable but NOT tested:** `PassAngle`, `PsDist`,
+`PassLength`, `FieldLocation`, and the sequence start/end geometry. That
+reasoning is the same kind that got `TimeStamp` wrong. At 20 bytes an event,
+taking them is cheaper than trusting it.
+
+---
+
+## Cost — measured, not asserted
+
+Per-column, scaled to 8.5M events, measured against 8.99M real local rows:
+
+```
+sparse DOUBLE (shot-only)      3.5-5.5 MB      GKx, gmZ, xGOT
+sparse VARCHAR, few values       5-6 MB        Pressure, PlyrsBtwn
+dense small INT                  1.7 MB
+dense VARCHAR, low cardinality   8.5 MB        MatchState, Starter
+dense DOUBLE                      19 MB        possessionValueAdded
+all-unique VARCHAR               230 MB        TimeStamp  <- the outlier
+```
+
+**~20.5 bytes per event for the recommended set.** Two full seasons of every
+league is 16.3M events ≈ 2.27 GB, or 2.61 GB with the new columns, against
+**2.49 GB active today and a 10 GB cap**. The column list is not the
+constraint; do not spend time curating it hard.
+
+*A first attempt measured 69.9 MB for every column regardless of type — that
+was DuckDB's minimum block allocation at 64k rows. Measure at production
+scale or not at all.*
+
+---
+
+## Still unknown
+
+- How many prefixed qualifiers (`shot_q*`, `assist_q*`, `save_q*`) exist.
+- Whether `[xG|EVENT]` resolves differently at player grain. Probably moot —
+  the pipeline only pulls `FROM team BY event`.
+- Whether backfilling history is affordable. That depends on what
+  `historical_bytes` means, which was never established.
+- One team-season drove the field probe. `q171` reads EMPTY there and is known
+  to populate elsewhere, so **absence in one sample proves nothing.**
+
+## The probe
+
+`scratchpad/probe_stat_tokens.py` and `probe_named_fields.py` answer, for any
+field: does it populate, on what play types, at what level, and what type.
+That — not a UI — was the answer to "should the download tool have a mode for
+adding stats". Adding a field is two lines (`EVENT_LOG_SELECT` and an
+`ALTER TABLE` in `_apply_schema`; `_align_to_table` handles the rest by name).
+The hard part is the four judgements, and every one of them fails silently.

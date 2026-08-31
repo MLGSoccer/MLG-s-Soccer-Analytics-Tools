@@ -136,14 +136,34 @@ def _season_label(sid):
 
 
 all_seasons = sorted(_season_names, key=_season_label)
-chosen = st.multiselect(
-    "Seasons", all_seasons, format_func=_season_label,
-    help="One request per season discovers every fixture in it. No team list "
-         "involved — this is what stops config.json driving downloads.")
+_scol, _acol, _ncol = st.columns([6, 1, 1])
+with _scol:
+    chosen = st.multiselect(
+        "Seasons", all_seasons, format_func=_season_label, key="campaign_scope",
+        help="One request per season discovers every fixture in it. No team "
+             "list involved — this is what stops config.json driving "
+             "downloads.")
+with _acol:
+    st.write("")
+    st.button("All", key="campaign_scope_all",
+              help=f"Select all {len(all_seasons)} seasons.",
+              on_click=lambda: st.session_state.update(
+                  {"campaign_scope": all_seasons}))
+with _ncol:
+    st.write("")
+    st.button("None", key="campaign_scope_none",
+              on_click=lambda: st.session_state.update(
+                  {"campaign_scope": []}))
 
 if not chosen:
     st.caption("Pick at least one season.")
     st.stop()
+
+# Discovery is one request per season and runs before any cost estimate can
+# exist, so it is the one spend the review step below cannot show you first.
+st.caption(f"{len(chosen)} of {len(all_seasons)} seasons · "
+           f"{len(chosen)} discovery request"
+           f"{'s' if len(chosen) != 1 else ''} to build the work list.")
 
 # ── 2. Discover + classify ───────────────────────────────────────────────────
 st.header("2 · What needs doing")
