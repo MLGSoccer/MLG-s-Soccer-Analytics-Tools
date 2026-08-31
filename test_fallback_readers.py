@@ -130,5 +130,32 @@ check("the wrong legacy row ('Wrong Club', min 99) is not returned",
       all(r["minute"] != 99 for r in res),
       str([(r["minute"], r["source"]) for r in res]))
 
+print("\n[5] own_goal_conceding_side — the crash that shipped with the migration")
+# The events path returns credited_team=None by design. Every Streamlit page
+# called .lower() on it unconditionally, so after the migration ANY game with
+# an own goal raised AttributeError on page load. Four sites, one duplicated
+# block; the resolution now lives here instead.
+side = md.own_goal_conceding_side
+home_id, away_id = md.get_game_team_ids.__wrapped__(og_game)
+og_row = own_goals(og_game)[0]
+
+check("events row still has credited_team=None",
+      og_row["credited_team"] is None)
+check("resolves a side from teamId alone (no name)",
+      side(og_game, og_row["teamId"], None, "Home FC", "Away FC")
+      in ("home", "away"))
+check("teamId maps to the right side",
+      side(og_game, home_id, None, "Home FC", "Away FC") == "home"
+      and side(og_game, away_id, None, "Home FC", "Away FC") == "away")
+check("legacy path still matches on name when there is no id",
+      side(plain_game, None, "Home FC", "Home FC", "Away FC") == "home"
+      and side(plain_game, None, "Away FC", "Home FC", "Away FC") == "away")
+check("id WINS over a contradicting name",
+      side(og_game, home_id, "Away FC", "Home FC", "Away FC") == "home")
+check("neither id nor name returns None rather than raising",
+      side(og_game, None, None, "Home FC", "Away FC") is None)
+check("unknown teamId falls through instead of guessing",
+      side(og_game, "not-a-real-team-id", None, "Home FC", "Away FC") is None)
+
 print(f"\n{'=' * 60}\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

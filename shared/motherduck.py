@@ -4,6 +4,7 @@ Provides connection management and data access functions for chart pages.
 """
 import os
 import json
+import difflib
 import duckdb
 import streamlit as st
 from datetime import datetime
@@ -831,6 +832,49 @@ def get_own_goals_for_game(game_id):
                 con,
                 "SELECT minute, credited_team FROM own_goals "
                 "WHERE gameId = ? ORDER BY minute", [game_id])]
+
+
+@st.cache_data(ttl=3600)
+def get_game_team_ids(game_id):
+    """(homeTeamId, awayTeamId) for a game, or (None, None) if unknown."""
+    if not game_id:
+        return (None, None)
+    row = get_connection().execute(
+        "SELECT homeTeamId, awayTeamId FROM games WHERE gameId = ?",
+        [game_id]).fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def own_goal_conceding_side(game_id, team_id, credited_team,
+                            home_name, away_name):
+    """Which SIDE put it in their own net: 'home', 'away', or None.
+
+    Both own-goal sources name the CONCEDING team, but by different means:
+    the events path sets `teamId` and leaves `credited_team` None, while the
+    legacy `own_goals` table gives a NAME and no id.
+
+    Callers used to fuzzy-match the name unconditionally, which raises
+    AttributeError the moment the events path answers - and after the
+    per-game migration that is every game with an own goal. This exists so
+    that resolution lives in ONE place; the same block was duplicated across
+    four Streamlit pages, which is why one miss became four.
+
+    PREFER the id. The name path matches API-Football's spelling against
+    TruMedia's, the bug class the migration removed everywhere else, so it
+    is kept only for rows the events path cannot answer.
+    """
+    if team_id:
+        home_id, away_id = get_game_team_ids(game_id)
+        if team_id == home_id:
+            return 'home'
+        if team_id == away_id:
+            return 'away'
+    if credited_team:
+        cr = credited_team.lower()
+        h = difflib.SequenceMatcher(None, cr, (home_name or '').lower()).ratio()
+        a = difflib.SequenceMatcher(None, cr, (away_name or '').lower()).ratio()
+        return 'home' if h >= a else 'away'
+    return None
 
 
 @st.cache_data(ttl=3600)

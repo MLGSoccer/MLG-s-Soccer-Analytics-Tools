@@ -17,6 +17,7 @@ from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, build_shots_from_game, season_label,
     get_own_goals_for_game, get_goal_scorers_for_game, get_red_cards_for_game,
+    own_goal_conceding_side,
 )
 from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
@@ -190,17 +191,18 @@ if data_source == "Database":
                 "Number of own goals", min_value=0, max_value=5,
                 value=len(auto_ogs), key=f"num_og_{selected_game['game_id']}"
             )
-            import difflib as _dl
             own_goals = []
             for i in range(num_own_goals):
                 st.sidebar.markdown(f"**Own Goal {i+1}**")
                 og_col1, og_col2 = st.sidebar.columns(2)
                 if i < len(auto_ogs):
                     default_minute = auto_ogs[i]['minute']
-                    cr = auto_ogs[i]['credited_team']
-                    hs = _dl.SequenceMatcher(None, cr.lower(), home_team.lower()).ratio()
-                    as_ = _dl.SequenceMatcher(None, cr.lower(), away_team.lower()).ratio()
-                    default_scorer_idx = 0 if hs >= as_ else 1
+                    # "Scored by" means the own-goal scorer, i.e. the CONCEDING
+                    # side - which is what both sources name.
+                    _side = own_goal_conceding_side(
+                        selected_game['game_id'], auto_ogs[i].get('teamId'),
+                        auto_ogs[i].get('credited_team'), home_team, away_team)
+                    default_scorer_idx = 1 if _side == 'away' else 0
                 else:
                     default_minute = 45
                     default_scorer_idx = 0

@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, get_momentum_events, season_label,
     get_goal_scorers_for_game, get_own_goals_for_game, get_red_cards_for_game,
+    own_goal_conceding_side,
 )
 from shared.styles import (
     BG_COLOR, SPINE_COLOR,
@@ -649,9 +650,13 @@ st.sidebar.caption(
 window = st.sidebar.slider("Rolling window (minutes)", 3, 10, 5, step=1)
 
 
-def _own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix):
-    """Render own goals sidebar and return list of {minute, team} dicts."""
-    import difflib as _dl
+def _own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix,
+                       game_id=None):
+    """Render own goals sidebar and return list of {minute, team} dicts.
+
+    `game_id` resolves an own goal's `teamId` to a side. The CSV path has no
+    game id, but it also passes an empty `auto_ogs`, so nothing needs it.
+    """
     st.sidebar.header("Own Goals")
     num_own_goals = st.sidebar.number_input(
         "Number of own goals", min_value=0, max_value=5,
@@ -663,10 +668,12 @@ def _own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix):
         og_col1, og_col2 = st.sidebar.columns(2)
         if i < len(auto_ogs):
             default_minute = auto_ogs[i]["minute"]
-            cr = auto_ogs[i]["credited_team"]
-            hs = _dl.SequenceMatcher(None, cr.lower(), home_team.lower()).ratio()
-            as_ = _dl.SequenceMatcher(None, cr.lower(), away_team.lower()).ratio()
-            default_scorer_idx = 0 if hs >= as_ else 1
+            # "Scored by" means the own-goal scorer, i.e. the CONCEDING side -
+            # which is what both sources name.
+            _side = own_goal_conceding_side(
+                game_id, auto_ogs[i].get("teamId"),
+                auto_ogs[i].get("credited_team"), home_team, away_team)
+            default_scorer_idx = 1 if _side == "away" else 0
         else:
             default_minute = 45
             default_scorer_idx = 0
@@ -812,7 +819,8 @@ if data_source == "Database":
 
         own_goals = _own_goals_sidebar(
             selected_game["home_team"], selected_game["away_team"],
-            auto_ogs, key_prefix=selected_game["game_id"]
+            auto_ogs, key_prefix=selected_game["game_id"],
+            game_id=selected_game["game_id"]
         )
 
         if st.button("Generate Chart", type="primary"):
