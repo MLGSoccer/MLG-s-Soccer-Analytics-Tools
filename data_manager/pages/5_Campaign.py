@@ -235,8 +235,8 @@ if not todo_states:
     st.success("Every played fixture is already stored whole. Nothing to do.")
     st.stop()
 
-with st.expander(f"The {sum(summary[s] for s in todo_states):,} games that "
-                 f"need downloading"):
+with st.expander(f"The {sum(summary[s] for s in todo_states):,} games in "
+                 f"scope"):
     show = work[work["state"].isin(todo_states)]
     st.dataframe(
         show[[c for c in ("gameDate", "homeTeam", "awayTeam", "state",
@@ -247,10 +247,22 @@ with st.expander(f"The {sum(summary[s] for s in todo_states):,} games that "
 # ── 3. Run ───────────────────────────────────────────────────────────────────
 st.header("3 · Run")
 
+# COMPLETE is selectable but never pre-selected. Everything else here is a
+# game the database is missing or holding badly; complete games are fine and
+# re-fetching them is a deliberate, expensive act. Defaulting it on meant
+# ticking one checkbox silently opted you into re-downloading a whole season
+# ALONGSIDE the games that genuinely needed work.
 picked = st.multiselect(
-    "Download which states?", todo_states, default=todo_states,
+    "Download which states?", todo_states,
+    default=[s for s in todo_states if s != WORK_COMPLETE],
     format_func=lambda s: f"{STATE_ICON[s]} {s} ({summary[s]:,})")
 n = sum(summary[s] for s in picked)
+
+if WORK_COMPLETE in picked:
+    st.warning(
+        f"**Re-downloading {summary[WORK_COMPLETE]:,} games that are already "
+        f"stored whole.** They are replaced at `gameId`. Do this for a schema "
+        f"change; it is wasted requests otherwise.")
 
 # Cost comes from the runner's own batching, not from arithmetic repeated
 # here - the two drift apart otherwise.
