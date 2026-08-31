@@ -668,8 +668,16 @@ boolean-based estimate held because only 7 of 227 are anything else.
 cardinality for each.
 
 **DECISION: take all 227.** 0.6 GB buys never having to predict which
-qualifier you will want. The alternative is choosing a subset now and
-backfilling at 7.6% of a full download every time the guess is wrong.
+qualifier you will want. The alternative is choosing a subset now and paying
+a **full re-download — 904 requests** — every time the guess is wrong. (This
+line used to say "7.6% of a full download". That was a bytes figure being
+read as a cost; see the backfill section below.)
+
+**SUPERSEDED 2026-08-31 on the column set**, though not on the principle:
+the expansion that shipped takes **52 columns** chosen from a measured probe
+of the stat-token AND named-field namespaces, not 227 raw qualifiers. Raw
+qualifier flags are still reachable as `event.qNNN` if wanted later. See
+`EVENT_MODEL_EXPANSION.md`.
 
 **227 is still a floor** - one team, one competition. Competition-specific and
 rare qualifiers will not have appeared. `data_manager/opta_qualifiers_populated.txt`
@@ -699,12 +707,28 @@ and **reintroduce the vintage-invisibility trap** - a game would read as
 `complete`, be complete, and quietly lack the qualifiers a chart needs. That
 is the same shape as the `old_feed` bug, for a trivial saving.
 
-### How, without a second full re-download
+### How — SETTLED 2026-08-31: a full re-download, not a narrow pull
 
-`gameEventIndex` is stable across re-fetches at **99.72%**, so this is a
+The narrow-pull plan below was **rejected on measurement.** It priced the
+backfill in BYTES, and the binding cost is REQUESTS - a request costs the
+same whether it selects 5 columns or 120. Every game has to be asked for
+again either way, so the narrow pull saves bandwidth nobody was paying for
+while adding an UPDATE path that has to be right about row alignment 8.5
+million times. With the guard failures it is also MORE requests, not fewer.
+
+~~`gameEventIndex` is stable across re-fetches at 99.72%, so this is a
 narrow pull of the new columns with a `playType` + `gameClock` guard,
-re-downloading only the games that fail the guard. Costed at ~7.6% of a full
-download. The option was preserved deliberately before the migration.
+re-downloading only the games that fail the guard, at ~7.6% of a full
+download.~~
+
+**What it actually costs:** 5,295 games = **452 batches = 904 requests**,
+events and minutes. Minutes are kept deliberately - skipping them halves
+the count but leaves `player_game_minutes` stale against refreshed events
+if the source revised the game, which is the per-90 trap this file already
+warns about. `run_campaign(with_minutes=False)` exists if that ever changes.
+
+Driven from Campaign's **"re-download games already stored"** checkbox,
+season by season. `COMPLETE` is selectable but never pre-selected.
 
 The 79 ids are in `data_manager/opta_qualifiers_referenced.json`, each mapped
 to the stats that reference it - which is what says what it MEANS. Names are
