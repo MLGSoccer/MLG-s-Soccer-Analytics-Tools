@@ -94,7 +94,7 @@ fixtures = {r["gameId"]: {"homeTeamId": r["homeTeamId"],
 
 # ── 2. One request, both sides ─────────────────────────────────────────────
 print("\n[2] download_game_events - ONE request for the whole match")
-rows, kb = dl.download_game_events(session, home_id, [SEASON], [gid], str(CSV))
+rows, kb = dl.download_game_events(session, [SEASON], [gid], str(CSV))
 check("downloaded", rows > 0, f"{rows:,} rows, {kb:.0f} KB")
 
 import pandas as pd  # noqa: E402

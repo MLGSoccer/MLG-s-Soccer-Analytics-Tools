@@ -32,6 +32,7 @@ from downloader import (  # noqa: E402
     WORK_NOT_PLAYED,
     WORK_OLD_FEED,
     WORK_ONE_SIDED,
+    WORK_ANCHORED,
     WORK_ORDER,
     build_work_list,
     create_session,
@@ -63,10 +64,15 @@ STATE_HELP = {
                     "Download. This is the case the old tool cannot see.",
     WORK_OLD_FEED: "Both sides stored, but downloaded under the OLD feed — "
                    "22 play types, no cards, no substitutions. Re-download.",
+    WORK_ANCHORED: "Both sides stored, but written by an ANCHORED request — "
+                   "21 team columns on the away rows hold the HOME team's "
+                   "values (abbreviation, colour, score, formation, assists). "
+                   "Re-download.",
     WORK_NOT_PLAYED: "Fixture exists, no result yet. Skip.",
     WORK_COMPLETE: "Both sides present. Skip.",
 }
 STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠", WORK_OLD_FEED: "🟡",
+              WORK_ANCHORED: "🟣",
               WORK_NOT_PLAYED: "⚪", WORK_COMPLETE: "🟢"}
 
 st.title("Campaign")
@@ -228,7 +234,8 @@ force = st.checkbox(
          "widened SELECT. Work season by season — finished games do not "
          "drop off this list, so stopping mid-season means redoing it.")
 
-todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED)
+todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
+                           WORK_ANCHORED)
                + ((WORK_COMPLETE,) if force else ())
                if summary[s]]
 if not todo_states:

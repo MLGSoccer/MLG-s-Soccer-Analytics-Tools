@@ -1122,17 +1122,32 @@ def discover_fixtures(session, season_ids):
                              if c in home.columns])
 
 
-def build_game_event_statement(anchor_team_id, season_ids, game_ids):
+def build_game_event_statement(season_ids, game_ids):
     """Every event in the given games, BOTH sides, from one request.
 
-    Two differences from `build_event_log_statement`:
+    NO TEAM PREDICATE. That is the whole point, and it is what makes the
+    team-level columns correct.
+
+    Three differences from `build_event_log_statement`:
 
     1. **No `event.toucher` predicate.** That filter is why cards,
        substitutions, corners, ball recoveries and ~20 other types never
        arrive - 22 play types instead of 47.
     2. **`is_team` / `is_opp` as RAW booleans.** They say which side each
-       event belongs to, so one request covers the whole match instead of one
-       per team.
+       event belongs to.
+    3. **No `team.teamId` filter.** Naming a team makes it the ANCHOR, and
+       TruMedia then answers every team-scoped column from that team's point
+       of view - on the opponent's rows too. That is how 21 columns
+       (teamAbbrevName, newestTeamColor, MatchState, Formation, the score
+       columns, the assist and chance flags...) came to hold the home side's
+       values on 4.3M away rows between 2026-08-29 and 2026-09-01.
+
+    With no team named, TruMedia returns each event ONCE PER SIDE - about 2.5x
+    the rows - each copy carrying that side's own values. Keeping the copies
+    where `is_team` is true gives every event exactly once, described by the
+    team that actually performed it. Verified on three matches (largest in the
+    database, a World Cup extra-time tie, an ordinary league game): identical
+    event coverage to two anchored pulls, zero duplicates, both sides present.
 
     THE TRAP: `lookup(team.event.primary, abbrevName)` and
     `lookup(opponent.event.primary, abbrevName)` return IDENTICAL values on
@@ -1148,8 +1163,7 @@ def build_game_event_statement(anchor_team_id, season_ids, game_ids):
         f"team.event.primary AS is_team,"
         f"opponent.event.primary AS is_opp "
         f"FROM team BY event "
-        f"WHERE ((team.teamId ='{anchor_team_id}')) "
-        f"AND ((season.seasonId IN ({season_id_str}))) "
+        f"WHERE ((season.seasonId IN ({season_id_str}))) "
         f"AND (game.gameId IN ({gids_str})) "
         f"ORDER BY event.gameEventIndex ASC "
         f"LIMIT 200000"
@@ -1160,10 +1174,27 @@ def build_game_event_statement(anchor_team_id, season_ids, game_ids):
 WORK_MISSING = "missing"        # no events at all
 WORK_ONE_SIDED = "one_sided"    # half a match - the 22.6% problem
 WORK_OLD_FEED = "old_feed"      # both sides, but ingested under event.toucher
+WORK_ANCHORED = "anchored"      # both sides, new feed, but written by an
+                                # anchored request - see below
 WORK_NOT_PLAYED = "not_played"  # fixture exists, no result yet
-WORK_COMPLETE = "complete"      # both sides, on the current feed
-WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
+WORK_COMPLETE = "complete"      # both sides, correct on every column
+WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED, WORK_ANCHORED,
               WORK_NOT_PLAYED, WORK_COMPLETE]
+
+# WORK_ANCHORED: games written between 2026-08-29 and 2026-09-01, when
+# `build_game_event_statement` still named a team. Naming one made it the
+# ANCHOR, and TruMedia answered every team-scoped column from that team's
+# point of view - including on the opponent's rows. 21 columns on 4.3M away
+# rows held the home side's values.
+#
+# The detector is one aggregate: a two-sided game whose rows carry only ONE
+# distinct `teamAbbrevName` was written by an anchored request. Two distinct
+# values means each side kept its own identity, which only the anchor-free
+# statement produces.
+#
+# It is deliberately the same shape as the `new_feed` check below - a cheap
+# property of the stored rows that says which code wrote them, so a
+# re-download is self-tracking and resumable rather than needing a ledger.
 
 # The 22 play types `event.toucher` can return. A game holding ONLY these was
 # ingested under the old predicate.
@@ -1239,27 +1270,39 @@ def build_work_list(con, fixtures):
     have = con.execute(
         f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n, "
         f"       max(CASE WHEN playType NOT IN ({old_types}) THEN 1 ELSE 0 END)"
-        f"       AS new_feed "
+        f"       AS new_feed, "
+        f"       count(DISTINCT \"teamAbbrevName\") AS abbrevs "
         f"FROM events WHERE gameId IN ({ph}) GROUP BY gameId", gids
     ).fetchall()
-    sides = {g: s for g, s, _, _ in have}
-    counts = {g: n for g, _, n, _ in have}
-    newfeed = {g: bool(f) for g, _, _, f in have}
+    sides = {g: s for g, s, _, _, _ in have}
+    counts = {g: n for g, _, n, _, _ in have}
+    newfeed = {g: bool(f) for g, _, _, f, _ in have}
+    abbrevs = {g: a for g, _, _, _, a in have}
 
     out = fixtures.copy()
     out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
     out["events_stored"] = out["gameId"].map(counts).fillna(0).astype(int)
     out["new_feed"] = out["gameId"].map(newfeed).fillna(False).astype(bool)
+    out["abbrevs"] = out["gameId"].map(abbrevs).fillna(0).astype(int)
 
     played = (out["status"].astype(str).str.lower().isin(INGESTABLE_STATUSES)
               if "status" in out.columns else True)
 
     def _state(row, is_played):
         if row["sides_present"] >= 2:
-            # Both sides, but which feed? A game holding only the old 22 play
-            # types still needs re-downloading - it has no cards and no
-            # substitutions, whatever its row count says.
-            return WORK_COMPLETE if row["new_feed"] else WORK_OLD_FEED
+            # Both sides, but which code wrote it? Two questions, in order.
+            #
+            # A game holding only the old 22 play types still needs
+            # re-downloading - it has no cards and no substitutions, whatever
+            # its row count says.
+            if not row["new_feed"]:
+                return WORK_OLD_FEED
+            # And a game whose two sides share ONE abbreviation was written by
+            # an anchored request, so 21 team-scoped columns on the away rows
+            # hold the home side's values.
+            if row["abbrevs"] < 2:
+                return WORK_ANCHORED
+            return WORK_COMPLETE
         if not is_played:
             return WORK_NOT_PLAYED
         return WORK_ONE_SIDED if row["sides_present"] == 1 else WORK_MISSING
@@ -1280,44 +1323,44 @@ def work_list_summary(work):
     return {s: int(counts.get(s, 0)) for s in WORK_ORDER}
 
 
-# Batches are grouped by HOME TEAM, and that is not an arbitrary choice.
+# Batches used to be grouped by HOME TEAM. They are not any more, and the
+# reason the grouping existed is worth keeping:
 #
-# THE TRAP: the event query anchors on a team, and the anchor FILTERS. A game
-# returns events only if the anchor plays in it - an unrelated anchor returns
-# zero rows, and a mixed batch silently drops every game the anchor is not in.
-# Measured: batching 20 arbitrary games lost Manchester United v Arsenal
-# because its batch was anchored on Crystal Palace. Nothing errored. The row
-# count looked plausible. Only counting DISTINCT GAMES caught it.
+#   THE OLD TRAP: the event query named a team, and that name FILTERED. A game
+#   returned events only if the named team played in it, so a mixed batch
+#   silently dropped every game it was not in. Measured: batching 20 arbitrary
+#   games lost Manchester United v Arsenal because its batch was anchored on
+#   Crystal Palace. Nothing errored, the row count looked plausible, and only
+#   counting DISTINCT GAMES caught it.
 #
-# Every game has exactly one home team, so grouping by homeTeamId covers each
-# game precisely once with an anchor guaranteed to be in it.
+# `build_game_event_statement` no longer names a team, so nothing filters and
+# any games can share a request. That also removes what was really capping
+# batch size: a club has at most ~25 home games in a season, so batches were
+# capped there and never reached this constant.
 #
-# The cost works out the same as the path being replaced: a 380-game season is
-# 20 teams x ~19 home games = 20 event requests + 20 minutes requests, against
-# the old 20 teams x 2. Batching one game per request would have been 760.
-MAX_GAMES_PER_REQUEST = 40
+# 40 is MEASURED, not guessed. On the 40 largest games of a 557-game season,
+# one request returned 70,974 own-side rows against 70,974 pulled individually,
+# with all 40 gameIds present - exact, no truncation - in a 182,618-row
+# response. That is 91% of `LIMIT 200000`, and the largest matches in the whole
+# database are bigger still, so the default is HALF the proven ceiling.
+MAX_GAMES_PER_REQUEST = 20
 
 
 def plan_batches(todo, batch_size=MAX_GAMES_PER_REQUEST):
-    """Group games into requestable batches. Returns [(anchor_team_id, rows)].
+    """Chunk games into requestable batches. Returns [rows, ...].
 
-    Grouped by HOME TEAM: every game has exactly one, so each game is covered
-    once by an anchor guaranteed to play in it. See MAX_GAMES_PER_REQUEST for
-    what goes wrong otherwise.
+    No grouping: with no team predicate a request returns whatever games it
+    asks for, so batches are filled in order and nothing is at risk of being
+    filtered out.
 
     Shared with the UI on purpose. A page that estimates the cost with its own
     arithmetic drifts from what the runner actually does the moment either
     changes - the Campaign page told users "one request each" for a while
     after batching landed, which was off by a factor of nineteen.
     """
-    by_anchor = {}
-    for idx_row in todo.iterrows():
-        by_anchor.setdefault(idx_row[1]["homeTeamId"], []).append(idx_row)
-    batches = []
-    for anchor_id, rows in by_anchor.items():
-        for i in range(0, len(rows), max(1, batch_size)):
-            batches.append((anchor_id, rows[i:i + max(1, batch_size)]))
-    return batches
+    rows = list(todo.iterrows())
+    step = max(1, batch_size)
+    return [rows[i:i + step] for i in range(0, len(rows), step)]
 
 
 def estimate_requests(todo, batch_size=MAX_GAMES_PER_REQUEST,
@@ -1328,7 +1371,8 @@ def estimate_requests(todo, batch_size=MAX_GAMES_PER_REQUEST,
 
 
 def run_campaign(session, token, fixtures, work, output_dir, season_ids,
-                 states=(WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED),
+                 states=(WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
+                         WORK_ANCHORED),
                  con=None,
                  progress=None, stop=None, batch_size=MAX_GAMES_PER_REQUEST,
                  with_minutes=True):
@@ -1373,7 +1417,7 @@ def run_campaign(session, token, fixtures, work, output_dir, season_ids,
         con = get_motherduck_connection(token)
     try:
         done = 0
-        for bi, (anchor, batch) in enumerate(batches, 1):
+        for bi, batch in enumerate(batches, 1):
             if stop is not None and stop():
                 skipped = total - done
                 break
@@ -1381,7 +1425,7 @@ def run_campaign(session, token, fixtures, work, output_dir, season_ids,
             note = ""
             try:
                 ev_path = os.path.join(output_dir, f"batch_{bi}_events.csv")
-                download_game_events(session, anchor, season_ids, gids, ev_path)
+                download_game_events(session, season_ids, gids, ev_path)
                 _, n = upsert_game_events(token, ev_path, fixture_map, con=con)
                 note = f"{n:,} events"
                 if with_minutes:
@@ -1412,13 +1456,15 @@ def _quiet_remove(path):
         pass
 
 
-def download_game_events(session, anchor_team_id, season_ids, game_ids,
-                         output_path):
-    """Fetch both sides' events for the given games. Returns (rows, size_kb)."""
+def download_game_events(session, season_ids, game_ids, output_path):
+    """Fetch both sides' events for the given games. Returns (rows, size_kb).
+
+    No anchor team: see `build_game_event_statement` for why naming one
+    corrupts every team-scoped column on the opponent's rows.
+    """
     payload = {
         "format": "MIXED",
-        "statement": build_game_event_statement(anchor_team_id, season_ids,
-                                                game_ids),
+        "statement": build_game_event_statement(season_ids, game_ids),
         "export": "csv",
         "pageDescriptorName": "pageSoccerTeamEventLogOverall",
         "exportOptions": {"includeCalculations": False,
@@ -1484,37 +1530,34 @@ def upsert_game_events(token, csv_path, fixtures, con=None):
 
     is_team = df.get("is_team", pd.Series(False, index=df.index)) \
                 .fillna(False).astype(bool)
-    is_opp = df.get("is_opp", pd.Series(False, index=df.index)) \
-               .fillna(False).astype(bool)
-    anchor = df["teamId"] if "teamId" in df.columns else None
 
-    # Resolve each event to its own side. The anchor team is whichever of the
-    # fixture's two sides the request was made against; is_opp rows belong to
-    # the other one.
-    def _side(row_gid, anchor_id, team_flag):
-        fx = fixtures.get(row_gid)
-        if not fx:
-            return None
-        home, away = fx["homeTeamId"], fx["awayTeamId"]
-        other = away if anchor_id == home else home
-        return anchor_id if team_flag else other
-
-    df = df[is_team | is_opp].copy()
+    # KEEP ONLY `is_team` ROWS.
+    #
+    # With no team predicate the response carries each event TWICE - once
+    # described from each side. The `is_team` copy is the one written from the
+    # point of view of the team that actually performed the event, so every
+    # team-scoped column on it (teamAbbrevName, newestTeamColor, Formation,
+    # MatchState, the score columns, the assist and chance flags) already
+    # describes the right team. Taking the `is_opp` copy as well would
+    # reintroduce exactly the corruption this shape exists to avoid.
+    #
+    # `teamId` therefore needs no reconstruction: the row states its own team.
+    # The previous version derived it from the anchor and the fixture, and
+    # fixed `teamFullName` to match - but stopped there, leaving 21 other
+    # columns describing the anchor. That is the bug this replaces.
+    #
+    # Rows flagged neither is_team nor is_opp are `Sequence` / `Possession`
+    # aggregate rows. They have no owning team and are dropped, as before.
+    df = df[is_team].copy()
     if df.empty:
         return 0, 0
-    flags = is_team[is_team | is_opp]
-    df["teamId"] = [
-        _side(g, a, f) for g, a, f in zip(df["gameId"], anchor[df.index], flags)
-    ]
     df = df[df["teamId"].notna()].copy()
 
-    # teamFullName has to follow teamId, not the anchor, for the same reason.
-    name_by_id = {}
-    for fx in fixtures.values():
-        name_by_id[fx["homeTeamId"]] = fx["homeTeam"]
-        name_by_id[fx["awayTeamId"]] = fx["awayTeam"]
-    df["teamFullName"] = df["teamId"].map(name_by_id).fillna(
-        df.get("teamFullName"))
+    # `teamFullName` is NOT rewritten from the fixture any more. It arrives
+    # correct, like every other team-scoped column, because the row is the
+    # copy written from its own team's point of view. Overwriting it from
+    # config would reintroduce name-based identity, which the migration spent
+    # a lot of effort removing.
 
     games_df = _games_frame_from_fixtures(df, fixtures)
     events_df = df[[c for c in EVENTS_MD_COLS if c in df.columns]].copy()

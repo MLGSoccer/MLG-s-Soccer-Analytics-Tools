@@ -121,7 +121,7 @@ untouched = [g for g in seeded if g != target]
 print(f"        replacing {target}  ({row.get('homeTeam')} v {row.get('awayTeam')})")
 print(f"        leaving {len(untouched)} other games alone")
 
-stmt = build_game_event_statement(row["homeTeamId"], [SEASON], [target])
+stmt = build_game_event_statement([SEASON], [target])
 r = session.post(EXPORT_URL, json={
     "format": "MIXED", "statement": stmt, "export": "csv",
     "pageDescriptorName": "pageSoccerTeamEventLogOverall",

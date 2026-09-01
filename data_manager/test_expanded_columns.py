@@ -68,14 +68,17 @@ check("_apply_schema is idempotent",
           {r[0] for r in con.execute("DESCRIBE events").fetchall()}) == len(cols))
 
 print("\n[5] the per-game statement carries them too")
-stmt = build_game_event_statement("TEAMID", ["SEASONID"], ["GAMEID"])
+stmt = build_game_event_statement(["SEASONID"], ["GAMEID"])
 missing = [n for n in names if f" AS {n}" not in stmt]
 check("all present in build_game_event_statement", not missing,
       str(missing[:5]))
-check("statement still names the anchor and both side flags",
+# The statement deliberately names NO team: naming one makes it the anchor,
+# and TruMedia then answers every team-scoped column from that team's point of
+# view, including on the opponent's rows. See test_no_anchor.py.
+check("statement carries both side flags and names no team",
       "team.event.primary AS is_team" in stmt
       and "opponent.event.primary AS is_opp" in stmt
-      and "TEAMID" in stmt)
+      and "team.teamId" not in stmt)
 
 print("\n[6] types are ones DuckDB accepts")
 bad = [t for _e, _n, t in EXPANDED_EVENT_FIELDS
