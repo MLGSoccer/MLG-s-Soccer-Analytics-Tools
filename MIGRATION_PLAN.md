@@ -325,9 +325,9 @@ TRACK A — DATA                          TRACK B — IDENTITY
       |                                      |
  A1  per-game download rework            B2  CBS switches to TruMedia-first
       |                                      |
- A2  re-download everything              B3  rebuild alternates  [DEFERRED]
+ A2  re-download everything  [DONE]      B3  rebuild alternates  [DEFERRED]
       |                                          ^
- A3  delete API-Football                         |
+ A3  delete API-Football     [DONE]              |
       |                                          |
       +------------------------------------------+
               (B3 wants A2 done first)
@@ -500,21 +500,57 @@ state, and the one game with NULL `qualifierBlocked` that breaks
 *Undo:* **none — this is the irreversible step.** Everything before it is
 practice. Do not start until A0 and A1 are both signed off.
 
-### A3. Delete API-Football · *tool + database*
+### A3. Delete API-Football — **DONE 2026-09-01** · *tool + database*
 
-~450 lines in `downloader.py`, `TRUMEDIA_TO_API_NAME` (186 lines of name
-bridging) among them, plus `_apifootball_get`, `fetch_fixture_id`,
-`compute_player_minutes`, `fetch_and_store_fixture_data`.
+**813 lines** across `downloader.py`, `app.py` and pages 1/2/4.
+`TRUMEDIA_TO_API_NAME`'s 186 lines of name bridging, `SEASON_TO_API_LEAGUE`,
+the four DDLs, `_apifootball_get`, `search_api_football_leagues`,
+`fetch_fixture_id`, `compute_player_minutes`, `fetch_and_store_fixture_data`,
+`get_games_missing_fixture_data`, Targeted Refresh's Phase 3, Bulk Actions'
+enrichment pass, and Add Season's league-id widget.
 
-Then drop `game_fixtures`, `player_minutes`, `own_goals`, `cards`.
+**Re-verified against production before cutting**, not taken from the
+2026-08-29 audit — that audit predated both the per-game re-download and the
+column expansion, so its numbers were about a different database:
 
-**Coverage verified 2026-08-29 — nothing is lost.** `game_fixtures` is
-bookkeeping for the join itself; `player_minutes` is superseded by TruMedia's
-`player_game_minutes` and its `started` flag is read by nothing; own goals and
-cards are covered.
+```
+             legacy rows/games      events rows/games   ONLY legacy   ONLY events
+own goals      408 / 394              454 / 438              2             46
+red cards      916 / 793            1,087 / 929              0            136
+```
 
-*Do not start until:* A0 shipped AND A2 finished, so the fallbacks have
-something to fall back to.
+**`ONLY legacy` is the only number that can cost anything** — a game where an
+annotation disappears. Both are provider artefacts the audit had already
+identified: Leverkusen v PSV is credited to "Bayer Leverkusen U19", a youth
+fixture matched to a senior gameId, so dropping it is a *fix*; West Brom v
+Wrexham is a genuine disagreement where TruMedia has I. Price scoring at 26'
+and API-Football has a Wrexham own goal — same scoreline, different
+attribution.
+
+**Dropped: `game_fixtures`, `own_goals`, `cards`.**
+**KEPT: `player_minutes`** — twelve `One_Offs/` scripts (sequence_value_model
+v1-v4, backward_xg, marginal_zone, seq_nn_*) read it from MotherDuck by name.
+Superseded by `player_game_minutes`, but superseded is a claim about what
+should run, not a guarantee. Nothing recreates it now the DDL is gone, so it
+is frozen rather than maintained.
+
+All four are archived to `event_db/apifootball_archive.duckdb` — 178,018 rows,
+2.9 MB, row counts AND column shapes verified against the live tables before
+the DROP ran.
+
+**`CALENDAR_YEAR_LEAGUES` survived, re-keyed.** It drives Health's "in-season
+league gone quiet" finding and was only keyed by API-Football league id
+because that is where it was first needed. Whether MLS runs Feb-Nov is a
+property of MLS. It now lives in `pages/1` keyed by league name.
+
+`betting_dashboard/` has its own self-contained API-Football client and does
+not import from `downloader`. Untouched; the key stays in `secrets.env`.
+
+*Verified:* `test_practice_mode` 13 pass (and now asserts the four tables are
+NOT created), `test_expanded_columns` 9, `test_fallback_readers` 19 —
+including the case where the fallback table does not exist. Post-drop, the
+live readers were called against production: both answer from `events`, with
+real teamIds and playerIds.
 
 ---
 
@@ -602,7 +638,7 @@ Alternates are irreducibly authored.
 | 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
 | 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
 | 5 | ~~**A2 re-download**~~ | **database** | — | **DONE 2026-08-29 · 100%** |
-| 6 | A3 delete API-Football | tool + db | schema drop | |
+| 6 | ~~A3 delete API-Football~~ | tool + db | archived | **DONE** 2026-09-01 |
 | 7 | B2 CBS colour flip | charts | yes | needs 4 |
 | 8 | B3 alternates | data | deferred | deferred |
 
