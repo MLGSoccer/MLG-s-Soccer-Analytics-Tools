@@ -82,11 +82,17 @@ check("connects with a deliberately invalid token",
 check("local file was created", os.path.exists(LOCAL_DB))
 
 tables = {r[0] for r in con.execute("SHOW TABLES").fetchall()}
-expected = {"games", "events", "game_fixtures", "player_minutes",
-            "own_goals", "cards", "player_game_minutes"}
+expected = {"games", "events", "player_game_minutes"}
 check("every production table exists locally", expected <= tables,
       f"missing: {sorted(expected - tables)}" if not expected <= tables
       else f"{len(tables)} tables")
+
+# The four API-Football tables went with API-Football. A practice file that
+# still created them would be lying about what production looks like, which is
+# the one thing practice mode exists not to do.
+gone = {"game_fixtures", "player_minutes", "own_goals", "cards"}
+check("the API-Football tables are NOT created", not (gone & tables),
+      f"still present: {sorted(gone & tables)}" if gone & tables else "all four gone")
 
 ev_cols = [r[0] for r in con.execute("DESCRIBE events").fetchall()]
 check("events has all 6 columns added this migration",

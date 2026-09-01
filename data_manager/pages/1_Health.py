@@ -7,8 +7,8 @@ can sit in config with 30 teams attached, events flowing into MotherDuck,
 and still be invisible to half the pipeline because one list never got the
 id. Two real examples, both found by hand in August 2026:
 
-  - MLS 2026 was in `seasons`, on all 30 teams, in `season_leagues` and in
-    `season_api_leagues` - but missing from the north_america player pool.
+  - MLS 2026 was in `seasons`, on all 30 teams and in `season_leagues` -
+    but missing from the north_america player pool.
     The pool held only the tail of MLS 2025, capped at 1533 minutes, and
     was months from holding no MLS at all.
   - Liga Profesional, Brasileirao, Frauen-Bundesliga and Premiere Ligue had
@@ -34,11 +34,26 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from downloader import (  # noqa: E402
-    CALENDAR_YEAR_LEAGUES,
     get_motherduck_connection,
     group_teams_by_league,
     load_secrets,
 )
+
+# Competitions that run on the CALENDAR year (Feb-Nov) rather than the European
+# Aug-Jul split. Used by finding 6 below: one of these being quiet in August
+# means a missed download, where an Aug-Jul league being quiet in August is
+# simply the off-season.
+#
+# Keyed by the league name in `season_leagues`. It used to be keyed by
+# API-Football league id, which was never what it was about - the calendar
+# shape is a property of the competition. That accident is why this survived
+# API-Football's deletion while the rest of the wiring did not.
+CALENDAR_YEAR_LEAGUES = {
+    "MLS",
+    "NWSL",
+    "Liga Profesional",
+    "Brasileirao",
+}
 
 st.set_page_config(page_title="Health", page_icon="⚽", layout="wide")
 
@@ -59,7 +74,6 @@ MOTHERDUCK_TOKEN = os.getenv("MOTHERDUCK_TOKEN") or secrets.get("MOTHERDUCK_TOKE
 
 seasons          = config.get("seasons", {})
 season_leagues   = config.get("season_leagues", {})
-season_api       = config.get("season_api_leagues", {})
 pools            = config.get("player_pools", {})
 pool_excluded    = set(config.get("pool_excluded_seasons", []))
 teams            = config.get("teams", [])
@@ -196,13 +210,6 @@ for sid in seasons:
             "Missing from `season_leagues`. Charts fall back to a generic "
             '"MATCH" kicker and the Streamlit league bucket resolves to "Other".',
         ))
-    if sid not in season_api:
-        findings.append((
-            "warning", "No API-Football league id", label(sid),
-            "Missing from `season_api_leagues`. Fixture matching runs without "
-            "its league filter, so red cards and own goals can cross-match to "
-            "another competition on the same date.",
-        ))
 
 # 5. Pool ids the rolling window has already moved past. Only flagged when
 #    MotherDuck can prove it: the pool downloads live from TruMedia and never
@@ -252,7 +259,7 @@ for league_name, (sid, last_d) in sorted(league_latest.items()):
     # that has gone quiet, and it has no successor to wait for.
     if re.search(r"\b(19|20)\d{2}\b", league_name):
         continue
-    if season_api.get(sid) in CALENDAR_YEAR_LEAGUES:
+    if league_name in CALENDAR_YEAR_LEAGUES:
         findings.append((
             "critical", "In-season league gone quiet", league_name,
             f"Newest season ({label(sid)}) last played {last_d}, {gap} days ago. "
@@ -391,7 +398,6 @@ for sid in sorted(all_sids, key=label):
         "Season": label(sid),
         "Label": "retired" if retired else ("yes" if sid in seasons else "MISSING"),
         "League map": "yes" if sid in season_leagues else "MISSING",
-        "API id": season_api.get(sid, "—" if retired else "MISSING"),
         "Teams": n_teams,
         "Pool": pool_cell,
         "Games": games,
@@ -405,7 +411,7 @@ def _flag_missing(val):
 
 st.dataframe(
     matrix_df.style.map(_flag_missing,
-                        subset=["Label", "League map", "API id", "Pool"]),
+                        subset=["Label", "League map", "Pool"]),
     hide_index=True,
     use_container_width=True,
 )

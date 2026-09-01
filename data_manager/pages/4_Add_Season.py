@@ -28,11 +28,9 @@ import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from downloader import (  # noqa: E402
-    CALENDAR_YEAR_LEAGUES,
     extract_season_id,
     load_secrets,
     save_config,
-    search_api_football_leagues,
     suggest_next_label,
 )
 
@@ -42,14 +40,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 SECRETS_PATH = os.path.join(BASE_DIR, "secrets.env")
 
-API_FOOTBALL_KEY = load_secrets(SECRETS_PATH).get("API_FOOTBALL_KEY")
-
 with open(CONFIG_PATH, encoding="utf-8") as f:
     config = json.load(f)
 
 seasons        = config.get("seasons", {})
 season_leagues = config.get("season_leagues", {})
-season_api     = config.get("season_api_leagues", {})
 pools          = config.get("player_pools", {})
 secondary      = set(config.get("secondary_seasons", []))
 pool_excluded  = set(config.get("pool_excluded_seasons", []))
@@ -138,23 +133,19 @@ if is_new_league:
     prev_id = None
     prev_label = ""
     default_pool = "— none —"
-    default_api = 0
     default_secondary = False
 else:
     prev_id = latest_by_league[choice]
     prev_label = seasons.get(prev_id, "")
     league_name = choice
     default_pool = pool_of.get(prev_id, "— none —")
-    default_api = season_api.get(prev_id, 0)
     default_secondary = prev_id in secondary
 
-    api_note = f"`{default_api}`" if default_api else "*not set*"
     pool_note = (f"`{default_pool}`" if default_pool != "— none —"
                  else ("*none — excluded by design*" if prev_id in pool_excluded
                        else "*none*"))
     st.caption(
-        f"Cloning from **{prev_label}** — pool {pool_note}, "
-        f"API-Football league {api_note}"
+        f"Cloning from **{prev_label}** — pool {pool_note}"
         + (", secondary competition" if default_secondary else "")
     )
 
@@ -184,67 +175,6 @@ with c1:
     )
 
 with c2:
-    # Held in session_state so the search below can fill it in. Reset whenever
-    # the league choice changes, so switching leagues re-clones rather than
-    # keeping the previous pick's id.
-    API_STATE = "add_season_api_id"
-    if st.session_state.get("add_season_api_for") != choice:
-        st.session_state["add_season_api_for"] = choice
-        st.session_state[API_STATE] = int(default_api or 0)
-        st.session_state.pop("add_season_api_results", None)
-
-    api_id = st.number_input(
-        "API-Football league id",
-        min_value=0, step=1, key=API_STATE,
-        help="Filters fixture lookups for red cards and own goals. Stable "
-             "across seasons, so this is a once-per-competition lookup. "
-             "0 means unset — matching then runs without a league filter and "
-             "can cross-match another competition on the same date.",
-    )
-
-    if not api_id:
-        st.caption("Not set — use the lookup below.")
-
-    with st.expander("Look it up", expanded=not bool(api_id)):
-        if not API_FOOTBALL_KEY:
-            st.warning(
-                "API_FOOTBALL_KEY isn't in `data_manager/secrets.env`, so the "
-                "lookup can't run. You can still type the id if you know it, "
-                "or leave it at 0 and add it later."
-            )
-        else:
-            query = st.text_input(
-                "Search by league name",
-                value=league_name or "",
-                key="add_season_api_query",
-                help="Searches API-Football's league directory.",
-            )
-            if st.button("Search", key="add_season_api_search"):
-                try:
-                    st.session_state["add_season_api_results"] = (
-                        search_api_football_leagues(API_FOOTBALL_KEY, query)
-                    )
-                except Exception as e:
-                    st.session_state.pop("add_season_api_results", None)
-                    st.error(f"Lookup failed: {e}")
-
-            results = st.session_state.get("add_season_api_results")
-            if results is not None:
-                if not results:
-                    st.info("No matches. Try a shorter or more official name.")
-                for r in results[:8]:
-                    rc1, rc2 = st.columns([5, 1])
-                    latest = (f" · through {r['latest_season']}"
-                              if r["latest_season"] else "")
-                    rc1.markdown(
-                        f"**{r['name']}** — {r['country']} · {r['type']}"
-                        f"{latest}  \n`id {r['id']}`"
-                    )
-                    if rc2.button("Use", key=f"add_season_use_{r['id']}"):
-                        st.session_state[API_STATE] = int(r["id"])
-                        st.session_state.pop("add_season_api_results", None)
-                        st.rerun()
-
     is_secondary = st.checkbox(
         "Secondary competition",
         value=default_secondary,
@@ -268,8 +198,6 @@ changes = [
     ("seasons", f'"{season_id}": "{label}"'),
     ("season_leagues", f'"{season_id}": "{league_name}"'),
 ]
-if api_id:
-    changes.append(("season_api_leagues", f'"{season_id}": {int(api_id)}'))
 if pool_choice != "— none —":
     changes.append((f"player_pools.{pool_choice}.seasons", f'append "{season_id}"'))
 else:
@@ -283,21 +211,11 @@ st.dataframe(
 )
 
 warnings = []
-if not api_id:
-    warnings.append(
-        "No API-Football league id — red-card and own-goal lookups will run "
-        "without a league filter for this season."
-    )
 if pool_choice == "— none —":
     warnings.append(
         f"No player pool — recorded in `pool_excluded_seasons` so the Health "
         f"page treats it as deliberate. Percentile charts will not resolve "
         f"players whose only season is this one."
-    )
-if api_id and int(api_id) in CALENDAR_YEAR_LEAGUES:
-    st.caption(
-        "This competition runs on the calendar year, so fixture lookups will "
-        "use the match year rather than the European Aug–Jul split."
     )
 for w in warnings:
     st.warning(w)
@@ -312,8 +230,6 @@ if st.button("Add season to config.json", type="primary"):
 
     fresh.setdefault("seasons", {})[season_id] = label
     fresh.setdefault("season_leagues", {})[season_id] = league_name
-    if api_id:
-        fresh.setdefault("season_api_leagues", {})[season_id] = int(api_id)
     if pool_choice != "— none —":
         pool_seasons = fresh["player_pools"][pool_choice].setdefault("seasons", [])
         if season_id not in pool_seasons:

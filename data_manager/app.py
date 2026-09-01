@@ -19,7 +19,6 @@ from downloader import (
     download_event_log, upsert_events_to_motherduck,
     download_minutes_and_cards, upsert_minutes_to_motherduck,
     get_motherduck_connection, get_team_season_last_dates,
-    fetch_and_store_fixture_data, get_games_missing_fixture_data,
     group_teams_by_league,
 )
 
@@ -43,10 +42,8 @@ secrets = load_secrets(SECRETS_PATH)
 SUPABASE_URL = secrets.get("SUPABASE_URL")
 SUPABASE_KEY = secrets.get("SUPABASE_KEY")
 MOTHERDUCK_TOKEN = secrets.get("MOTHERDUCK_TOKEN")
-API_FOOTBALL_KEY = secrets.get("API_FOOTBALL_KEY")
 supabase_configured = bool(SUPABASE_URL and SUPABASE_KEY)
 motherduck_configured = bool(MOTHERDUCK_TOKEN)
-apifootball_configured = bool(API_FOOTBALL_KEY)
 
 DATA_DIR = os.path.join(BASE_DIR, "data", "player_pools")
 os.makedirs(DATA_DIR, exist_ok=True)
@@ -338,7 +335,7 @@ def _season_label(season_id):
 
 def _run_downloads(teams_to_download, season_filter=None, mode="incremental",
                    date_from=None, date_to=None, download_only=False,
-                   do_events=True, do_minutes=True, fetch_player_minutes=True):
+                   do_events=True, do_minutes=True):
     """Download events (and optionally minutes) for the given teams.
 
     season_filter: a single season_id to restrict to, or None for every season
@@ -453,51 +450,6 @@ def _run_downloads(teams_to_download, season_filter=None, mode="incremental",
                     os.remove(tmp_path)
 
         progress.progress((i + 1) / n)
-
-    # ── API-Football: red cards + own goals for chart annotations ──────────
-    if not download_only and do_events and fetch_player_minutes and apifootball_configured and con:
-        missing = get_games_missing_fixture_data(con)
-        if missing:
-            pm_matched = 0
-            pm_failed_rows: list[dict] = []  # collected for UI surfacing
-            for j, game in enumerate(missing):
-                status.text(f"Fetching match data (API-Football)... ({j+1}/{len(missing)})")
-                game_status = fetch_and_store_fixture_data(
-                    api_key=API_FOOTBALL_KEY,
-                    token=MOTHERDUCK_TOKEN,
-                    game_id=game["gameId"],
-                    date=game["Date"],
-                    home=game["homeTeam"],
-                    away=game["awayTeam"],
-                    con=con,
-                    season_id=game.get("seasonId"),
-                )
-                if game_status == "matched":
-                    pm_matched += 1
-                else:
-                    pm_failed_rows.append({
-                        "Date": str(game["Date"])[:10],
-                        "Home": game["homeTeam"],
-                        "Away": game["awayTeam"],
-                        "Status": game_status,
-                    })
-            pm_failed = len(pm_failed_rows)
-            results.append((True, f"API-Football: {pm_matched} games fetched"
-                            + (f", {pm_failed} not found/failed" if pm_failed else "")))
-            # Surface the specific failures prominently so the user can
-            # see which TruMedia team names need overrides added to
-            # TRUMEDIA_TO_API_NAME in downloader.py. Without this, the
-            # aggregate "X not found/failed" message hides the names
-            # and own-goals/cards/minutes silently miss those games.
-            if pm_failed_rows:
-                st.warning(
-                    f"{pm_failed} game(s) failed to match an API-Football "
-                    "fixture. Listed below - if a name lookup is needed, "
-                    "search API-Football for the canonical name and add "
-                    "an entry to `TRUMEDIA_TO_API_NAME` in "
-                    "`data_manager/downloader.py`. The next run will retry."
-                )
-                st.dataframe(pm_failed_rows, hide_index=True, use_container_width=True)
 
     if con:
         con.close()
@@ -649,13 +601,6 @@ with _mode_col:
 with _data_col:
     _do_events = st.checkbox("Event logs", value=True)
     _do_minutes = st.checkbox("Minutes & cards", value=True)
-    _fetch_pm = st.checkbox(
-        "Red cards & own goals (API-Football)",
-        value=True,
-        disabled=not apifootball_configured or not _do_events,
-        help="Fetched after events, for chart annotations."
-             + ("" if apifootball_configured else " (API_FOOTBALL_KEY not configured)"),
-    )
     _download_only = st.checkbox(
         "Save to file only (skip DB upsert)", value=False, disabled=not _do_events,
         help="Writes event CSVs to data/test_downloads/ for inspection.",
@@ -703,7 +648,6 @@ if st.button(
         download_only=_download_only,
         do_events=_do_events,
         do_minutes=_do_minutes and not _download_only,
-        fetch_player_minutes=_fetch_pm and not _download_only,
     )
 
 # ── Sequence Model ────────────────────────────────────────────────────────────
