@@ -870,7 +870,61 @@ def format_broadcast_minute(minute, period):
     return f"{base}+{m - base}"
 
 
-def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
+def _px_per_x_unit(ax):
+    """How many pixels one x-axis unit occupies, at current limits."""
+    x0, x1 = ax.get_xlim()
+    if x1 == x0:
+        return None
+    p0 = ax.transData.transform((x0, 0))[0]
+    p1 = ax.transData.transform((x1, 0))[0]
+    return (p1 - p0) / (x1 - x0)
+
+
+def _measured_width(ax, lines, fontsize=13, fontweight='bold', pad_px=10):
+    """Rendered width of a multi-line label, in x-axis DATA units.
+
+    Draws each line off-screen, asks matplotlib for its extent, removes it.
+    Returns None if the backend cannot supply a renderer, so callers can fall
+    back rather than crash.
+
+    WHY MEASURE. The previous estimator multiplied character count by a
+    hardcoded 0.55 x-units per character. Measured on Man Utd 4-4 Bournemouth
+    that constant is worth 7.0px per character while the font actually
+    delivers 9.2-11.1 - so every label was under-estimated by 12-18%, and the
+    12-unit floor swallowed the formula entirely for anything under 17
+    characters. Collision detection therefore believed labels were narrower
+    than they render and allowed overlaps.
+
+    A constant cannot work here in principle: it is fixed in DATA units while
+    text is fixed in PIXELS, so its accuracy depends on the x-range, which
+    varies with match length (90 vs 120+ minutes) and on the figure width.
+    """
+    fig = ax.figure
+    try:
+        renderer = fig.canvas.get_renderer()
+    except AttributeError:
+        try:
+            fig.canvas.draw()
+            renderer = fig.canvas.get_renderer()
+        except Exception:
+            return None
+    per_unit = _px_per_x_unit(ax)
+    if not per_unit:
+        return None
+    widest = 0.0
+    for line in lines:
+        if not line:
+            continue
+        probe = fig.text(0, 0, line, fontsize=fontsize, fontweight=fontweight)
+        try:
+            bb = probe.get_window_extent(renderer=renderer)
+            widest = max(widest, bb.x1 - bb.x0)
+        finally:
+            probe.remove()
+    return (widest + pad_px) / per_unit
+
+
+def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
     """Assign each goal an (x_side, y_level) so labels don't collide.
 
     Mutates each goal dict in place, adding:
@@ -910,8 +964,13 @@ def _place_goal_labels(goals, chart_max, near_edge=6, label_width=12):
             else:
                 line1 = f"RED CARD ({m}')"
                 line2 = ''
+        if ax is not None:
+            measured = _measured_width(ax, (line1, line2))
+            if measured:
+                return measured
+        # Fallback only: no axes to measure against (older callers, tests).
+        # Known to under-estimate by 12-18% - see _measured_width.
         max_chars = max(len(line1), len(line2 or ''))
-        # Empirical: ~0.55 x-units per char at fontsize=13 + small marker padding
         return max(max_chars * 0.55 + 3, float(label_width))
 
     def _label_range(minute, side, width):
@@ -1239,7 +1298,10 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
 
     # Place all event labels above the plot with collision avoidance (mutates
     # _all_events in place, adding 'x_side' and 'y_level' per event).
-    _place_goal_labels(_all_events, chart_max=float(last_min))
+    # `ax` is passed so widths are MEASURED from the rendered text rather than
+    # estimated from character count. Placement must run after the x-limits are
+    # final, since the pixel->data-unit conversion depends on them.
+    _place_goal_labels(_all_events, chart_max=float(last_min), ax=ax)
     _label_transform = blended_transform_factory(ax.transData, ax.transAxes)
 
     _RC_COLOR = '#E53935'
