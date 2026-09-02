@@ -232,7 +232,12 @@ def refresh_game(game_id, home_team_id, away_team_id, home_name, away_name):
                 ))
             con.execute("COMMIT")
         except Exception as e:
-            con.execute("ROLLBACK")
+            # Best-effort: a server-side abort makes ROLLBACK itself raise,
+            # which would replace the real error. See upsert_game_events.
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
             results.append((False, f"DB write failed -- rolled back: {e}"))
     finally:
         for _, _, _, tmp_path, _ in csvs:

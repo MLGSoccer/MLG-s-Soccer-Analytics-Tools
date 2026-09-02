@@ -1596,7 +1596,16 @@ def upsert_game_events(token, csv_path, fixtures, con=None):
                         f"SELECT {ecols} FROM _e_stage")
             con.execute("COMMIT")
         except Exception:
-            con.execute("ROLLBACK")
+            # ROLLBACK is best-effort. If the server already aborted the
+            # transaction - a MotherDuck internal error, a dropped session -
+            # this raises "cannot rollback - no transaction is active", and
+            # that exception REPLACES the real one, because `raise` below is
+            # never reached. Batch 27 of a campaign reported exactly that and
+            # the underlying cause was lost.
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
             raise
         con.unregister("_e_stage")
     finally:
@@ -1695,7 +1704,16 @@ def upsert_game_minutes(token, csv_path, con=None):
                         f"SELECT {cols} FROM _m_stage")
             con.execute("COMMIT")
         except Exception:
-            con.execute("ROLLBACK")
+            # ROLLBACK is best-effort. If the server already aborted the
+            # transaction - a MotherDuck internal error, a dropped session -
+            # this raises "cannot rollback - no transaction is active", and
+            # that exception REPLACES the real one, because `raise` below is
+            # never reached. Batch 27 of a campaign reported exactly that and
+            # the underlying cause was lost.
+            try:
+                con.execute("ROLLBACK")
+            except Exception:
+                pass
             raise
         con.unregister("_m_stage")
     finally:
