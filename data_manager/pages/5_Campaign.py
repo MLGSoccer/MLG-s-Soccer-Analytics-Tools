@@ -1,5 +1,5 @@
 """
-Campaign — fixture-driven download, batched by home team.
+Campaign — fixture-driven download.
 
 The replacement for Bulk Actions. Bulk Actions loops TEAMS and asks "what has
 changed since this team's last game?"; this loops FIXTURES and asks "which
@@ -38,6 +38,7 @@ from downloader import (  # noqa: E402
     create_session,
     discover_fixtures,
     estimate_requests,
+    MAX_GAMES_PER_REQUEST,
     get_motherduck_connection,
     load_secrets,
     run_campaign,
@@ -278,8 +279,10 @@ n_batches, n_requests = estimate_requests(_todo)
 
 st.caption(
     f"**{n:,} games** in **{n_batches:,} batches** ≈ **{n_requests:,} requests** "
-    f"(events + minutes per batch). Games are grouped by home team, because "
-    f"a request must name a team that plays in every game it asks for.")
+    f"(events + minutes per batch), {MAX_GAMES_PER_REQUEST} games each. "
+    f"A request names no team, so any games can share one — and each event "
+    f"comes back once per side, which is what keeps both teams' colours, "
+    f"abbreviations and scores correct.")
 st.caption(
     "Each match is written whole, in a transaction. Stopping is safe — it "
     "finishes the batch in flight, and finished games drop off the list, so "
