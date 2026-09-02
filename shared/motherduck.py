@@ -713,7 +713,7 @@ def build_shots_from_game(game_id):
     rows = con.execute("""
         SELECT
             gameClock, Period, teamFullName, xG, playType, newestTeamColor,
-            Date, homeTeam, awayTeam
+            Date, homeTeam, awayTeam, teamAbbrevName
         FROM events
         WHERE gameId = ? AND shooter IS NOT NULL AND shooter != ''
         ORDER BY Period, gameClock
@@ -748,10 +748,12 @@ def build_shots_from_game(game_id):
 
     shots = []
     team_colors = {}
+    team_abbrevs = {}
     match_info = None
     has_extra_time = False
 
-    for game_clock, period, team_full_name, xg, play_type, team_color, date_str, home_team, away_team in rows:
+    for (game_clock, period, team_full_name, xg, play_type, team_color,
+         date_str, home_team, away_team, team_abbrev) in rows:
         try:
             game_clock = float(game_clock or 0)
             minute = game_clock / 60
@@ -776,6 +778,12 @@ def build_shots_from_game(game_id):
 
             if team_color and team_display:
                 team_colors[team_display] = team_color
+            # TruMedia's own abbreviation, so a chart can identify a team
+            # without relying on colour alone. Correct for both sides only
+            # since the anchor fix - before that every away row carried the
+            # HOME team's abbreviation.
+            if team_abbrev and team_display:
+                team_abbrevs[team_display] = team_abbrev
 
             if match_info is None:
                 try:
@@ -792,6 +800,7 @@ def build_shots_from_game(game_id):
                     'away_team': away_clean if away_clean else away_team,
                     'has_extra_time': False,
                     'first_half_end_minute': first_half_end_minute,
+                    'team_abbrevs': team_abbrevs,
                 }
 
         except (ValueError, TypeError):

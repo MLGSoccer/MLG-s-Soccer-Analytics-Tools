@@ -731,9 +731,16 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
     else:
         own_goals = get_own_goals(team1, team2)
 
+    # TruMedia's own abbreviations, so the endpoint figures can say WHOSE they
+    # are. Absent for non-TruMedia sources, and the chart falls back to
+    # unprefixed values rather than inventing one.
+    _abbrevs = (match_info or {}).get('team_abbrevs') or {}
+
     return {
-        'team1': {'name': team1, 'color': color1},
-        'team2': {'name': team2, 'color': color2},
+        'team1': {'name': team1, 'color': color1,
+                  'abbrev': _abbrevs.get(team1)},
+        'team2': {'name': team2, 'color': color2,
+                  'abbrev': _abbrevs.get(team2)},
         'competition': competition,
         'date': match_date,
         'own_goals': own_goals,
@@ -1078,12 +1085,25 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
         ev['y_level'] = chosen_level
 
 
-def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count):
+def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count,
+                   abbrev=None):
     """Draw the endpoint marker plus paired xG + shot-count labels.
 
     If label_y != xg_val, a small leader line connects the marker on the
     line to the offset label (used when the two teams' endpoint xG values
     are close enough to collide vertically).
+
+    `abbrev` prefixes the figure - "NEW 4.09" rather than "4.09".
+
+    WHY. The endpoint value is where a reader's eye lands: it is the final
+    number, set in the largest type on the plot. It carried no team identity
+    at all, so answering "whose 4.09 is that?" meant matching its colour
+    against a 5.8px rule under the title - the chart's only legend. Colour as
+    the sole carrier of identity also fails anyone who cannot separate the two
+    hues, which on a red/grey pairing is a live risk.
+
+    Prefixing costs nothing and puts the identity where the eye already is.
+    Falls back to no prefix when the source has no abbreviation.
     """
     ax.plot(last_min, xg_val, marker='o', markersize=7,
             markerfacecolor=color, markeredgecolor=BG_COLOR,
@@ -1091,7 +1111,8 @@ def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count):
     if label_y != xg_val:
         ax.plot([last_min, last_min + 1.0], [xg_val, label_y],
                 color=color, linewidth=0.8, alpha=0.55, zorder=4)
-    ax.text(last_min + 1.5, label_y, f'{xg_val:.2f}',
+    ax.text(last_min + 1.5, label_y,
+            f'{abbrev} {xg_val:.2f}' if abbrev else f'{xg_val:.2f}',
             color=color, fontsize=14, fontweight='bold',
             va='bottom', ha='left')
     ax.text(last_min + 1.5, label_y, f'{shots_count} shots',
@@ -1122,6 +1143,8 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     away = team_info['team2']['name']
     raw_home = team_info['team1']['color']
     raw_away = team_info['team2']['color']
+    home_abbrev = team_info['team1'].get('abbrev')
+    away_abbrev = team_info['team2'].get('abbrev')
 
     # Swap one side to its alternate if the two primaries clash, then apply
     # WCAG-based lightening so both lines read against the dark background.
@@ -1217,8 +1240,10 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         home_label_y = home_xg
         away_label_y = away_xg
 
-    _draw_endpoint(ax, last_min, home_xg, home_label_y, home_color, len(home_shots))
-    _draw_endpoint(ax, last_min, away_xg, away_label_y, away_color, len(away_shots))
+    _draw_endpoint(ax, last_min, home_xg, home_label_y, home_color,
+                   len(home_shots), abbrev=home_abbrev)
+    _draw_endpoint(ax, last_min, away_xg, away_label_y, away_color,
+                   len(away_shots), abbrev=away_abbrev)
 
     # ── Goal / own-goal / red-card labels above the plot ────────────────
     # All match events share the events row at chart top and the same
