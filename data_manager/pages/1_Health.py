@@ -19,9 +19,14 @@ id. Two real examples, both found by hand in August 2026:
 Neither was detectable without manually diffing four lists. This page does
 that diff on every load.
 
-Read-only: nothing here writes. Needs no TruMedia session - config is local
-and MotherDuck authenticates from secrets.env - so it works without pasting
-a cURL first.
+Needs no TruMedia session - config is local and MotherDuck authenticates from
+secrets.env - so it works without pasting a cURL first.
+
+Every check is read-only EXCEPT the Team colours panel at the foot, which
+edits the shared colour registry and writes it to both the local file and the
+MotherDuck mirror. That one exists because a wrong colour is only ever
+discovered on a finished chart, and there was previously nowhere to go and
+fix it.
 """
 import json
 import os
@@ -598,3 +603,229 @@ for league_name in sorted(by_league):
             hide_index=True,
             use_container_width=True,
         )
+
+
+st.divider()
+
+
+# ── Team colours ─────────────────────────────────────────────────────────────
+# Exists because a wrong colour is only ever discovered on a finished chart,
+# and until now there was nowhere to go and fix it. Both products read the same
+# registry, so a correction made here reaches the CBS charts and Double Pivot
+# together, and reaches the live app without a commit or a deploy.
+#
+# The two layers are kept visible on purpose. Primary/Secondary are what the
+# club's colours ARE; the Draws columns are what each product actually paints
+# after its own background guard has had a say. Confusing the two is what let
+# Real Madrid sit on a saturated, perfectly legible, completely wrong blue.
+
+st.header("Team colours")
+st.caption(
+    "Primary and secondary are the club's identity and are edited here. "
+    "The Draws columns are the rendered result on each product's background "
+    "and are not editable - if one looks wrong, fix the identity, not the render."
+)
+
+sys.path.insert(0, os.path.dirname(BASE_DIR))
+from shared.team_registry import (  # noqa: E402
+    AUTHORED, choose_for_background, load_registry, resolve_all, save_registry,
+)
+
+CBS_BG = "#1A2332"
+DP_BG = "#0D1117"
+
+league_of_team = {t["team_id"]: lg
+                  for lg, ts in group_teams_by_league(config).items()
+                  for t in ts}
+
+
+@st.cache_data(ttl=3600, show_spinner="Reading team colours from the feed...")
+def load_feed_colours(token):
+    """TruMedia's colour per team. Cached hard - MotherDuck is metered."""
+    con = get_motherduck_connection(token)
+    try:
+        rows = con.execute(
+            'SELECT DISTINCT "teamId", "newestTeamColor" FROM events '
+            'WHERE "teamId" IS NOT NULL'
+        ).fetchall()
+    finally:
+        con.close()
+    return {tid: colour for tid, colour in rows}
+
+
+feed_colours = load_feed_colours(MOTHERDUCK_TOKEN) if MOTHERDUCK_TOKEN else {}
+registry = load_registry()
+
+resolved = resolve_all(
+    [(t["team_id"], t["name"], feed_colours.get(t["team_id"])) for t in teams],
+    registry=registry,
+)
+
+colour_rows = []
+for t in sorted(teams, key=lambda x: x["name"]):
+    tid = t["team_id"]
+    c = resolved.get(tid)
+    if c is None:
+        continue
+    feed_val = (feed_colours.get(tid) or "").upper()
+    colour_rows.append({
+        "Team": t["name"],
+        "League": league_of_team.get(tid, "-"),
+        "Source": c.provenance,
+        "Primary": c.primary,
+        "Secondary": c.secondary or "",
+        "Draws (CBS)": choose_for_background(c, CBS_BG).color,
+        "Draws (DP)": choose_for_background(c, DP_BG).color,
+        "TruMedia": feed_val or "-",
+        "team_id": tid,
+    })
+
+colour_df = pd.DataFrame(colour_rows)
+
+
+def _rgb(h):
+    return [int(h[i:i + 2], 16) for i in (1, 3, 5)]
+
+
+def _diverges(row):
+    """Primary and TruMedia more than 150 apart in RGB distance.
+
+    Not a claim that TruMedia is right - both sources are unreliable. It is
+    where a mistake is most likely to be sitting, because two sources that
+    agree are weak corroboration and two that disagree are none.
+    """
+    a, b = row["Primary"], row["TruMedia"]
+    if len(a) != 7 or len(b) != 7 or not b.startswith("#"):
+        return False
+    return sum((x - y) ** 2 for x, y in zip(_rgb(a), _rgb(b))) ** 0.5 > 150
+
+
+c1, c2 = st.columns([2, 3])
+with c1:
+    league_pick = st.selectbox(
+        "League",
+        ["All"] + sorted({r["League"] for r in colour_rows if r["League"] != "-"}),
+        key="colour_league",
+    )
+with c2:
+    view = st.radio(
+        "Show",
+        ["All", "Disagrees with TruMedia", "Not authored", "No secondary"],
+        horizontal=True,
+        key="colour_view",
+    )
+
+view_df = colour_df
+if league_pick != "All":
+    view_df = view_df[view_df["League"] == league_pick]
+if view == "Disagrees with TruMedia":
+    view_df = view_df[view_df.apply(_diverges, axis=1)]
+elif view == "Not authored":
+    view_df = view_df[view_df["Source"] != AUTHORED]
+elif view == "No secondary":
+    view_df = view_df[view_df["Secondary"] == ""]
+
+st.caption(f"{len(view_df)} of {len(colour_df)} teams")
+
+# team_id rides on the INDEX rather than a hidden column. A column hidden via
+# column_config is still expected back in the edited frame, but the index is
+# unambiguous and survives whatever the editor does to the columns.
+view_df = view_df.set_index("team_id")
+
+edited = st.data_editor(
+    view_df,
+    hide_index=True,
+    use_container_width=True,
+    key="colour_editor",
+    column_config={
+        "Primary": st.column_config.TextColumn(
+            "Primary",
+            help="#RRGGBB. The club's main colour, whatever the background. "
+                 "Clear it to fall back to TruMedia."),
+        "Secondary": st.column_config.TextColumn(
+            "Secondary",
+            help="#RRGGBB. Used when a clash forces the primary aside, or when "
+                 "the primary cannot be drawn at all."),
+        "Team": st.column_config.TextColumn(disabled=True),
+        "League": st.column_config.TextColumn(disabled=True),
+        "Source": st.column_config.TextColumn(disabled=True),
+        "Draws (CBS)": st.column_config.TextColumn(disabled=True),
+        "Draws (DP)": st.column_config.TextColumn(disabled=True),
+        "TruMedia": st.column_config.TextColumn(disabled=True),
+    },
+)
+
+# Hex codes are not colours. The panel exists to catch a wrong colour by eye,
+# which no amount of #RRGGBB in a table will ever do - so show the swatch, on
+# the background it will actually be drawn against.
+if len(view_df) <= 60:
+    def _chip(hexval, name, bg):
+        return ('<div style="display:inline-block;margin:0 10px 8px 0;'
+                'padding:5px 9px;background:' + bg + ';border-radius:4px;'
+                'font:11px/1.4 sans-serif;color:#B8C5D6">'
+                '<span style="display:inline-block;width:11px;height:11px;'
+                'background:' + hexval + ';border-radius:2px;margin-right:6px;'
+                'vertical-align:-1px"></span>' + name + '</div>')
+
+    with st.expander("Swatches - what actually gets drawn"):
+        for bg, bg_label in ((CBS_BG, "CBS"), (DP_BG, "Double Pivot")):
+            col = "Draws (CBS)" if bg == CBS_BG else "Draws (DP)"
+            st.caption(f"{bg_label}  {bg}")
+            st.markdown(
+                "".join(_chip(r[col], r["Team"], bg)
+                        for _, r in view_df.iterrows()),
+                unsafe_allow_html=True,
+            )
+else:
+    st.caption("Filter to 60 teams or fewer to see swatches.")
+
+HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+if st.button("Save colour changes", type="primary"):
+    before = {tid: (r["Primary"], r["Secondary"])
+              for tid, r in view_df.iterrows()}
+    pending, bad = [], []
+    for tid, row in edited.iterrows():
+        primary = (row["Primary"] or "").strip()
+        secondary = (row["Secondary"] or "").strip()
+        if before.get(tid) == (primary, secondary):
+            continue
+        # Collect ALL invalid values before writing anything. Writing the good
+        # rows and reporting the bad ones would leave the editor showing values
+        # the registry does not hold.
+        for val in (primary, secondary):
+            if val and not HEX_RE.match(val):
+                bad.append(f"{row['Team']}: {val}")
+        pending.append((tid, row["Team"], primary, secondary))
+
+    if bad:
+        st.error("Nothing saved - these are not valid #RRGGBB values:\n\n"
+                 + "\n".join("- " + b for b in bad))
+    elif not pending:
+        st.info("No changes to save.")
+    else:
+        for tid, name, primary, secondary in pending:
+            if not primary:
+                registry.pop(tid, None)   # blank primary = fall back to feed
+                continue
+            entry = dict(registry.get(tid) or {})
+            entry["name"] = name
+            entry["primary"] = primary.upper()
+            if secondary:
+                entry["secondary"] = secondary.upper()
+            else:
+                entry.pop("secondary", None)
+            entry["source_url"] = entry.get("source_url") or "edited in Health panel"
+            registry[tid] = entry
+
+        con = get_motherduck_connection(MOTHERDUCK_TOKEN) if MOTHERDUCK_TOKEN else None
+        try:
+            save_registry(registry, con=con)
+        finally:
+            if con is not None:
+                con.close()
+        st.success(
+            f"Saved {len(pending)} change(s). Both products pick this up on "
+            "their next config read - no commit, no deploy."
+        )
+        st.rerun()
