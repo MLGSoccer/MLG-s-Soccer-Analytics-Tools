@@ -703,17 +703,51 @@ def get_player_game_count(player_name):
 
 
 @st.cache_data(ttl=3600)
+@st.cache_data(ttl=3600)
+def load_team_registry():
+    """Authored team colours, from the MotherDuck mirror wherever possible.
+
+    The mirror is deliberately tried FIRST and the bundled JSON is only a
+    fallback. `shared/team_registry.json` ships with the code, so on any
+    deployed copy it holds whatever was true at the last push - reading it in
+    preference would make every colour edited in the Data Manager invisible
+    here, which is the entire thing the registry exists to avoid.
+
+    Same shape as `_load_config` above, for the same reason, including logging
+    which copy answered at WARNING so the line actually reaches the Cloud log.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    from shared.team_registry import load_registry
+    try:
+        reg = load_registry(con=get_connection())
+        if reg:
+            log.warning("team registry source=motherduck teams=%d", len(reg))
+            return reg
+        log.warning("team registry source=file reason=mirror empty")
+    except Exception as e:
+        log.warning("team registry source=file reason=%s: %s", type(e).__name__, e)
+    reg = load_registry()
+    log.warning("team registry source=file teams=%d", len(reg))
+    return reg
+
+
 def build_shots_from_game(game_id):
     """Query MotherDuck for a game and return (shots, match_info, team_colors).
 
     Returns the same structure as parse_trumedia_csv() so it plugs directly
     into the existing chart infrastructure without modification.
+
+    `team_colors` now carries the REGISTRY's answer rather than the raw feed
+    value. For a club with no registry entry the two are the same, so this
+    changes nothing for most of the database; for an authored club it is the
+    difference between Real Madrid drawing white and drawing TruMedia's blue.
     """
     con = get_connection()
     rows = con.execute("""
         SELECT
             gameClock, Period, teamFullName, xG, playType, newestTeamColor,
-            Date, homeTeam, awayTeam, teamAbbrevName
+            Date, homeTeam, awayTeam, teamAbbrevName, teamId
         FROM events
         WHERE gameId = ? AND shooter IS NOT NULL AND shooter != ''
         ORDER BY Period, gameClock
@@ -752,8 +786,11 @@ def build_shots_from_game(game_id):
     match_info = None
     has_extra_time = False
 
+    team_ids = {}
+    feed_colors = {}
+
     for (game_clock, period, team_full_name, xg, play_type, team_color,
-         date_str, home_team, away_team, team_abbrev) in rows:
+         date_str, home_team, away_team, team_abbrev, team_id) in rows:
         try:
             game_clock = float(game_clock or 0)
             minute = game_clock / 60
@@ -778,6 +815,12 @@ def build_shots_from_game(game_id):
 
             if team_color and team_display:
                 team_colors[team_display] = team_color
+                feed_colors[team_display] = team_color
+            # Keyed on the id, never the name: TruMedia renames clubs, and an
+            # abbreviation is not unique either (POR is Porto, Portsmouth and
+            # Portugal). The display name is only ever a label here.
+            if team_id and team_display:
+                team_ids[team_display] = team_id
             # TruMedia's own abbreviation, so a chart can identify a team
             # without relying on colour alone. Correct for both sides only
             # since the anchor fix - before that every away row carried the
@@ -806,9 +849,40 @@ def build_shots_from_game(game_id):
         except (ValueError, TypeError):
             continue
 
+    # Resolve identity through the registry. Only the club's OWN colours are
+    # decided here - what gets drawn against a given background stays with the
+    # renderer, which is why nothing in this function knows what #1A2332 is.
+    secondaries = {}
+    try:
+        from shared.team_registry import resolve_all
+        resolved = resolve_all(
+            [(tid, name, feed_colors.get(name))
+             for name, tid in team_ids.items()],
+            registry=load_team_registry(),
+        )
+        # Key the result on the DISPLAY name the shots use, not on the name
+        # the registry stores. They differ - `team_display` is fuzzy-cleaned
+        # ("West Ham United" -> "West Ham") while the registry holds the full
+        # name - so keying on the registry's would file the resolved colour
+        # under a name no shot references, leaving the team on its raw feed
+        # value and adding a phantom third entry to a two-team match.
+        for name, tid in team_ids.items():
+            colors = resolved.get(tid)
+            if colors is None:
+                continue
+            team_colors[name] = colors.primary
+            if colors.secondary:
+                secondaries[name] = colors.secondary
+    except Exception:
+        # A registry failure must not take a chart down. Falling through
+        # leaves team_colors holding the raw feed values, which is exactly
+        # what this function returned before the registry existed.
+        pass
+
     if match_info:
         match_info['has_extra_time'] = has_extra_time
         match_info['first_half_end_minute'] = first_half_end_minute
+        match_info['team_secondaries'] = secondaries
 
     return shots, match_info, team_colors
 

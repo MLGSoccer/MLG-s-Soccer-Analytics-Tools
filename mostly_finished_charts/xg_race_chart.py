@@ -589,6 +589,50 @@ def get_team_info(shots, auto_date=None, csv_team_colors=None, config=None):
         'first_half_end_minute': 45  # Default for non-TruMedia sources
     }
 
+def _separate_using_secondary(color1, color2, secondary1, secondary2,
+                              bg_color=BG_COLOR, min_separation=1.5):
+    """Pull two clashing lines apart using a club's OWN second colour.
+
+    Returns (color1, color2, resolved) - `resolved` False means the registry
+    had nothing usable and the caller should fall back to the old guard.
+
+    Only ONE side moves, and it is the second-named team where either would
+    work. Moving both makes a chart where neither team wears its own colour,
+    to fix a problem that only needed one of them to change.
+
+    EVERY comparison here is made on the LIFTED colours - what will actually be
+    painted - never on the stored values. Chelsea `#001489` and Brighton
+    `#005DAA` sit 2.15 apart in luminance as stored, which reads as no clash at
+    all; both are below the visibility floor, so both get lightened to
+    `#526AFE` and `#0089FA`, which are 1.23 apart and plainly the same blue.
+    Judging the stored values answers a question about colours nobody sees.
+    """
+    from shared.colors import wcag_contrast
+
+    def lift(c):
+        return ensure_line_contrast(c, bg_color, min_ratio=3.5)
+
+    def separated(a, b):
+        ca, cb = wcag_contrast(a, bg_color), wcag_contrast(b, bg_color)
+        return max(ca, cb) / min(ca, cb) >= min_separation
+
+    drawn1, drawn2 = lift(color1), lift(color2)
+    if separated(drawn1, drawn2):
+        return color1, color2, False   # no clash; nothing to resolve
+
+    # Try the SECOND team's secondary first, so the first-named team keeps its
+    # own colour wherever one move is enough.
+    for candidate, keep, swap_first in ((secondary2, color1, False),
+                                        (secondary1, color2, True)):
+        if not candidate:
+            continue
+        if separated(lift(keep), lift(candidate)):
+            return ((candidate, keep, True) if swap_first
+                    else (keep, candidate, True))
+
+    return color1, color2, False
+
+
 def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=None):
     """Automated team info extraction for TruMedia CSV data.
 
@@ -686,10 +730,25 @@ def get_team_info_trumedia(shots, match_info, csv_team_colors, teams, config=Non
             print(f"⚠ Away: {team2} - no color found")
             color2 = get_team_color(team2)
 
-        # Check if colors are too similar (auto-resolve in GUI mode)
-        color1, color2, use_different_line_styles = check_color_similarity(
-            color1, color2, team1, team2, interactive=interactive
+        # Two teams that clash reach for the REGISTRY's secondary first - the
+        # club's own second colour, authored and sourced. Only if the registry
+        # has nothing for either side does this fall back to
+        # check_color_similarity, which draws on the old alternate dictionary
+        # and is 77% pure white or black.
+        #
+        # Chelsea v Brighton is the case: #001489 against #005DAA, two dark
+        # blues. The old guard resolved it by making Chelsea YELLOW. Chelsea's
+        # registered secondary is white.
+        secondaries = match_info.get('team_secondaries') or {}
+        color1, color2, resolved_by_registry = _separate_using_secondary(
+            color1, color2, secondaries.get(team1), secondaries.get(team2)
         )
+        if resolved_by_registry:
+            use_different_line_styles = False
+        else:
+            color1, color2, use_different_line_styles = check_color_similarity(
+                color1, color2, team1, team2, interactive=interactive
+            )
 
     # Get date from CSV
     match_date = match_info.get('date', datetime.now().strftime("%b %d, %Y").upper())
