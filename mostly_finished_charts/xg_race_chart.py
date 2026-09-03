@@ -909,16 +909,24 @@ def _precise_goal_minute(shots, team, int_min, period, ht_minute=45.0):
 GOAL_LABEL_Y_LEVELS = (1.04, 1.13, 1.22)
 
 
-def _event_period(ev):
-    """Period for an event dict, inferring one when the feed omits it.
+def _event_period(ev, ht_minute=None):
+    """Period for an event dict, inferring one when the source omits it.
 
-    The fallback splits at 50 rather than 45 so a first-half stoppage event
-    (45+4, stored as minute 49) is read as period 1 rather than period 2.
+    The split is the minute the first half ACTUALLY ended, which the chart
+    already knows from the last period-1 event. The old fallback was a fixed
+    50 - a guess that is wrong in both directions. Halves run to 47-50 most
+    often but 864 matches in the database pass 50, so a genuine first-half
+    stoppage goal past that was read as second-half; and in a half that ended
+    at 46, a real second-half event on minute 48 was read as first-half.
+
+    Only manually-entered events reach the inference now: own goals typed into
+    the sidebar carry no period, where anything from the database does.
     """
     p = ev.get('period')
     if p is not None:
         return int(p)
-    return 1 if ev.get('minute', 0) <= 50 else 2
+    boundary = float(ht_minute) if ht_minute else 50.0
+    return 1 if float(ev.get('minute', 0)) <= boundary else 2
 
 
 # Where each period's regular time ends. Anything past it is stoppage and is
@@ -1342,7 +1350,11 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     # Module-level now, so the label-width estimator in _place_goal_labels
     # uses the same period inference the renderer does. They must agree: the
     # estimator sizes the text that the renderer draws.
-    _ev_period = _event_period
+    #
+    # Bound to THIS match's half-time minute, so an event with no period of
+    # its own is split at the whistle that actually blew rather than a fixed 50.
+    def _ev_period(ev):
+        return _event_period(ev, ht_minute)
 
     _all_events = []
     for g in goal_scorers:
@@ -1355,12 +1367,16 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
             'og': False,
         })
     for og in own_goals:
+        # Name the player who put it in, the way broadcast does, rather than a
+        # bare "OG" sitting among goals that all name their scorer. The name
+        # is the CONCEDING side's player - that is who an own goal belongs to.
+        _og_player = (og.get('player') or '').strip()
         _all_events.append({
             'type': 'goal',
             'minute': float(og.get('minute', 0)),
             'period': og.get('period'),
             'team': og.get('team'),  # benefiting team
-            'label': 'OG',
+            'label': f'{_og_player} (OG)' if _og_player else 'OG',
             'og': True,
         })
     for rc in red_cards:

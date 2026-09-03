@@ -963,8 +963,14 @@ def get_own_goals_for_game(game_id):
         return []
     con = get_connection()
 
+    # `toucher`, not `shooter`. An own goal has no shooter - measured, 0 of 457
+    # carry one - because the player did not take a shot at that goal. The name
+    # is on the touch that put it in, which is exactly the player broadcast
+    # names. Without this the chart could only ever label it "OG" while every
+    # other goal on the same chart named its scorer.
     rows = con.execute("""
-        SELECT CAST(gameClock AS DOUBLE) / 60.0 AS minute, teamId, Period
+        SELECT CAST(gameClock AS DOUBLE) / 60.0 AS minute, teamId, Period,
+               toucher
         FROM events
         WHERE gameId = ? AND playType = 'OwnGoal'
         ORDER BY Period, gameClock
@@ -973,14 +979,18 @@ def get_own_goals_for_game(game_id):
         return [{"minute": int(r[0]) if r[0] is not None else None,
                  "period": int(r[2]) if r[2] is not None else 1,
                  "teamId": r[1],
+                 "player": r[3] or None,
                  "credited_team": None,
                  "source": "events"}
                 for r in rows]
 
-    # Fallback: API-Football's table, for games not yet re-ingested.
+    # Fallback: API-Football's table, for games not yet re-ingested. `player`
+    # is carried as None rather than omitted so both paths return the same
+    # shape - a caller should never have to know which one answered.
     return [{"minute": r[0],
              "period": _infer_period_from_minute(r[0]),
              "teamId": None,
+             "player": None,
              "credited_team": r[1],
              "source": "own_goals"}
             for r in _fallback_rows(

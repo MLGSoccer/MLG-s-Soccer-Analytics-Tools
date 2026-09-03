@@ -44,7 +44,8 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
     """Generate xG race chart and return (img_bytes, filename, caption)."""
     config = {
         'competition': competition if competition else None,
-        'own_goals': [{'minute': m, 'team': t} for m, t in own_goals_hashable],
+        'own_goals': [{'minute': m, 'team': t, 'period': p, 'player': pl}
+                      for m, t, p, pl in own_goals_hashable],
         'gui_mode': True,
     }
     team_info = get_team_info(shots, match_info, team_colors, config)
@@ -197,6 +198,8 @@ if data_source == "Database":
                 og_col1, og_col2 = st.sidebar.columns(2)
                 if i < len(auto_ogs):
                     default_minute = auto_ogs[i]['minute']
+                    default_period = auto_ogs[i].get('period')
+                    default_player = auto_ogs[i].get('player')
                     # "Scored by" means the own-goal scorer, i.e. the CONCEDING
                     # side - which is what both sources name.
                     _side = own_goal_conceding_side(
@@ -205,6 +208,8 @@ if data_source == "Database":
                     default_scorer_idx = 1 if _side == 'away' else 0
                 else:
                     default_minute = 45
+                    default_period = None
+                    default_player = None
                     default_scorer_idx = 0
                 with og_col1:
                     minute = st.number_input(
@@ -217,13 +222,26 @@ if data_source == "Database":
                         index=default_scorer_idx, key=f"og_team_{selected_game['game_id']}_{i}"
                     )
                 credited_team = away_team if scoring_team == home_team else home_team
-                own_goals.append({'minute': minute, 'team': credited_team})
+                # Carry the PERIOD, not just the minute. Without it the chart
+                # infers a period from the minute, splitting at 50 - so a
+                # second-half own goal on minute 50 was read as first-half
+                # stoppage, drawn BEFORE half time and labelled 45+6'. The
+                # running score went wrong with it. Only trust the stored
+                # period while the minute is the one it came with: if the user
+                # has edited the minute, let the chart infer.
+                og_period = default_period if minute == default_minute else None
+                own_goals.append({'minute': minute, 'team': credited_team,
+                                  'period': og_period,
+                                  'player': default_player})
                 st.sidebar.caption(f"Goal credited to {credited_team}")
 
             if st.button("Generate Chart", type="primary"):
                 st.session_state["xg_race_chart"] = None
                 with st.spinner("Generating xG race chart..."):
-                    own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
+                    own_goals_hashable = tuple(
+                        (og['minute'], og['team'], og.get('period'),
+                         og.get('player'))
+                        for og in own_goals)
                     img_bytes, filename, caption = _generate_chart(
                         shots, match_info, team_colors, competition, own_goals_hashable,
                         custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
@@ -313,7 +331,10 @@ else:
                 if st.button("Generate Chart", type="primary"):
                     st.session_state["xg_race_chart"] = None
                     with st.spinner("Generating xG race chart..."):
-                        own_goals_hashable = tuple((og['minute'], og['team']) for og in own_goals)
+                        own_goals_hashable = tuple(
+                        (og['minute'], og['team'], og.get('period'),
+                         og.get('player'))
+                        for og in own_goals)
                         img_bytes, filename, caption = _generate_chart(
                             shots, match_info, team_colors, competition, own_goals_hashable,
                             custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
