@@ -1114,35 +1114,43 @@ def darken_color(hex_color, factor=0.3):
     return rgb_to_hex(r, g, b)
 
 
-def ensure_contrast_with_background(hex_color, bg_color='#1A2332', min_distance=80):
-    """Ensure a color has enough contrast against the background.
-
-    If the color is too close to the background, lighten it until readable.
+def ensure_contrast_with_background(hex_color, bg_color='#1A2332',
+                                    min_distance=None, min_ratio=3.5):
+    """Ensure a color is perceptually visible against the background.
 
     Args:
         hex_color: The team/element color
         bg_color: Background color (default is CBS dark theme)
-        min_distance: Minimum color distance required (default 80)
+        min_distance: DEPRECATED and ignored - see below
+        min_ratio: Minimum WCAG contrast ratio (default 3.5, matching
+                   ensure_line_contrast so the two agree)
 
     Returns:
-        Original color if contrast is OK, or lightened version if not
+        Original color if contrast is OK, or a lightened version if not.
+
+    THIS USED TO THRESHOLD RGB EUCLIDEAN DISTANCE, WHICH CANNOT SEE CONTRAST.
+
+    Relative luminance weights the channels 0.2126 / 0.7152 / 0.0722, so a dark
+    saturated blue sits FAR from the background in RGB space while being almost
+    invisible against it. Measured over the 369 clubs with a TruMedia colour,
+    against `#1A2332` at the old `min_distance=80`:
+
+        124 clubs (34%) passed the RGB guard while failing WCAG 3.5
+          0 clubs failed the RGB guard while passing WCAG
+
+        Le Havre        #00008b   1.03:1   RGB distance  99  -> "fine"
+        Fenerbahce      #000099   1.10:1   RGB distance 112  -> "fine"
+        Leicester City  #003090   1.37:1   RGB distance  98  -> "fine"
+
+    A line at 1.03:1 is not dim, it is invisible. The disagreement is entirely
+    one-directional, so switching to WCAG only ever helps: nothing that renders
+    acceptably today gets lightened unnecessarily.
+
+    `min_distance` is accepted and ignored so existing callers keep working.
+    It cannot be honoured because it measures a different quantity - there is
+    no RGB distance that corresponds to a contrast ratio.
     """
-    distance = color_distance(hex_color, bg_color)
-
-    if distance >= min_distance:
-        return hex_color
-
-    # Progressively lighten until we have enough contrast
-    lightened = hex_color
-    factor = 0.1
-    while factor <= 0.7:
-        lightened = lighten_color(hex_color, factor)
-        if color_distance(lightened, bg_color) >= min_distance:
-            return lightened
-        factor += 0.1
-
-    # If still not enough, return a fairly light version
-    return lighten_color(hex_color, 0.5)
+    return ensure_line_contrast(hex_color, bg_color, min_ratio=min_ratio)
 
 
 def _wcag_luminance(hex_color):
