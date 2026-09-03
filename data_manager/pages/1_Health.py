@@ -818,12 +818,38 @@ if st.button("Save colour changes", type="primary"):
             entry["source_url"] = entry.get("source_url") or "edited in Health panel"
             registry[tid] = entry
 
+        # The MotherDuck mirror is the ONLY copy the charts will read. The
+        # local file is a fallback for a fresh checkout - it ships via git, so
+        # an edit that lands only there can never go live. Reporting "Saved"
+        # for a local-only write would be telling the user a change is live
+        # when it is unreachable, which is worse than failing outright.
         con = get_motherduck_connection(MOTHERDUCK_TOKEN) if MOTHERDUCK_TOKEN else None
+        mirrored = False
         try:
             save_registry(registry, con=con)
+            mirrored = con is not None
+        except Exception as e:
+            save_registry(registry, con=None)   # keep the edit locally at least
+            st.error(
+                f"Saved locally, but the shared copy was NOT updated: "
+                f"{type(e).__name__}: {e}\n\n"
+                "**These changes will not reach the charts.** Fix the "
+                "connection and save again."
+            )
+            st.stop()
         finally:
             if con is not None:
                 con.close()
+
+        if not mirrored:
+            st.warning(
+                "Saved to the local file only - MOTHERDUCK_TOKEN is not set, "
+                "so the shared copy was not updated. **These changes will not "
+                "reach the charts.** Add the token to "
+                "`data_manager/secrets.env` and save again."
+            )
+            st.stop()
+
         st.success(
             f"Saved {len(pending)} change(s). Both products pick this up on "
             "their next config read - no commit, no deploy."

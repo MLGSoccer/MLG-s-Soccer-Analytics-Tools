@@ -105,6 +105,15 @@ class ColorDecision:
 def load_registry(con=None, path=_LOCAL_PATH):
     """Authored entries, keyed by team_id. MotherDuck first, local file second.
 
+    **ANY CHART MUST PASS `con`.** Without it this reads the local JSON, which
+    ships via git and is therefore whatever was true at the last deploy. Edits
+    made in the Data Manager land in the MotherDuck mirror, so a chart that
+    calls `load_registry()` bare will silently never see them - and the whole
+    point of the mirror is that a colour fix goes live without a deploy.
+
+    `shared.motherduck._load_config` is the pattern to copy: mirror first, file
+    as the fallback, and log which one answered.
+
     Returns {} rather than raising when neither source has anything - an empty
     registry is a valid state (every club falls through to the feed), and it is
     what a fresh install looks like.
