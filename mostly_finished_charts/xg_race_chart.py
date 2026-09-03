@@ -884,26 +884,30 @@ def format_broadcast_minute(minute, period):
     Measured over 7,083 matches: 8.4% carry a first-half stoppage goal, plus
     7.2% of all goals fall past minute 90.
 
-    THE OFF-BY-ONE THAT BIT THIS FIRST TIME. `minute` arrives as
-    `int(gameClock / 60)` - the FLOOR of elapsed time - so a value of 45 in
-    period 1 means elapsed 45:00-45:59, which is ALREADY stoppage. The first
-    version tested `m > base` and so rendered Saka's 45:54 goal as "45'" -
-    exactly the bug it was written to fix. It also computed `m - base`, which
-    would have called the first stoppage minute "+0".
+    COUNT THE MINUTE IN PROGRESS, NOT THE ONE COMPLETED. `minute` arrives as
+    `int(gameClock / 60)` - the FLOOR of elapsed time - and football numbers
+    the minute a goal happens IN. Elapsed 0:30 is the 1st minute, 2:12 is the
+    3rd, 44:30 is the 45th. Printing the floor makes a goal 30 seconds in read
+    as "0'", and every label one behind the broadcast.
 
-    So: `m >= base` marks stoppage, and the offset is `m - base + 1`.
-    Elapsed 45:54 -> 45+1; 47:58 -> 45+3; 95:24 -> 90+6.
+    So the displayed minute is `floor + 1`, and stoppage falls out of the same
+    arithmetic: anything past the period's regular end is written base+extra.
 
-    Note this leaves a PRE-EXISTING off-by-one in regular time untouched:
-    floor(elapsed) means a goal at 44:30 shows as "44'" where broadcast says
-    45'. Every label in the chart shares that convention, so changing it is a
-    separate decision rather than something to fold in here.
+        elapsed  0:30  -> floor 0   -> 1        1st minute
+        elapsed 44:30  -> floor 44  -> 45       last regular minute
+        elapsed 45:54  -> floor 45  -> 45+1     first stoppage minute
+        elapsed 47:58  -> floor 47  -> 45+3
+        elapsed 95:24  -> floor 95  -> 90+6
+
+    Two earlier versions got this wrong in opposite directions: the first
+    tested `m > base` so Saka's 45:54 goal printed "45'", and the second fixed
+    stoppage but left regular time a minute behind.
     """
-    m = int(minute)
+    m = int(minute) + 1
     base = _PERIOD_REGULAR_END.get(int(period)) if period is not None else None
-    if base is None or m < base:
+    if base is None or m <= base:
         return str(m)
-    return f"{base}+{m - base + 1}"
+    return f"{base}+{m - base}"
 
 
 def _px_per_x_unit(ax):
