@@ -25,7 +25,8 @@ from shared.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY,
     add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
 )
-from shared.colors import check_color_similarity, ensure_line_contrast
+from shared.colors import (check_color_similarity, ensure_line_contrast,
+                           separate_line_luminance)
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Match Momentum", page_icon="", layout="wide")
@@ -405,6 +406,10 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     )
     home_color = ensure_line_contrast(swapped_home, BG_COLOR)
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)
+    # See xg_race_chart: the background guard converges colours onto one
+    # luminance, so separate them here, after it has run.
+    home_color, away_color = separate_line_luminance(
+        home_color, away_color, BG_COLOR)
 
     ht_minute = float(match_info.get("ht_minute", 45.0))
     date = match_info["date"]

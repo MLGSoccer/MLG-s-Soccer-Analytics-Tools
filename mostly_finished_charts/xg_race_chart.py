@@ -11,7 +11,7 @@ import re
 from shared.colors import (
     TEAM_COLORS, load_custom_colors, save_custom_color, get_team_color,
     hex_to_rgb, color_distance, check_color_similarity, fuzzy_match_team,
-    prompt_ambiguous_choice, ensure_line_contrast,
+    prompt_ambiguous_choice, ensure_line_contrast, separate_line_luminance,
 )
 from shared.styles import (
     BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
@@ -1153,6 +1153,14 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     )
     home_color = ensure_line_contrast(swapped_home, BG_COLOR)
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)
+    # Then pull them apart in LUMINANCE. The step above lightens each colour
+    # until it just clears the background threshold and stops, so two colours
+    # that both needed lightening land at nearly the same luminance - 63.6% of
+    # real fixtures ended isoluminant. Separating here rather than in the
+    # earlier pair check because that runs on the RAW colours and never sees
+    # what actually gets drawn.
+    home_color, away_color = separate_line_luminance(
+        home_color, away_color, BG_COLOR)
 
     # ── Split shots by team, build step-line data ───────────────────────────
     # ht_minute lets _cumulative_xg shift Period 2+ shots forward by

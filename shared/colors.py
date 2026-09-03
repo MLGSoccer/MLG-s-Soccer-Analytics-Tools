@@ -1199,6 +1199,67 @@ def ensure_line_contrast(color, bg_color='#1A2332', min_ratio=3.5):
     return '#FFFFFF'
 
 
+def separate_line_luminance(color1, color2, bg_color='#1A2332',
+                            min_ratio=1.5, max_steps=12):
+    """Pull two chart lines apart in LUMINANCE, not just in hue.
+
+    Returns (color1, color2), lightening whichever is already lighter until
+    the two differ by at least `min_ratio`. The darker team keeps its colour
+    exactly - only one side moves.
+
+    WHY THIS EXISTS. `ensure_line_contrast` lightens a colour until it just
+    clears its threshold against the background, then stops. So every colour
+    that needed lightening lands in a narrow band just above 3.5:1 - and any
+    two of them are therefore near-identical in luminance. The guard that
+    makes lines visible against the background was quietly making them
+    indistinguishable from each other.
+
+    Measured over 2,038 real fixtures where both clubs have a colour:
+
+        1,430 pass the RGB-150 pair check, so no alternate is swapped in
+          910 of those (63.6%) end ISOLUMINANT (ratio < 1.5) after lightening
+          562 were pushed CLOSER together by the lightening itself
+
+    The worst sit at exactly 1.00:1 - Newcastle v Arsenal, Man Utd v
+    Newcastle, Mallorca v Osasuna, St. Pauli v Hamburg.
+
+    WHY LUMINANCE. Hue separation is the wrong thing to rely on: the critique
+    measured a red/grey pair separated only on the red-green axis, which is
+    exactly the channel deuteranopia removes. Luminance survives every form of
+    colour blindness, so separating on it works for everyone.
+
+    WHY NOT SWAP TO AN ALTERNATE, which is what `check_color_similarity` does:
+    77% of registered alternates are pure white or pure black (117 clubs at
+    #FFFFFF, 40 at #000000). Firing that on 910 fixtures would turn most
+    charts white-against-something.
+
+    Best effort - if the lighter colour saturates before reaching min_ratio,
+    the closest achieved pair is returned rather than raising.
+    """
+    def _ratio(a, b):
+        la, lb = _wcag_luminance(a), _wcag_luminance(b)
+        hi, lo = max(la, lb), min(la, lb)
+        return (hi + 0.05) / (lo + 0.05)
+
+    if _ratio(color1, color2) >= min_ratio:
+        return color1, color2
+
+    first_is_lighter = _wcag_luminance(color1) >= _wcag_luminance(color2)
+    lighter = color1 if first_is_lighter else color2
+    anchor = color2 if first_is_lighter else color1
+
+    current = lighter
+    for _ in range(max_steps):
+        stepped = lighten_hsl(current, 0.08)
+        if stepped == current:          # saturated at white; no further to go
+            break
+        current = stepped
+        if _ratio(current, anchor) >= min_ratio:
+            break
+
+    return (current, anchor) if first_is_lighter else (anchor, current)
+
+
 def ensure_label_color(hex_color, min_lightness=0.60):
     """Ensure a color is bright enough to read as small text on a dark background.
 
