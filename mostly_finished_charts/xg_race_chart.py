@@ -1100,12 +1100,29 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
         return ev.get('chrono_x', ev['minute'])
 
     placed = []  # (xpos, x_side, width, level)
+    fixed_side = []  # parallel: True when an edge forced the side
     for ev in goals:
         ev_x = _xpos(ev)
         ev_w = _estimate_width(ev)
-        near_right = (chart_max - ev_x) < near_edge
-        near_left = ev_x < near_edge
-        if near_left:
+        # A label is "near an edge" when IT would overflow, not when its
+        # MARKER happens to sit within a fixed distance of one. The flat
+        # 6-minute test asked the wrong question: a goal on minute 12 is not
+        # near-left by that rule, but "Sergio Camello (12') 1-1" anchored to
+        # its left runs past minute 0 and straight through the y-axis tick
+        # labels. Measured on Barcelona v Rayo, and the width is already known
+        # here - _estimate_width returns real rendered width in data units.
+        #
+        # The fixed distance is kept as a floor: a marker genuinely hard
+        # against an edge should not flip merely because its label is short.
+        overflows_left = (ev_x - ev_w) < 0
+        overflows_right = (ev_x + ev_w) > chart_max
+        near_left = ev_x < near_edge or overflows_left
+        near_right = (chart_max - ev_x) < near_edge or overflows_right
+        if near_left and near_right:
+            # Wider than the space on either side. Spill toward whichever
+            # edge is further away rather than picking arbitrarily.
+            sides = ['right'] if ev_x < (chart_max - ev_x) else ['left']
+        elif near_left:
             sides = ['right']
         elif near_right:
             # Late events: only try left. Falling back to right would push the
@@ -1127,10 +1144,18 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
                 break
 
         # Step 2: try flipping an earlier level-0 label to keep both at bottom
+        #
+        # A label whose side was FORCED by an edge must not be a flip target.
+        # Step 1 put it there precisely because the other side runs off the
+        # chart; flipping it to make room for a later label undoes that and
+        # pushes it through the axis furniture. This is how "Sergio Camello
+        # (13')" ended up left-anchored at minute 12 despite being correctly
+        # placed on the right a moment earlier - the third goal in the cluster
+        # flipped it.
         flip_target = None
         if chosen_side is None and not near_left:
             for j, (mp, sp, wp, lp) in enumerate(placed):
-                if lp != 0:
+                if lp != 0 or fixed_side[j]:
                     continue
                 alt_s = 'left' if sp == 'right' else 'right'
                 others_lv0 = [(mk, sk, wk, lk)
@@ -1167,6 +1192,7 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
             goals[j]['x_side'] = alt_s
 
         placed.append((ev_x, chosen_side, ev_w, chosen_level))
+        fixed_side.append(len(sides) == 1)
         ev['x_side'] = chosen_side
         ev['y_level'] = chosen_level
 
@@ -1310,6 +1336,13 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
 
     # HT line (plain dashed; red cards use dash-dot for visual distinction)
     ht_minute = team_info.get('first_half_end_minute', 45) or 45
+
+    # DECIDED NOT TO MARK first-half stoppage (user, 2026-09-03). The axis
+    # stretch between the 45 and 60 ticks varies match to match - median 2.9
+    # minutes, up to 8+ - and a shaded band plus a "+4" label was built and
+    # rejected: stoppage time is a phenomenon soccer viewers already
+    # understand, and the half-time marker is enough on its own. Do not
+    # reintroduce it.
     ax.axvline(ht_minute, color=SPINE_COLOR, linestyle='--', linewidth=0.8,
                alpha=0.5, zorder=1)
 
