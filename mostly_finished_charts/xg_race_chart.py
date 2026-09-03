@@ -883,12 +883,27 @@ def format_broadcast_minute(minute, period):
 
     Measured over 7,083 matches: 8.4% carry a first-half stoppage goal, plus
     7.2% of all goals fall past minute 90.
+
+    THE OFF-BY-ONE THAT BIT THIS FIRST TIME. `minute` arrives as
+    `int(gameClock / 60)` - the FLOOR of elapsed time - so a value of 45 in
+    period 1 means elapsed 45:00-45:59, which is ALREADY stoppage. The first
+    version tested `m > base` and so rendered Saka's 45:54 goal as "45'" -
+    exactly the bug it was written to fix. It also computed `m - base`, which
+    would have called the first stoppage minute "+0".
+
+    So: `m >= base` marks stoppage, and the offset is `m - base + 1`.
+    Elapsed 45:54 -> 45+1; 47:58 -> 45+3; 95:24 -> 90+6.
+
+    Note this leaves a PRE-EXISTING off-by-one in regular time untouched:
+    floor(elapsed) means a goal at 44:30 shows as "44'" where broadcast says
+    45'. Every label in the chart shares that convention, so changing it is a
+    separate decision rather than something to fold in here.
     """
     m = int(minute)
     base = _PERIOD_REGULAR_END.get(int(period)) if period is not None else None
-    if base is None or m <= base:
+    if base is None or m < base:
         return str(m)
-    return f"{base}+{m - base}"
+    return f"{base}+{m - base + 1}"
 
 
 def _px_per_x_unit(ax):
