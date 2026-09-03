@@ -20,6 +20,7 @@ from mostly_finished_charts.passing_flow_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.colors import TEAM_COLORS, fuzzy_match_team
+from shared.motherduck import resolve_single_team_colour
 from pages.streamlit_utils import custom_title_inputs
 import matplotlib.pyplot as plt
 
@@ -113,13 +114,16 @@ if uploaded_file is not None:
             if info_parts:
                 st.markdown(" | ".join(info_parts))
 
-            # Resolve team color
-            db_color, _, _ = fuzzy_match_team(selected_team, TEAM_COLORS)
-            if not db_color and 'newestTeamColor' in raw_df.columns:
+            # Resolve team color through the shared registry, so a colour
+            # corrected in the Data Manager reaches this chart too. The CSV's
+            # own newestTeamColor is passed as the fallback for any club the
+            # registry has no entry for.
+            csv_color = None
+            if 'newestTeamColor' in raw_df.columns:
                 team_rows = raw_df[raw_df['Team'] == selected_team]
-                csv_color = team_rows['newestTeamColor'].dropna()
-                db_color = csv_color.iloc[0] if not csv_color.empty else None
-            team_color = db_color or '#6CABDD'
+                vals = team_rows['newestTeamColor'].dropna()
+                csv_color = vals.iloc[0] if not vals.empty else None
+            team_color = resolve_single_team_colour(selected_team, csv_color)
 
             if st.button("Generate Progressive Flow", type="primary"):
                 st.session_state["progressive_flow"] = None

@@ -732,6 +732,35 @@ def load_team_registry():
     return reg
 
 
+def resolve_single_team_colour(team_name, feed_color=None, team_id=None):
+    """One team's colour, for the single-team charts. No clash to resolve.
+
+    Prefer `team_id`. The name path exists only for the CSV-upload pages,
+    which never see an id - and a name is a weak key: TruMedia renames clubs,
+    and 15 abbreviations in the config are shared by more than one club. It is
+    still better than what it replaces.
+
+    What it replaces is worth naming. Two pages defaulted to `#6CABDD`, which
+    is Manchester City's actual colour - so any club without a resolvable
+    colour silently rendered in Manchester City blue. The fallback here is a
+    slate that belongs to nobody, and is meant to look like a fallback.
+    """
+    from shared.team_registry import NEUTRAL, get_team_colors, is_hex
+
+    registry = load_team_registry()
+
+    if team_id is None and team_name:
+        for tid, entry in registry.items():
+            if entry.get("name") == team_name:
+                team_id = tid
+                break
+
+    if team_id:
+        return get_team_colors(team_id, team_name, feed_color,
+                               registry=registry).primary
+    return feed_color if is_hex(feed_color) else NEUTRAL
+
+
 def build_shots_from_game(game_id):
     """Query MotherDuck for a game and return (shots, match_info, team_colors).
 
