@@ -52,8 +52,9 @@ needs no team enumeration.
 > `FROM season BY game` and `FROM game BY game` both return **HTTP 400**. The
 > `FROM team BY <grain>` shape is required even when no team is named.
 
-**Step 2 — one request per game.** Anchored on either team, scoped to the
-game, with **no event predicate at all**:
+**Step 2 — one request per game.** Scoped to the game, with **no event
+predicate and NO TEAM PREDICATE** — see A4 below. Naming a team makes it the
+anchor and corrupts every team-scoped column on the opponent's rows:
 
 ```sql
 SELECT game.gameId, event.gameEventIndex, event.playType,
@@ -65,20 +66,22 @@ SELECT game.gameId, event.gameEventIndex, event.playType,
        event.q31, event.q32, event.q33, event.q171,
        ...
 FROM team BY event
-WHERE ((team.teamId = '<either side>'))
-  AND ((season.seasonId IN ('<season>')))
+WHERE ((season.seasonId IN ('<season>')))
   AND (game.gameId IN ('<gameId>'))
 ORDER BY event.gameEventIndex ASC
 ```
 
+With no team named, each event returns ONCE PER SIDE - about 2.5x the rows -
+each copy carrying that side's own values. Keep the `is_team` copies.
+
 Dropping `AND ((event.toucher))` is what widens 22 play types to 47 — cards,
 substitutions, corners, ball recoveries, aerials.
 
-**Step 3 — attribute each event from the row.** `is_team` / `is_opp` say which
-side the event belongs to; combine with the two teamIds from step 1 to set
-`events.teamId`. Today that column is `newest(team.game.teamId)` — i.e. the
-anchor team — which is only correct because each request contained one team's
-events.
+**Step 3 — keep the `is_team` rows.** Each is the copy written from its own
+team's point of view, so `teamId` and every other team-scoped column is
+already correct and needs no reconstruction. The first version of this
+rebuilt `teamId` and `teamFullName` from the fixture and left 21 other
+columns describing the anchor — that was A4.
 
 **Step 4 — write atomically per match.** `DELETE FROM events WHERE gameId = ?`
 then INSERT. A match is ingested or it isn't; there is no half state to
@@ -96,8 +99,11 @@ raw to test membership; use `lookup()` only to resolve an actor to a name.
 
 ## What this buys
 
-- **Halves TruMedia load** — one request per game instead of two per team.
-- **Kills the 22.6% half-matches**, structurally rather than by repair.
+- **Fewer requests than the per-team path** — 538 against 904, once batching
+  stopped being grouped by home team (which only existed to satisfy the
+  anchor). NOT "halves the load": that framing assumed the anchored shape.
+- **Kills the 22.6% half-matches** — though see A4: those were a COVERAGE gap,
+  not a defect in the per-team model.
 - **Cards, own goals and subs arrive as events**, with `playerId` and the
   correct side — so API-Football goes.
 - **Match metadata currently thrown away**: referee crew, venue, attendance,
@@ -633,17 +639,96 @@ Alternates are irreducibly authored.
 
 | # | Step | Touches | Reversible | Status |
 |---|---|---|---|---|
-| 1 | A0 fallback readers | charts | yes | **DONE** 2026-08-29 |
-| 2 | A1a per-game **library** (`downloader.py`) | tool | yes — branch, practice mode | next |
-| 3 | A1b per-game **app** (Bulk Actions, Health, progress state) | tool | yes | |
-| 4 | B1 registry — lands in `pages/3` | tool + charts | yes | can start now |
-| 5 | ~~**A2 re-download**~~ | **database** | — | **DONE 2026-08-29 · 100%** |
+| 1 | ~~A0 fallback readers~~ | charts | yes | **DONE** 2026-08-29 |
+| 2 | ~~A1a per-game **library**~~ | tool | yes | **DONE** 2026-08-29 |
+| 3 | ~~A1b per-game **app**~~ (Campaign) | tool | yes | **DONE** 2026-08-29 |
+| 5 | ~~**A2 re-download**~~ | **database** | — | **DONE 2026-08-29**, redone 09-02 |
 | 6 | ~~A3 delete API-Football~~ | tool + db | archived | **DONE** 2026-09-01 |
+| — | ~~**A4 the ANCHOR BUG**~~ | tool + db | — | **DONE 2026-09-02** — see below |
+| 4 | B1 team registry | tool + charts | yes | **NEXT** — smaller than it was |
 | 7 | B2 CBS colour flip | charts | yes | needs 4 |
 | 8 | B3 alternates | data | deferred | deferred |
 
-1–4 are all reversible and can be done in any order, or in parallel. **Step 5
-is the only one-way door.**
+---
+
+## A4. The anchor bug — DONE 2026-09-02, and it was serious
+
+A1a shipped a per-game query that still NAMED A TEAM, inherited from the
+per-team download:
+
+    FROM team BY event WHERE ((team.teamId = 'X')) AND game.gameId IN (...)
+
+Naming a team makes it the ANCHOR, and TruMedia answers every team-scoped
+column from that team's point of view — **on the opponent's rows too**.
+Batches were grouped by home team, so every away side wore the home side's
+identity. **21 columns on 4,276,373 rows**, live 08-29 to 09-01:
+
+    teamAbbrevName wrong on 49.3% of ALL rows
+    MatchState inverted on 2,275,864 away rows
+    every away team in the database showed ZERO assists (5,624 home, 0 away,
+      against 6,462 away goals actually scored)
+
+**The fix was deleting the predicate.** With no team named TruMedia returns
+each event once per side, each copy carrying that side's own values; keep the
+`is_team` copies. Shipped `5162101`, whole database re-downloaded, 0 games
+still anchored.
+
+Three consequences for this plan:
+
+- **Batching by home team is gone.** It existed only because the anchor
+  filtered. Any games can now share a request, and that turned out to be
+  cheaper: **538 requests against 904**, because a club has at most ~25 home
+  games so batches were capped there.
+- **The 22.6% half-match justification was overstated.** Those were a
+  COVERAGE gap — 29 of 29 examined had the missing side be a team never
+  downloaded — not a defect in the per-team model, which was correct on all
+  21 columns. Per-game's real win is atomic writes and fixture-driven work
+  lists, not correctness.
+- **`WORK_ANCHORED`** detects the damage — a two-sided game with one distinct
+  `teamAbbrevName` — so the repair was self-tracking and resumable.
+
+Full detail in `memory/project_anchor_bug.md`. `data_manager/test_no_anchor.py`
+asserts the cheap version of the check that would have caught it.
+
+---
+
+## OPEN DATA WORK, as of 2026-09-03
+
+Nothing below is started.
+
+**Next up**
+
+| | |
+|---|---|
+| **B1 team registry** | Smaller than originally scoped: colour and abbreviation now arrive CORRECT on the event rows, so the registry is for OVERRIDES and ALTERNATES, not correctness. Still blocks B2. |
+| **3 clubs invisible in CBS** | Elversberg, Paderborn, Schalke 04 have complete data and cannot be selected — `get_teams_by_league()` is built from config.json's `teams`, which only Discover Teams writes, and that scans PLAYER POOLS rather than fixtures. B1 fixes it. |
+| **89 clubs have no TruMedia colour** | Only 24 are covered by the CBS palette; the rest would fall to grey. A decision, not a bug. NB the earlier figure of "6 clubs" was wrong — it was measured with MAX over all rows, which picked up opponents' colours from away games. |
+
+**Known-imperfect, deliberately left**
+
+| | |
+|---|---|
+| `check_color_similarity` | Still measures RGB distance, and still runs on the RAW colours BEFORE lightening, so it never sees what is drawn. Its remedy is swapping to an alternate, and 77% of alternates are pure white or black. Revisit with B1. |
+| 4 clubs with no home game | Colour is underivable for them by construction; transient, resolves when they host. |
+| `ChanceCreated` semantics | The catalogue defines it as "Key Passes (Not Including Assists)", so a chance created is `ChanceCreated OR IsAssist`. The column name misleads. |
+| xG definitional question | `xG` is the display-rounded token (100 distinct values); `xGRaw`/`xGRebound` are full floats and TruMedia's own team xG is the rebound-adjusted sum. Both stored, nothing changed. **Do not change silently.** |
+
+**Sized but not built**
+
+| | |
+|---|---|
+| Batch size | 40 games is PROVEN (70,974 rows exact, all gameIds present) but produced a 182,618-row response against `LIMIT 200000` — 91%. Default is 20. `LIMIT 200000` is OUR number with no provenance; if it can be raised, requests roughly halve again. Two requests would settle it. |
+| Server-side `is_team` filter | The no-anchor response carries ~2.5x rows because each event returns once per side and we discard half. Filtering server-side would halve the payload — but adding a predicate is exactly what caused A4, so it needs the full "exact row sums, no gameId lost" check. |
+| Structural hash pull | Designed, not built. Staleness detection without `lastModified`, which is measurably useless. |
+| Retire Bulk Actions | Plus the per-team timestamps. Campaign has been used in anger now. |
+
+**Operational limits**
+
+- **MotherDuck Lite is 30 min compute/day.** Reset mechanism undocumented.
+  Diagnostics belong on a local snapshot, not production.
+- Cookies last ~4h; a full re-download is longer, so plan a refresh mid-run.
+- MotherDuck internal errors happen. Resumability handled it; a failed
+  ROLLBACK used to mask the real error and no longer does (`6be8127`).
 
 A1a and A1b are split deliberately: the library can be finished and proven
 against a local file before any UI is touched, using `refresh_game` as the
