@@ -43,9 +43,17 @@ def _generate_sequence_charts(file_content, teams, csv_team_colors,
     """Generate all charts and return image bytes."""
     sequences, _, length_data, team_data, shot_sequences, team_length_data, match_info = _load_sequences_cached(file_content)
 
+    # Registry first, then the CSV's own colour, then the old palette chain.
+    # The registry outranks the CSV because the CSV column is the feed value
+    # being corrected - Real Madrid arrives from it as blue.
+    from shared.motherduck import registry_colour_by_name
+
     team_colors = {}
     for team in teams:
-        if csv_team_colors and team in csv_team_colors:
+        authored, _sec = registry_colour_by_name(team)
+        if authored:
+            team_colors[team] = authored
+        elif csv_team_colors and team in csv_team_colors:
             team_colors[team] = csv_team_colors[team]
         else:
             team_colors[team] = get_team_color(team, prompt_if_missing=False)

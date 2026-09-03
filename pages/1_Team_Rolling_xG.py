@@ -17,7 +17,7 @@ from mostly_finished_charts.team_rollingxg_chart import (
 from pages.streamlit_utils import custom_title_inputs
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, get_team_rolling_xg_data,
-    season_label,
+    resolve_single_team_colour, season_label,
 )
 
 st.set_page_config(page_title="Team Rolling xG", page_icon="📈", layout="wide")
@@ -199,7 +199,11 @@ if data_source == "Database":
                 if len(matches) < 5:
                     st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
                 team_label = db_team_name or selected_team_name
-                team_color = db_team_color or "#888888"
+                # Resolved on team_id, which is the strong key - this page has
+                # one, unlike the CSV-upload pages that can only offer a name.
+                team_color = resolve_single_team_colour(
+                    team_label, db_team_color, team_id=selected_team_id
+                )
                 charts = _build_chart_images(
                     matches, team_label, team_color, window_size,
                     custom_title=custom_title, custom_subtitle=custom_subtitle

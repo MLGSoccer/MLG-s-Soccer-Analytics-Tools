@@ -83,8 +83,14 @@ def _ensure_team_contrast(team1_name, team2_name, team_colors):
     Returns (updated_team_colors, adjusted).
     """
     from shared.colors import TEAM_COLORS, fuzzy_match_team, check_color_similarity
+    from shared.motherduck import registry_colour_by_name
 
     def _resolve_raw(name, tc):
+        # The registry first: an authored colour is a sourced decision, where
+        # everything below it is a guess of decreasing quality.
+        authored, _sec = registry_colour_by_name(name)
+        if authored:
+            return authored
         if name in tc and tc[name]:
             return tc[name]
         for k, v in tc.items():
@@ -95,6 +101,22 @@ def _ensure_team_contrast(team1_name, team2_name, team_colors):
 
     c1_raw = _resolve_raw(team1_name, team_colors)
     c2_raw = _resolve_raw(team2_name, team_colors)
+
+    # A clash reaches for each club's OWN second colour before falling back to
+    # check_color_similarity's alternate dictionary, which is 77% pure white
+    # or black. Same order as the xG race.
+    _s1 = registry_colour_by_name(team1_name)[1]
+    _s2 = registry_colour_by_name(team2_name)[1]
+    if _s1 or _s2:
+        from mostly_finished_charts.xg_race_chart import _separate_using_secondary
+        c1_reg, c2_reg, resolved = _separate_using_secondary(
+            c1_raw, c2_raw, _s1, _s2
+        )
+        if resolved:
+            updated = dict(team_colors)
+            updated[team1_name] = c1_reg
+            updated[team2_name] = c2_reg
+            return updated, True
 
     # check_color_similarity returns (color1, color2, use_different_line_styles);
     # in non-interactive mode it swaps one team to its alternate if too similar.

@@ -304,7 +304,7 @@ def get_player_current_team(player_id):
         return None
     con = get_connection()
     row = con.execute("""
-        SELECT newestTeamColor, teamFullName, teamAbbrevName
+        SELECT newestTeamColor, teamFullName, teamAbbrevName, teamId
         FROM events
         WHERE toucherId = ?
         AND newestTeamColor IS NOT NULL
@@ -314,7 +314,12 @@ def get_player_current_team(player_id):
     """, [str(player_id)]).fetchone()
 
     if row:
-        return {'color': row[0], 'team_name': row[1], 'abbrev': row[2]}
+        # Resolved through the registry so a player's team colour is the same
+        # one that team's own charts use. teamId is pulled purely to key this
+        # on the strong identifier rather than the club's current name.
+        return {'color': resolve_single_team_colour(row[1], row[0],
+                                                    team_id=row[3]),
+                'team_name': row[1], 'abbrev': row[2]}
     return None
 
 
@@ -730,6 +735,24 @@ def load_team_registry():
     reg = load_registry()
     log.warning("team registry source=file teams=%d", len(reg))
     return reg
+
+
+def registry_colour_by_name(team_name):
+    """(primary, secondary) for an AUTHORED club, or (None, None).
+
+    Deliberately returns None rather than a fallback, so callers can keep
+    telling the difference between "we have decided this club's colour" and
+    "we have not" - several of them warn the user about the second.
+    """
+    if not team_name:
+        return None, None
+    try:
+        for entry in load_team_registry().values():
+            if entry.get("name") == team_name:
+                return entry.get("primary"), entry.get("secondary")
+    except Exception:
+        pass
+    return None, None
 
 
 def resolve_single_team_colour(team_name, feed_color=None, team_id=None):

@@ -26,8 +26,17 @@ def check_team_colors(team_names, csv_colors=None):
     results = {}
     missing = []
 
+    from shared.motherduck import registry_colour_by_name
+
     for team in team_names:
-        # Check CSV first
+        # The registry outranks the CSV. An authored colour is a decision
+        # someone made and sourced; the CSV column is whatever TruMedia sent,
+        # which is the thing being corrected. Real Madrid arrives as blue.
+        authored, _secondary = registry_colour_by_name(team)
+        if authored:
+            results[team] = authored
+            continue
+
         if team in csv_colors and csv_colors[team]:
             results[team] = csv_colors[team]
             continue
@@ -37,6 +46,8 @@ def check_team_colors(team_names, csv_colors=None):
         if color:
             results[team] = color
         else:
+            # Still None, not a fallback colour: the caller warns on this, and
+            # a club we have simply never decided about should say so.
             results[team] = None
             missing.append(team)
 

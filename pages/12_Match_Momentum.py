@@ -67,14 +67,22 @@ def _parse_momentum_csv(file_content):
         date_display = str(r0.get("Date", ""))
 
     # ── Team colors ───────────────────────────────────────────────────────────
-    home_color, away_color = "#4A90D9", "#E05C5C"
+    # The two defaults below are a generic blue and a generic red. They are the
+    # last resort only: the registry is asked first, then the feed value on the
+    # row, so a colour corrected in the Data Manager reaches this chart too.
+    from shared.motherduck import resolve_single_team_colour
+
+    feed_home = feed_away = None
     if "newestTeamColor" in df.columns and "Team" in df.columns:
         home_rows = df[df["Team"].str.strip().str.lower() == home_team.strip().lower()]
         away_rows = df[df["Team"].str.strip().str.lower() == away_team.strip().lower()]
         if not home_rows["newestTeamColor"].dropna().empty:
-            home_color = home_rows["newestTeamColor"].dropna().iloc[0]
+            feed_home = home_rows["newestTeamColor"].dropna().iloc[0]
         if not away_rows["newestTeamColor"].dropna().empty:
-            away_color = away_rows["newestTeamColor"].dropna().iloc[0]
+            feed_away = away_rows["newestTeamColor"].dropna().iloc[0]
+
+    home_color = resolve_single_team_colour(home_team, feed_home) or "#4A90D9"
+    away_color = resolve_single_team_colour(away_team, feed_away) or "#E05C5C"
 
     # ── Determine team_side per row ───────────────────────────────────────────
     team_col = "Team" if "Team" in df.columns else (
