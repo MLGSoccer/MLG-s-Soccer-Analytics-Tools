@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.patheffects as mpe
 from matplotlib.transforms import blended_transform_factory
 import streamlit as st
 
@@ -22,11 +23,20 @@ from shared.motherduck import (
 )
 from shared.styles import (
     BG_COLOR, SPINE_COLOR,
-    TEXT_PRIMARY, TEXT_SECONDARY,
-    add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
+    TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
+    add_cbs_footer, render_two_team_score_header, resolve_figsize,
+    fit_fontsize,
 )
-from shared.colors import (check_color_similarity, ensure_line_contrast,
-                           separate_line_luminance)
+from shared.colors import check_color_similarity, ensure_line_contrast
+# The xG race is this chart's chronological sibling: same axis, same event
+# annotations, same conventions. Import its machinery rather than carrying
+# parallel copies - this page's own copies drifted on FOUR conventions
+# (floor-not-broadcast minutes, a fixed-50 period split, char-count label
+# widths, no retro-flip guard) before being replaced 2026-09-04.
+from mostly_finished_charts.xg_race_chart import (
+    _event_period, _place_goal_labels, _separate_using_secondary,
+    format_broadcast_minute,
+)
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Match Momentum", page_icon="", layout="wide")
@@ -106,6 +116,27 @@ def _parse_momentum_csv(file_content):
     pass_col  = "PassType"  if "PassType"  in df.columns else None
     x_col     = "EventXDecimal" if "EventXDecimal" in df.columns else None
 
+    # ── Minute (before any event filtering - the HT derivation needs it) ─────
+    clock_col = "gameClock" if "gameClock" in df.columns else None
+    if clock_col:
+        df["minute"] = pd.to_numeric(df[clock_col], errors="coerce").fillna(0) / 60.0
+    else:
+        df["minute"] = 0.0
+
+    # ── Half-time minute ──────────────────────────────────────────────────────
+    # When the first half ENDED: the last Period-1 event of ANY type, from the
+    # UNFILTERED frame. Deriving it from momentum events only ran early by
+    # >1min in 14% of matches (measured on the DB path, same subset). Clamped
+    # to 45 so a partial CSV degrades to "no stoppage", not a negative
+    # period-2 shift that drags the second half backwards over the first.
+    if "Period" in df.columns:
+        p1_minutes = pd.to_numeric(
+            df.loc[df["Period"] == 1, "minute"], errors="coerce"
+        ).dropna()
+        ht_minute = max(45.0, float(p1_minutes.max())) if len(p1_minutes) else 45.0
+    else:
+        ht_minute = 45.0
+
     def _classify(row):
         if play_col and row.get(play_col) in shot_types:
             return "shot"
@@ -117,24 +148,6 @@ def _parse_momentum_csv(file_content):
 
     df["event_type"] = df.apply(_classify, axis=1)
     df = df[df["event_type"].notna()].copy()
-
-    # ── Minute ────────────────────────────────────────────────────────────────
-    clock_col = "gameClock" if "gameClock" in df.columns else None
-    if clock_col:
-        df["minute"] = pd.to_numeric(df[clock_col], errors="coerce").fillna(0) / 60.0
-    else:
-        df["minute"] = 0.0
-
-    # ── Half-time minute ──────────────────────────────────────────────────────
-    # Real HT = last Period 1 event's minute. Default 45.0 if no Period column
-    # or no Period 1 events (e.g., partial CSV).
-    if "Period" in df.columns:
-        p1_minutes = pd.to_numeric(
-            df.loc[df["Period"] == 1, "minute"], errors="coerce"
-        ).dropna()
-        ht_minute = float(p1_minutes.max()) if len(p1_minutes) else 45.0
-    else:
-        ht_minute = 45.0
 
     # Keep period alongside minute so downstream code can compute a
     # chronological match-time x-axis (period 2+ events plot AFTER period 1
@@ -275,160 +288,233 @@ def _compute_momentum(events_df, w_shots, w_corners, w_ft, ht_minute=45.0, windo
 # ── Chart rendering ─────────────────────────────────────────────────────────────────────────
 
 # Goal/RC label vertical levels (axes fraction). Labels stack here when minutes
-# would otherwise collide horizontally.
+# would otherwise collide horizontally. Placement itself is the xG race's
+# _place_goal_labels - measured label widths, edge handling, retro-flip guard.
 _Y_LEVELS = (1.04, 1.12, 1.20)
-_NEAR_EDGE = 6     # prefer left side if within this many minutes of chart end
-_LABEL_W = 12      # estimated label width in minutes (matches xG race spec)
 _RC_COLOR = "#E53935"
 
 
-def _place_event_labels(events, chart_max):
-    """Assign x_side ('left'/'right') and y_level (0/1/2) to each event so
-    labels don't collide. Mutates events in place. Mirrors xG race's
-    collision-avoidance logic.
+# ── Aspect layouts ────────────────────────────────────────────────────────────
+#
+# The wave is a TIME SERIES: minutes run horizontally and the encoding cannot
+# be rotated without fighting every convention a reader has. So the portrait
+# aspects do not stretch it - they give it a band at a workable aspect and
+# spend the rest of the frame on what the 16:9 puts ON the plot.
+#
+# That split is the DP family's structural prior art, which this project
+# already follows on the shot chart: 16:9 carries callouts on the plot, 9:16
+# moves them to a list below, 9:8 keeps lines and markers only because the
+# host is speaking the names aloud beside it.
+#
+# TYPE FLOOR: both portrait aspects are 9in wide delivered on a phone, so
+# nothing readable sits below 16pt ([[project-cbs-rollingxg-vertical]]'s
+# rule, applied across the shot chart's six variant layouts the same way).
 
-    Reads each event's chronological x-position (chrono_x) for placement,
-    falling back to broadcast minute when chrono_x isn't set (older
-    callers / CSV path before period was threaded through).
+_MOMENTUM_LAYOUT_DEFAULT = {
+    "aspect":          "default",
+    "subplots":        dict(top=0.72, bottom=0.10, left=0.06, right=0.98),
+    "axes_rect":       None,
+    "kicker_size":     11,   "title_size":   22,
+    "y_kicker":        0.973, "y_title":     0.942, "y_bar": 0.912,
+    "subtitle_y":      0.885, "subtitle_size": 11,
+    "labels_on_plot":  True,
+    "event_block":     False,
+    "team_label_size": 12,
+    "ht_size":         11,
+    "event_label_size": 13,
+    "marker_size":     8,
+    "card_h":          0.045, "card_w": 0.9,
+    "tick_size":       10,   "axis_label_size": 10,
+    "axis_words":      True,
+    "ht_vertical":     False,
+    "key_y":           None,
+}
 
-    Label width is estimated per-event from the actual label text so
-    collision detection reflects what the chart renders - a constant
-    _LABEL_W underestimates long labels (e.g. "M. Baturina (35') 1-1"
-    is ~17 chart units wide, not 12).
+# 9:8 tile - the chart shares the frame with the host, who names the scorers.
+# Nine 16pt labels cannot fit 9 inches of width, and the host makes them
+# redundant, so the plot keeps its markers and drops its text. A marker key
+# replaces them: without labels the markers carry the whole vocabulary.
+_MOMENTUM_LAYOUT_9X8 = {
+    "aspect":          "9x8",
+    "subplots":        None,
+    "axes_rect":       [0.07, 0.13, 0.90, 0.70],
+    "kicker_size":     16,   "title_size":   21,
+    "y_kicker":        0.975, "y_title":     0.940, "y_bar": 0.905,
+    "subtitle_y":      None, "subtitle_size": None,
+    "labels_on_plot":  False,
+    "event_block":     False,
+    "team_label_size": 16,
+    "ht_size":         16,
+    "event_label_size": None,
+    "marker_size":     10,
+    # card_w is in MINUTES, so on a ~97-minute axis 1.4 was 1.4% of the
+    # width - about 3 CSS px on a phone, invisible beside 8px goal dots and
+    # ambiguous with them when the carded team also plays in red.
+    "card_h":          0.060, "card_w": 3.0,
+    "tick_size":       16,   "axis_label_size": None,
+    "axis_words":      False,
+    "ht_vertical":     True,
+    "key_y":           0.045,
+}
+
+# 9:16 fullscreen - the wave takes a 2.3:1 band (its natural shape) and the
+# callouts become a match timeline underneath, which is what the label band
+# was always trying to be. Same move as the shot chart's second block.
+_MOMENTUM_LAYOUT_9X16 = {
+    "aspect":          "9x16",
+    "subplots":        None,
+    # 0.250, not the 0.215 first drawn: the lint's plot-floor guard fired,
+    # and it was right - a wave band under a quarter of the frame is the
+    # chart's subject getting squeezed by its own second block. At 0.250 the
+    # band is 4.0in x 7.9in, a 2:1 time series, and the block still holds
+    # twelve rows.
+    "axes_rect":       [0.09, 0.600, 0.88, 0.250],
+    "kicker_size":     16,   "title_size":   30,
+    "y_kicker":        0.975, "y_title":     0.945, "y_bar": 0.918,
+    "subtitle_y":      0.900, "subtitle_size": 16,
+    "labels_on_plot":  False,
+    "event_block":     True,
+    "team_label_size": 16,
+    "ht_size":         16,
+    "event_label_size": None,
+    "marker_size":     10,
+    "card_h":          0.060, "card_w": 3.0,   # see the 9:8 note - minutes
+    "tick_size":       16,   "axis_label_size": 16,
+    "axis_words":      False,
+    "ht_vertical":     True,
+    "key_y":           None,
+    # Event timeline block
+    "block_head_y":    0.535, "block_top": 0.500, "block_bot": 0.075,
+    "row_step_max":    0.048,
+    "head_size":       16,   "row_size":  19,
+    "min_x":           0.085, "name_x":   0.215, "score_x": 0.915,
+    "rule_x0":         0.070,
+}
+
+_MOMENTUM_LAYOUTS = {
+    "default": _MOMENTUM_LAYOUT_DEFAULT,
+    "9x8":     _MOMENTUM_LAYOUT_9X8,
+    "9x16":    _MOMENTUM_LAYOUT_9X16,
+}
+
+
+def _draw_event_block(fig, layout, events, minute_of):
+    """The match timeline: one row per goal/card, in chronological order.
+
+    Rows are DISTRIBUTED across the band rather than stepped from its top at
+    a fixed pitch - a 1-1 and a 5-4 both have to fill the same space, and a
+    fixed step leaves a hole under a short list. Same rule as the shot
+    chart's stat block.
+
+    Each row: accent bar in the event's team colour, the broadcast minute,
+    the player, and the running score (or RED CARD). The accent bar is what
+    says WHICH side, so it takes the chrome lift - a raw navy bar vanishes.
     """
-    def _xpos(ev):
-        return ev.get("chrono_x", ev["minute"])
+    if not events:
+        return
+    x0 = layout["rule_x0"]
+    head_y = layout["block_head_y"]
+    fig.text(x0, head_y, "MATCH EVENTS", ha="left", va="center",
+             fontsize=layout["head_size"], fontweight="bold", color=TEXT_MUTED)
+    fig.text(layout["score_x"], head_y, "SCORE", ha="right", va="center",
+             fontsize=layout["head_size"], fontweight="bold", color=TEXT_MUTED)
+    fig.patches.append(mpatches.Rectangle(
+        (x0, head_y - 0.011), layout["score_x"] - x0, 0.0008,
+        transform=fig.transFigure, facecolor="#31435A", edgecolor="none",
+        zorder=3))
 
-    def _estimate_width(ev):
-        if ev.get("type") == "goal":
-            line1 = f"{ev.get('label','')} ({int(ev['minute'])}')"
-            line2 = ev.get("score", "")
-        else:  # 'rc'
-            player = ev.get("label", "") or ""
-            m = int(ev["minute"])
-            if player:
-                line1 = f"{player} ({m}')"
-                line2 = "RED CARD"
-            else:
-                line1 = f"RED CARD ({m}')"
-                line2 = ""
-        max_chars = max(len(line1), len(line2 or ""))
-        # ~0.55 x-units per char at fontsize=13 + small marker padding.
-        return max(max_chars * 0.55 + 3, float(_LABEL_W))
+    # Distribute, but CAP the pitch and top-align. Pure distribution is the
+    # shot chart's rule and it works there because that block always holds
+    # about five rows; a match has as few as two events, and a 1-1 spread
+    # over the whole band put two lines of text in ~1000px of empty navy -
+    # a legitimate scoreline reading as a failed render. Capped, the spare
+    # space falls at the BOTTOM, where it is breathing room.
+    band = layout["block_top"] - layout["block_bot"]
+    step = min(band / max(len(events), 1), layout["row_step_max"])
+    size = layout["row_size"]
+    for i, ev in enumerate(events):
+        y = layout["block_top"] - step * (i + 0.5)
+        is_rc = ev["type"] == "rc"
+        accent = ensure_line_contrast(
+            _RC_COLOR if is_rc else ev["color"], BG_COLOR)
+        fig.patches.append(mpatches.Rectangle(
+            (x0, y - 0.010), 0.005, 0.020, transform=fig.transFigure,
+            facecolor=accent, edgecolor="none", zorder=4))
+        fig.text(layout["min_x"], y, f"{minute_of(ev)}'", ha="left",
+                 va="center", fontsize=size, color=TEXT_SECONDARY, zorder=4)
+        fig.text(layout["name_x"], y, (ev.get("label") or "").upper(),
+                 ha="left", va="center", fontsize=size,
+                 fontweight="bold" if not is_rc else "normal",
+                 fontstyle="italic" if ev.get("og") else "normal",
+                 color=TEXT_PRIMARY if not is_rc else TEXT_SECONDARY, zorder=4)
+        right = "RED CARD" if is_rc else ev.get("score", "")
+        fig.text(layout["score_x"], y, right, ha="right", va="center",
+                 fontsize=size, fontweight="bold",
+                 color=_RC_COLOR if is_rc else TEXT_PRIMARY, zorder=4)
 
-    def _label_range(minute, side, width):
-        return (minute, minute + width) if side == "right" else (minute - width, minute)
-
-    def _overlaps(m_new, s_new, w_new, placed):
-        lo_new, hi_new = _label_range(m_new, s_new, w_new)
-        for m_p, s_p, w_p, _lv in placed:
-            lo_p, hi_p = _label_range(m_p, s_p, w_p)
-            if max(lo_new, lo_p) < min(hi_new, hi_p):
-                return True
-        return False
-
-    placed = []  # (xpos, x_side, width, level)
-    for ev in events:
-        ev_x = _xpos(ev)
-        ev_w = _estimate_width(ev)
-        near_right = (chart_max - ev_x) < _NEAR_EDGE
-        near_left = ev_x < _NEAR_EDGE
-        if near_left:
-            sides = ["right"]
-        elif near_right:
-            # Late events: only try left. Falling back to right would push the
-            # label past chart_max and visibly extend the chart trailing the
-            # actual end of the match. Force vertical stacking instead.
-            sides = ["left"]
-        else:
-            sides = ["right", "left"]
-
-        chosen_side, chosen_level = None, None
-        # Step 1: try level 0
-        for s in sides:
-            same_lv = [(mp, sp, wp, lp) for mp, sp, wp, lp in placed if lp == 0]
-            if not _overlaps(ev_x, s, ev_w, same_lv):
-                chosen_side, chosen_level = s, 0
-                break
-
-        # Step 2: try flipping a placed level-0 label
-        flip_target = None
-        if chosen_side is None and not near_left:
-            for j, (mp, sp, wp, lp) in enumerate(placed):
-                if lp != 0:
-                    continue
-                alt_s = "left" if sp == "right" else "right"
-                others_lv0 = [(mk, sk, wk, lk)
-                              for k, (mk, sk, wk, lk) in enumerate(placed)
-                              if k != j and lk == 0]
-                if _overlaps(mp, alt_s, wp, others_lv0):
-                    continue
-                tentative = others_lv0 + [(mp, alt_s, wp, 0)]
-                for s in sides:
-                    if not _overlaps(ev_x, s, ev_w, tentative):
-                        flip_target = (j, mp, alt_s)
-                        chosen_side, chosen_level = s, 0
-                        break
-                if chosen_side is not None:
-                    break
-
-        # Step 3: elevate to higher levels
-        if chosen_side is None:
-            for lv in range(1, len(_Y_LEVELS)):
-                for s in sides:
-                    same_lv = [(mp, sp, wp, lp) for mp, sp, wp, lp in placed if lp == lv]
-                    if not _overlaps(ev_x, s, ev_w, same_lv):
-                        chosen_side, chosen_level = s, lv
-                        break
-                if chosen_side is not None:
-                    break
-
-        if chosen_side is None:
-            chosen_side, chosen_level = sides[0], len(_Y_LEVELS) - 1
-
-        if flip_target is not None:
-            j, mp, alt_s = flip_target
-            _, _, wp, _ = placed[j]
-            placed[j] = (mp, alt_s, wp, 0)
-            events[j]["x_side"] = alt_s
-
-        placed.append((ev_x, chosen_side, ev_w, chosen_level))
-        ev["x_side"] = chosen_side
-        ev["y_level"] = chosen_level
+    # Close the table. The header rule spans the full width and PROMISES a
+    # table; with two events and a capped row pitch, the rows stopped and
+    # nothing said so - two lines under an open-ended header is the visual
+    # signature of rows that failed to load. A closing rule bounds the list,
+    # so the space beneath it is plainly outside the table rather than
+    # missing from it.
+    last_y = layout["block_top"] - step * (len(events) - 0.5)
+    fig.patches.append(mpatches.Rectangle(
+        (x0, last_y - step * 0.5), layout["score_x"] - x0, 0.0008,
+        transform=fig.transFigure, facecolor="#31435A", edgecolor="none",
+        zorder=3))
 
 
 def _draw_momentum_chart(momentum, match_info, goal_scorers,
                          own_goals=None, red_cards=None,
-                         competition="", custom_title=None, custom_subtitle=None):
+                         competition="", custom_title=None, custom_subtitle=None,
+                         aspect="default"):
+    layout = _MOMENTUM_LAYOUTS.get(aspect, _MOMENTUM_LAYOUT_DEFAULT)
     home_name = match_info["home_team"]
     away_name = match_info["away_team"]
     home_team_id = match_info.get("home_team_id")
     home_score = match_info["home_score"]
     away_score = match_info["away_score"]
-    # Color pipeline: clash-check on raw brand colors first (preserves identity
-    # when one team has to swap to its alternate), then lift each team's color
-    # for WCAG line contrast against the dark background.
-    swapped_home, swapped_away, _ = check_color_similarity(
+    # Colour pipeline: a clash reaches for each club's OWN second colour first
+    # (registry, distance-based on the lifted colours), falling back to the
+    # old alternate dictionary; then each colour is lifted for WCAG contrast
+    # against the dark background. Same order as the xG race and shot chart.
+    #
+    # NO luminance separation after the lift. That step exists for the
+    # rolling-xG charts, where two thin lines interleave and isoluminant
+    # pairs genuinely blur; here home is ALWAYS the fill above the 50-line
+    # and away always below, so position disambiguates and the separation
+    # only washed identity out - Strasbourg's #009FE3 rendered as lavender
+    # against Monaco red, two colours nobody could confuse.
+    swapped_home, swapped_away, resolved = _separate_using_secondary(
         match_info["home_color"], match_info["away_color"],
-        home_name, away_name, threshold=150, interactive=False,
+        match_info.get("home_secondary"), match_info.get("away_secondary"),
     )
+    if not resolved:
+        swapped_home, swapped_away, _ = check_color_similarity(
+            swapped_home, swapped_away,
+            home_name, away_name, threshold=150, interactive=False,
+        )
     home_color = ensure_line_contrast(swapped_home, BG_COLOR)
     away_color = ensure_line_contrast(swapped_away, BG_COLOR)
-    # See xg_race_chart: the background guard converges colours onto one
-    # luminance, so separate them here, after it has run.
-    home_color, away_color = separate_line_luminance(
-        home_color, away_color, BG_COLOR)
 
     ht_minute = float(match_info.get("ht_minute", 45.0))
     date = match_info["date"]
 
     mins = np.array(momentum.index, dtype=float)
     vals = np.array(momentum.values, dtype=float)
-    chart_max = float(max(max(mins) if len(mins) else 90, 90))
+    # +1.5 breathing room past the last event: a 90+1 winner IS often the last
+    # event of the match, and chart_max == its chrono position put the marker
+    # and label flush on the canvas edge, reading as cropped.
+    chart_max = float(max((max(mins) + 1.5) if len(mins) else 90, 90))
 
     # ── Figure + axes ────────────────────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=BROADCAST_FIGSIZE, facecolor=BG_COLOR)
-    fig.subplots_adjust(top=0.72, bottom=0.10, left=0.06, right=0.98)
+    fig, ax = plt.subplots(figsize=resolve_figsize(layout["aspect"]),
+                           facecolor=BG_COLOR)
+    if layout["subplots"] is not None:
+        fig.subplots_adjust(**layout["subplots"])
+    else:
+        ax.set_position(layout["axes_rect"])
     ax.set_facecolor(BG_COLOR)
 
     # ── Header (xG race conventions) ──────────────────────────────────────────────
@@ -438,14 +524,25 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
         away_name=away_name, away_score=away_score, away_color=away_color,
         kicker="MATCH MOMENTUM",
         custom_title=custom_title,
+        fontsize_kicker=layout["kicker_size"],
+        fontsize_title=fit_fontsize(
+            fig, custom_title or f"{home_name.upper()} {home_score}-{away_score} "
+            f"{away_name.upper()}", layout["title_size"], floor=16),
+        y_kicker=layout["y_kicker"], y_title=layout["y_title"],
+        y_bar=layout["y_bar"],
     )
 
     subtitle_parts = [p for p in [competition.upper() if competition else "", date] if p]
     auto_subtitle = " | ".join(subtitle_parts)
     display_subtitle = custom_subtitle or auto_subtitle
-    if display_subtitle:
-        fig.text(0.5, 0.885, display_subtitle, ha="center",
-                 color=TEXT_SECONDARY, fontsize=11)
+    if display_subtitle and layout["subtitle_y"] is not None:
+        fig.text(0.5, layout["subtitle_y"], display_subtitle, ha="center",
+                 color=TEXT_SECONDARY, fontsize=layout["subtitle_size"])
+
+    # Data-x, axes-y: everything anchored to a MINUTE but positioned relative
+    # to the plot rather than to a momentum value - markers, event labels,
+    # and the half-time label on the portrait aspects.
+    label_transform = blended_transform_factory(ax.transData, ax.transAxes)
 
     # ── Filled momentum areas + white trajectory line ────────────────────────────────────────
     ax.fill_between(mins, vals, 50, where=(vals >= 50),
@@ -456,11 +553,48 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
 
     # 50-line + HT marker (real half-time, not hardcoded 45)
     ax.axhline(50, color=SPINE_COLOR, linewidth=1.0, alpha=0.6)
-    ax.axvline(ht_minute, color=SPINE_COLOR, linewidth=0.8,
-               linestyle="--", alpha=0.45)
-    ax.text(ht_minute / chart_max, 1.005, "HT", transform=ax.transAxes,
-            color=TEXT_SECONDARY, fontsize=8, ha="center", va="bottom",
-            alpha=0.75)
+    # Visible enough to be the thing its own label points at. At 0.8/0.45
+    # this line measured 1.45:1 against the background while "HALF TIME"
+    # measured 6.47:1 - a caption four times more visible than its referent,
+    # so the eye attached it to the nearest line it COULD see. On Wolves v
+    # Fulham that was Robinson's 45+3 goal line 24px away, and the label read
+    # as naming the goal. Dashed and grey still separates it from the
+    # team-coloured dotted goal lines.
+    ax.axvline(ht_minute, color=SPINE_COLOR, linewidth=1.6,
+               linestyle="--", alpha=0.85)
+    # Inside the plot at the line's top, the xG race's exact treatment - the
+    # backgrounded box keeps it legible over the wave. Floating it above the
+    # plot put it inside the goal-label band, where a cold designer read it
+    # as a stray third line of the nearest goal label.
+    # On the narrow aspects it sits ABOVE the plot, over its own line. Two
+    # earlier placements were both wrong and both measured:
+    #   inside, at the top   - collided with any long club name, because a
+    #                          16pt label and a 16pt team name both want the
+    #                          top tenth of a 4in-tall wave
+    #   inside, rotated      - the opaque halo box punched a rectangular hole
+    #                          through the fill, and a chart that ALSO breaks
+    #                          its fill at half time then had two identical
+    #                          navy gaps meaning different things
+    # Above the plot it needs no halo at all: nothing is behind it.
+    if layout["ht_vertical"]:
+        # The line CONTINUES up to the caption. Without the leader the
+        # caption floated 50px of empty air above the plot, in the same grey
+        # bold caps as the "MATCH MOMENTUM" kicker directly above it, and
+        # read as a second kicker rather than as an annotation on a
+        # position. Extending its own dashes to meet it settles what it
+        # points at.
+        ax.plot([ht_minute, ht_minute], [1.0, 1.043],
+                transform=label_transform, color=SPINE_COLOR, linewidth=1.6,
+                linestyle="--", alpha=0.85, clip_on=False, zorder=3)
+        ax.text(ht_minute, 1.05, "HALF TIME", transform=label_transform,
+                color=TEXT_SECONDARY, fontsize=layout["ht_size"],
+                fontweight="bold", ha="center", va="bottom", alpha=0.85,
+                clip_on=False)
+    else:
+        ax.text(ht_minute, 97, "HALF TIME", color=TEXT_SECONDARY,
+                fontsize=layout["ht_size"], fontweight="bold", ha="center",
+                va="top", alpha=0.85,
+                bbox=dict(facecolor=BG_COLOR, edgecolor="none", pad=2))
 
     # ── Build all events (goals + own goals + red cards) ───────────────────────────────────
     import difflib as _dl
@@ -477,13 +611,10 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     # kickoff - Period 1 events at their broadcast minute, Period 2+
     # appended after Period 1 ends so they plot sequentially after the
     # half-time line instead of overlapping with first-half stoppage.
-    # See _chrono_minute().
+    # See _chrono_minute(). Period inference for manual events splits at the
+    # REAL whistle (xG race's _event_period), not a fixed 50.
     def _ev_period(ev):
-        p = ev.get("period")
-        if p is not None:
-            return int(p)
-        m = ev.get("minute", 0)
-        return 1 if m <= 50 else 2
+        return _event_period(ev, ht_minute)
 
     all_events = []
     for g in (goal_scorers or []):
@@ -495,10 +626,15 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
             "og": False,
         })
     for og in (own_goals or []):
+        # Named like every other goal when the data knows the toucher -
+        # "F. Lejeune (OG)" - the xG race convention. Bare "OG" only for
+        # manually-added ones with no player.
+        _p = og.get("player")
         all_events.append({
             "type": "goal", "minute": og["minute"], "team": og["team"],
             "period": og.get("period"),
-            "team_id": None, "label": "OG", "og": True,
+            "team_id": None,
+            "label": f"{_p} (OG)" if _p else "OG", "og": True,
         })
     for rc in (red_cards or []):
         if rc.get("card_type") and rc.get("card_type") not in ("red", "second_yellow"):
@@ -524,72 +660,135 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
                 a += 1
             ev["score"] = f"{h}-{a}"
 
-    _place_event_labels(all_events, chart_max)
+    if layout["labels_on_plot"]:
+        _place_goal_labels(all_events, chart_max, ax=ax)
 
     # ── Render events (goals, OGs, red cards) ────────────────────────────────────────────
-    label_transform = blended_transform_factory(ax.transData, ax.transAxes)
-
     for ev in all_events:
-        flip_left = ev["x_side"] == "left"
-        label_y = _Y_LEVELS[ev["y_level"]]
+        flip_left = ev.get("x_side") == "left"
+        label_y = _Y_LEVELS[ev.get("y_level", 0)]
         # chrono_x is the chart x-position (chronological match time since
         # kickoff). ev["minute"] is the broadcast minute kept only for the
-        # label text - e.g. "(46')" - so the displayed label stays in the
-        # soccer convention even though Bellingham's "46'" plots to the
-        # right of Musa's "50'" (45+stoppage) on the chronological axis.
+        # label text, rendered the way broadcast writes it - floor+1, and
+        # 45+2 rather than 47 (format_broadcast_minute; this page used to
+        # print the raw floor, so every label sat one minute behind the
+        # xG race's for the same goal).
         x_pos = ev.get("chrono_x", ev["minute"])
         label_x = x_pos - 0.6 if flip_left else x_pos + 0.6
         label_ha = "right" if flip_left else "left"
         side_color = home_color if ev["side"] == "home" else away_color
+        minute_str = format_broadcast_minute(ev["minute"], _ev_period(ev))
+        ev["color"] = side_color
+
+        # Leader through the label band: the in-plot dotted line stops at the
+        # plot top, but a label can sit three stacking rows above it - on a
+        # nine-label chart nothing tied a label to its line and a cold
+        # designer called dot-to-label matching "a colour-guessing game".
+        # Only where labels ARE on the plot; the portrait aspects list their
+        # events below instead, so a leader would point at nothing.
+        if layout["labels_on_plot"]:
+            ax.plot([x_pos, x_pos], [1.0, label_y], transform=label_transform,
+                    linestyle=":",
+                    color=side_color if ev["type"] == "goal" else _RC_COLOR,
+                    linewidth=1.0, alpha=0.45, clip_on=False, zorder=4)
 
         if ev["type"] == "goal":
             ax.axvline(x_pos, color=side_color, linewidth=1.2,
                        linestyle=":", alpha=0.8)
             if ev["og"]:
+                # A ring is identified by its HOLE, and the hole is what a
+                # shrink takes first - worse, the OG marker kept landing in
+                # the tightest clusters (55'/58'/61' sat 9px apart). Drawn
+                # larger so the interior survives at phone size.
                 ax.plot(x_pos, 1.005, "o", transform=label_transform,
                         markerfacecolor='none', markeredgecolor=side_color,
-                        markersize=8, markeredgewidth=1.6,
+                        markersize=layout["marker_size"] * 1.3,
+                        markeredgewidth=1.8,
                         clip_on=False, zorder=5)
             else:
                 ax.plot(x_pos, 1.005, "o", transform=label_transform,
-                        color=side_color, markersize=8,
+                        color=side_color, markersize=layout["marker_size"],
                         markeredgecolor="white", markeredgewidth=1.2,
                         clip_on=False, zorder=5)
-            text = f"{ev['label']} ({ev['minute']}')\n{ev['score']}"
-            ax.text(label_x, label_y, text, transform=label_transform,
-                    color=side_color, fontsize=13, fontweight="bold",
-                    va="bottom", ha=label_ha,
-                    fontstyle="italic" if ev["og"] else "normal",
-                    clip_on=False)
+            if layout["labels_on_plot"]:
+                text = f"{ev['label']} ({minute_str}')\n{ev['score']}"
+                ax.text(label_x, label_y, text, transform=label_transform,
+                        color=side_color, fontsize=layout["event_label_size"],
+                        fontweight="bold", va="bottom", ha=label_ha,
+                        fontstyle="italic" if ev["og"] else "normal",
+                        clip_on=False)
 
         else:  # rc
-            ax.axvline(x_pos, color=_RC_COLOR, linewidth=1.0,
-                       linestyle="-.", alpha=0.7)
+            # The STEM carries the team, the card carries the offence. The
+            # glyph is red for every club because a red card is red, so with
+            # a red stem too there was nothing on the variants saying WHOSE
+            # card it was - on Strasbourg v Monaco it happened to be the red
+            # team's, and the chart got the right answer by coincidence.
+            ax.axvline(x_pos, color=side_color, linewidth=1.4,
+                       linestyle="-.", alpha=0.85)
             # Card-shaped marker: vertical red rectangle at chart top edge,
-            # ~1:1.5 ratio, distinct from circular goal markers.
-            card_w_min = 0.7
-            card_h_axes = 0.028
+            # tall enough to read as a CARD - at the old 0.028 height it was
+            # a squashed rectangle in a row of circles, and when the carded
+            # team's goals are also red it read as a tenth goal dot.
+            # Card geometry is derived, not declared. Height is in AXES
+            # fraction and width in MINUTES, so a fixed pair drew a 31x47
+            # card on the tile and a 30x33 one on the phone - the second
+            # stops reading as a card. Width is computed from the axes'
+            # own pixel aspect to hold a constant 1:1.4 portrait shape.
+            card_h_axes = layout["card_h"]
+            _abox = ax.get_window_extent()
+            _xspan = ax.get_xlim()[1] - ax.get_xlim()[0]
+            card_w_min = ((card_h_axes * _abox.height / 1.4)
+                          / max(_abox.width, 1) * _xspan)
+            # Centred on the marker row, not sitting on top of it: anchored
+            # at the plot edge the card's middle rode 21px above every goal
+            # dot, breaking the skyline the row is supposed to make.
             card = mpatches.Rectangle(
-                (x_pos - card_w_min / 2, 1.0),
+                (x_pos - card_w_min / 2, 1.005 - card_h_axes / 2),
                 card_w_min, card_h_axes,
                 facecolor=_RC_COLOR, edgecolor='white', linewidth=1.5,
                 transform=label_transform, clip_on=False, zorder=6,
             )
             ax.add_patch(card)
-            player = ev.get("label", "")
-            text = (f"{player} ({ev['minute']}')\nRED CARD"
-                    if player else f"RED CARD ({ev['minute']}')")
-            ax.text(label_x, label_y, text, transform=label_transform,
-                    color=side_color, fontsize=13, fontweight="bold",
-                    va="bottom", ha=label_ha, clip_on=False)
+            if layout["labels_on_plot"]:
+                player = ev.get("label", "")
+                text = (f"{player} ({minute_str}')\nRED CARD"
+                        if player else f"RED CARD ({minute_str}')")
+                ax.text(label_x, label_y, text, transform=label_transform,
+                        color=side_color, fontsize=layout["event_label_size"],
+                        fontweight="bold", va="bottom", ha=label_ha,
+                        clip_on=False)
 
     # ── Team labels at top-left and bottom-left of plot ─────────────────────────────────────
-    ax.text(0.005, 0.96, home_name.upper(), transform=ax.transAxes,
-            color=home_color, fontsize=12, fontweight="bold", va="top",
-            alpha=0.95)
-    ax.text(0.005, 0.04, away_name.upper(), transform=ax.transAxes,
-            color=away_color, fontsize=12, fontweight="bold", va="bottom",
-            alpha=0.95)
+    # These are what say which half of the wave is whose, so on the portrait
+    # aspects - where the event labels are gone - they are the only in-plot
+    # attribution and carry the phone type floor.
+    # A STROKE around the glyphs, not a filled box behind them. Both stop the
+    # event lines striking the text through, but a box also erases whatever
+    # else is behind it - and what is behind it is the wave. Measured on Real
+    # Madrid v Athletic, the box under "ATHLETIC CLUB" cut the away side's
+    # biggest surge of the match into three disconnected slices and left an
+    # orphaned sliver of white stroke with no fill under it. A stroke hugs
+    # the letterforms, so it costs a few pixels around glyphs instead of a
+    # rectangle of data.
+    #
+    # They sit in the HEADROOM, outside the wave's reach entirely. Momentum
+    # spans 0-100 and the axis runs -8..108, so axes fraction 0.94 is data
+    # 101 and 0.06 is data -1: the wave cannot get there by construction.
+    # At the old 0.96/0.04 the text extended back INTO the range - the
+    # headroom fix above then pushed the deepest troughs into the away
+    # label, and Athletic's biggest spike of the match ended inside the word
+    # "CLUB" with no visible tip. Anchoring them away from the plot is what
+    # the headroom is for; no dodging logic needed.
+    _stroke = [mpe.withStroke(linewidth=3.0, foreground=BG_COLOR)]
+    ax.text(0.005, 0.94, home_name.upper(), transform=ax.transAxes,
+            color=home_color, fontsize=layout["team_label_size"],
+            fontweight="bold", va="bottom", alpha=0.95,
+            path_effects=_stroke, zorder=7)
+    ax.text(0.005, 0.06, away_name.upper(), transform=ax.transAxes,
+            color=away_color, fontsize=layout["team_label_size"],
+            fontweight="bold", va="top", alpha=0.95,
+            path_effects=_stroke, zorder=7)
 
     # ── Axes ───────────────────────────────────────────────────────────────────
     for spine_name, spine in ax.spines.items():
@@ -605,10 +804,25 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     ax.set_yticks([0, 25, 50, 75, 100])
     ax.set_yticklabels([])
     ax.tick_params(axis="y", length=0)
-    ax.tick_params(axis="x", colors=TEXT_SECONDARY, labelsize=9)
-    ax.set_xlabel("Minute", color=TEXT_SECONDARY, fontsize=10)
-    ax.set_ylabel("Momentum", color=TEXT_SECONDARY, fontsize=10)
-    ax.set_ylim(-2, 102)
+    # 10pt, not 9: a 16in-wide figure delivers 9pt at 15px, under the 16px
+    # laptop floor the lint derives - the race's ticks clear it.
+    ax.tick_params(axis="x", colors=TEXT_SECONDARY,
+                   labelsize=layout["tick_size"])
+    # The axis WORDS drop on the portrait aspects: at the 16pt floor they
+    # cost a band each, and both are already said by the chart - the ticks
+    # are self-evidently minutes on a match chart, and the y-axis is named
+    # by the two team labels inside the plot.
+    if layout["axis_words"]:
+        ax.set_xlabel("Minute", color=TEXT_SECONDARY,
+                      fontsize=layout["axis_label_size"])
+        ax.set_ylabel("Momentum", color=TEXT_SECONDARY,
+                      fontsize=layout["axis_label_size"])
+    # Headroom at both ends. Momentum spans 0-100 by construction, so at
+    # (-2, 102) the most dominant spell in the match was drawn flat against
+    # the axis floor - measured, 14 columns sitting on the spine with the
+    # white stroke stopping short of its own fill. A clipped peak cannot say
+    # how deep the pressure went, and reads as the frame slicing the shape.
+    ax.set_ylim(-8, 108)
     ax.set_xlim(0, chart_max)
     # X-axis ticks show BROADCAST minute, positioned at the chrono_x where
     # that broadcast minute actually occurs. Same convention as xG race -
@@ -630,6 +844,43 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
     ax.yaxis.grid(True, color=SPINE_COLOR, alpha=0.18, linewidth=0.5)
     ax.set_axisbelow(True)
 
+    # ── Portrait: the callouts become a match timeline below the wave ─────────
+    if layout["event_block"]:
+        _draw_event_block(
+            fig, layout, all_events,
+            lambda ev: format_broadcast_minute(ev["minute"], _ev_period(ev)))
+
+    # ── Tile: a marker key, because the tile has no labels ────────────────────
+    # Without it the markers are unexplained - a dot and a red rectangle
+    # floating over a wave. Named only for what is actually ON this chart:
+    # a key that lists an own goal on a match with none is furniture.
+    if layout["key_y"] is not None and all_events:
+        # Drawn item by item so the card's swatch can be RED. A card's whole
+        # message is its colour, and a grey slab in the key threw that away
+        # while the chart above showed a red rectangle - the key was
+        # describing a different mark.
+        bits = [("●  GOAL", TEXT_MUTED)]
+        if any(e.get("og") for e in all_events):
+            bits.append(("○  OWN GOAL", TEXT_MUTED))
+        if any(e["type"] == "rc" for e in all_events):
+            bits.append(("▮", _RC_COLOR))
+            bits.append(("RED CARD", TEXT_MUTED))
+        fig.canvas.draw()
+        inv = fig.transFigure.inverted()
+        widths = []
+        for txt, _c in bits:
+            probe = fig.text(0, -1, txt, fontsize=16)
+            widths.append(probe.get_window_extent(
+                renderer=fig.canvas.get_renderer()).transformed(inv).width)
+            probe.remove()
+        gap = 0.018
+        total = sum(widths) + gap * (len(bits) - 1)
+        x = 0.5 - total / 2
+        for (txt, colour), w in zip(bits, widths):
+            fig.text(x, layout["key_y"], txt, ha="left", va="center",
+                     fontsize=16, color=colour)
+            x += w + gap
+
     # ── Footer (standard convention) ──────────────────────────────────────────────
     add_cbs_footer(fig)
 
@@ -639,6 +890,20 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
 
 st.title("Match Momentum")
 st.markdown("Rolling momentum balance using shots, corners, and final-third entries.")
+
+aspect_choice = st.sidebar.radio(
+    "Aspect ratio",
+    options=["Standard (16:9)", "Tile (9:8)", "Vertical (9:16)"],
+    index=0,
+    help="In-video overlay aspects for PodcastShorts. "
+         "9:8 = SBS tile (the chart shares the frame with the host, who "
+         "names the scorers, so the wave keeps its markers and drops the "
+         "text labels). 9:16 = fullscreen overlay; the callouts become a "
+         "match timeline listed below the wave.",
+)
+aspect_param = ("9x8" if aspect_choice.startswith("Tile")
+                else "9x16" if aspect_choice.startswith("Vertical")
+                else "default")
 
 # ── Data source toggle ────────────────────────────────────────────────────────
 data_source = st.radio(
@@ -701,7 +966,18 @@ def _own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix,
                 index=default_scorer_idx, key=f"og_team_{key_prefix}_{i}"
             )
         credited_team = away_team if scoring_team == home_team else home_team
-        own_goals.append({"minute": og_minute, "team": credited_team})
+        # Carry the data's period and player through untouched edits. Losing
+        # them here forced the chart back onto minute-based period inference
+        # and a bare "OG" label - the exact pair of defects fixed on the
+        # xG race page. An edited minute drops the period (it may no longer
+        # be true) but keeps the player.
+        og_period = og_player = None
+        if i < len(auto_ogs):
+            og_player = auto_ogs[i].get("player")
+            if og_minute == default_minute:
+                og_period = auto_ogs[i].get("period")
+        own_goals.append({"minute": og_minute, "team": credited_team,
+                          "period": og_period, "player": og_player})
         st.sidebar.caption(f"Goal credited to {credited_team}")
     return own_goals
 
@@ -717,6 +993,37 @@ def _render_and_store(events_df, match_info, goal_scorers, own_goals, red_cards,
         return False
 
     ht_minute = float(match_info.get("ht_minute", 45.0))
+
+    # Operator guard: corrupt source data renders as confident nonsense here
+    # (a half-match with one side's rows missing drew "Valencia 3-0, Barcelona
+    # nonexistent" under a 3-1 title; a feed truncated at 21' drew a 0-0 that
+    # read as abandoned). The chart cannot fix the data; the person about to
+    # publish it can decide. Name the problem, still render.
+    problems = []
+    sides = events_df["team_side"].value_counts()
+    for side, name_key in (("home", "home_team"), ("away", "away_team")):
+        if sides.get(side, 0) == 0:
+            problems.append(
+                f"no events at all for {match_info[name_key]} — the source "
+                f"data for this match looks like half a match")
+    last_chrono = max(
+        _chrono_minute(r["minute"], r.get("period", 1), ht_minute)
+        for _, r in events_df.iterrows()
+    ) if not events_df.empty else 0
+    if last_chrono < 80:
+        problems.append(
+            f"event data ends at minute {last_chrono:.0f} — the match feed "
+            f"looks truncated")
+    total_goals = len(goal_scorers or []) + len(own_goals or [])
+    title_goals = int(match_info.get("home_score", 0)) + int(match_info.get("away_score", 0))
+    if total_goals != title_goals:
+        problems.append(
+            f"{total_goals} goal event(s) found but the final score says "
+            f"{title_goals} — a goal will be missing from the chart")
+    for p in problems:
+        st.warning(f"Data integrity: {p}. The chart will render, but check "
+                   f"the game's download status before publishing.")
+
     momentum = _compute_momentum(events_df, w_shots, w_corners, w_ft,
                                  ht_minute=ht_minute, window=window)
     fig = _draw_momentum_chart(
@@ -726,11 +1033,13 @@ def _render_and_store(events_df, match_info, goal_scorers, own_goals, red_cards,
         competition=competition,
         custom_title=custom_title,
         custom_subtitle=custom_subtitle,
+        aspect=aspect_param,
     )
 
     home_slug = match_info["home_team"].replace(" ", "_")
     away_slug = match_info["away_team"].replace(" ", "_")
-    fname = f"momentum_{home_slug}_vs_{away_slug}.png"
+    suffix = "" if aspect_param == "default" else f"_{aspect_param}"
+    fname = f"momentum_{home_slug}_vs_{away_slug}{suffix}.png"
 
     with tempfile.TemporaryDirectory() as td:
         fp = os.path.join(td, fname)

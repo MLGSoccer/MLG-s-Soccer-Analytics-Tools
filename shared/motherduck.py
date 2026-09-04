@@ -1738,18 +1738,40 @@ def get_momentum_events(game_id):
             'home_score','away_score','date','event_type']
     df = _pd.DataFrame(rows, columns=cols)
 
-    # gameClock is cumulative seconds across the whole match
+    # gameClock is seconds elapsed within the match clock convention (period 2
+    # restarts at minute 45) - the same semantics every other chart reads.
     df['minute'] = df['game_clock'] / 60.0
     df['team_side'] = _pd.NA
     df.loc[df['team_id'] == df['home_team_id'], 'team_side'] = 'home'
     df.loc[df['team_id'] == df['away_team_id'], 'team_side'] = 'away'
     df = df.dropna(subset=['team_side'])
 
-    # Team colors
-    home_color = df.loc[df['team_side'] == 'home', 'color'].dropna().iloc[0] if not df[df['team_side']=='home']['color'].dropna().empty else '#4A90D9'
-    away_color = df.loc[df['team_side'] == 'away', 'color'].dropna().iloc[0] if not df[df['team_side']=='away']['color'].dropna().empty else '#E05C5C'
-
     r = df.iloc[0]
+
+    # Team colours: the REGISTRY, keyed on the ids already in hand, with the
+    # feed value only as the tail fallback. This used to read newestTeamColor
+    # straight off the rows, so Real Madrid drew in the feed's #0066FF - the
+    # exact value the registry exists to override. Secondaries ride along for
+    # the clash path, same as build_shots_from_game.
+    feed_home = df.loc[df['team_side'] == 'home', 'color'].dropna().iloc[0] if not df[df['team_side']=='home']['color'].dropna().empty else None
+    feed_away = df.loc[df['team_side'] == 'away', 'color'].dropna().iloc[0] if not df[df['team_side']=='away']['color'].dropna().empty else None
+    home_secondary = away_secondary = None
+    home_color = feed_home or '#4A90D9'
+    away_color = feed_away or '#E05C5C'
+    try:
+        from shared.team_registry import get_team_colors
+        registry = load_team_registry()
+        htc = get_team_colors(r['home_team_id'], r['home_team'], feed_home,
+                              registry=registry)
+        atc = get_team_colors(r['away_team_id'], r['away_team'], feed_away,
+                              registry=registry)
+        home_color, home_secondary = htc.primary, htc.secondary
+        away_color, away_secondary = atc.primary, atc.secondary
+    except Exception:
+        # A registry failure must not take the chart down; feed values are
+        # exactly what this returned before the registry existed.
+        pass
+
     try:
         date_str = str(r['date'])[:10]
         from datetime import datetime as _dt
@@ -1757,10 +1779,19 @@ def get_momentum_events(game_id):
     except Exception:
         date_display = str(r['date'])
 
-    # Real half-time minute = last Period 1 event's gameClock in minutes.
-    # Default 45.0 if no Period 1 events found.
-    p1 = df[df['period'] == 1]
-    ht_minute = float(p1['minute'].max()) if not p1.empty else 45.0
+    # When the first half ENDED, from the last period-1 event of ANY type -
+    # not the last MOMENTUM event, which is what this used to infer it from.
+    # Same fix as build_shots_from_game (which derived it from shots):
+    # measured over 7,083 matches, the momentum-subset estimate is >30s early
+    # in 32% of them, >1min in 14%, and lands BELOW 45 in 588 - which flips
+    # the period-2 chrono shift negative and drags the second half backwards
+    # over the first. Clamped to 45 so a truncated ingest degrades to "no
+    # stoppage" instead of a corrupted axis.
+    ht_row = con.execute("""
+        SELECT MAX(gameClock) / 60.0
+        FROM events WHERE gameId = ? AND Period = 1
+    """, [game_id]).fetchone()
+    ht_minute = max(45.0, float(ht_row[0]) if ht_row and ht_row[0] else 45.0)
 
     match_info = {
         'home_team':    r['home_team'],
@@ -1771,6 +1802,8 @@ def get_momentum_events(game_id):
         'away_team_id': r['away_team_id'],
         'home_color':   home_color,
         'away_color':   away_color,
+        'home_secondary': home_secondary,
+        'away_secondary': away_secondary,
         'date':         date_display,
         'ht_minute':    ht_minute,
     }
