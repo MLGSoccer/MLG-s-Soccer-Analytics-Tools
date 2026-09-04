@@ -19,6 +19,15 @@ MUTED_ZORDER = 5  # Below highlighted shots (zorder=10)
 EDGE_PIN_PAD = 4.0
 EDGE_PIN_CHEVRON_DROP = 2.4
 
+# DECIDED, DO NOT REINTRODUCE (user, 2026-09-04): no size floor for goal
+# stars, and no dark edges for near-white fills. A cold review flagged a
+# low-xG goal star reading as "decoration" and white markers blending with
+# the pitch lines - both observations were real, but size = xG is the one
+# encoding this chart promises, and a floor makes a 0.03-xG screamer look
+# like a half-chance. The tiny star IS the story. Same session, same
+# reasoning class: the penalty spot stays on the pitch (a viewer once
+# counted it as a shot) because it is pitch anatomy, not decoration.
+
 
 def compute_ylim_floor(shots_df, flip_coords=False, default_floor=60, margin=3):
     """Return the lower y-axis bound for a vertical half-pitch chart.

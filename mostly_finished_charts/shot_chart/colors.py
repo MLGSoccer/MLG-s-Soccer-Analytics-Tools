@@ -37,24 +37,30 @@ def _lighten_hex(color, amount=70):
     return f"#{clamp(r):02X}{clamp(g):02X}{clamp(b):02X}"
 
 
-def check_bg_contrast(color, min_distance=100):
-    """Return True if `color` has enough contrast with BG_COLOR to be visible."""
-    return color_distance(color, BG_COLOR) >= min_distance
+def check_bg_contrast(color, min_ratio=3.5):
+    """True if `color` is perceptually visible on the dark BG_COLOR.
+
+    WCAG luminance, not RGB distance. The RGB version passed Everton's navy
+    #00009E at distance 116 while it sat at ~1.1:1 luminance against #1A2332 -
+    an invisible accent bar and an unreadable team name. Same defect class as
+    the guard fixed in shared/colors.py (64ebf21): RGB distance does not track
+    perceptual contrast, and this module carried its own local copy.
+    Threshold 3.5 matches that fix, kept by prior user decision.
+    """
+    from shared.colors import wcag_contrast
+    return wcag_contrast(color, BG_COLOR) >= min_ratio
 
 
 def ensure_bg_readable(color):
     """Return a variant of `color` that reads clearly on the dark BG_COLOR.
 
-    Preserves brand identity by lightening, not swapping. Used for text that
-    needs to sit on the dark navy background (e.g. team-name stat headers).
+    Preserves brand identity by lightening in HSL (hue and saturation held,
+    lightness raised) until WCAG 3.5:1 - delegates to the shared guard so this
+    module cannot drift from it again. Used for text that needs to sit on the
+    dark navy background (e.g. team-name stat headers).
     """
-    if check_bg_contrast(color):
-        return color
-    for amount in (60, 120, 180):
-        lighter = _lighten_hex(color, amount)
-        if check_bg_contrast(lighter):
-            return lighter
-    return '#FFFFFF'
+    from shared.colors import ensure_line_contrast
+    return ensure_line_contrast(color, BG_COLOR, min_ratio=3.5)
 
 
 def ensure_pitch_contrast(color):

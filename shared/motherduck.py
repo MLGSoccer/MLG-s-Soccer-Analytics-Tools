@@ -537,6 +537,22 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     total_matches = shots_df['_match_id'].nunique()
     player_list = sorted(shots_df['shooter'].dropna().unique().tolist())
 
+    # Own goals across the selected games, so the season stat row can
+    # reconcile with the league table the way the match charts already do.
+    # An OwnGoal event's teamId is the team of the PLAYER who scored it; the
+    # goal counts for the OTHER side. Verified against games' final scores:
+    # Sunderland 2025/26 shot-goals 38 + 4 opponent OGs = league GF 42, and
+    # conceded 46 + their own 2 OGs = league GA 48. Without these the season
+    # maps quietly disagree with every published table.
+    og_rows = con.execute(f"""
+        SELECT teamId = ? AS by_subject, COUNT(*)
+        FROM events
+        WHERE gameId IN ({placeholders}) AND playType = 'OwnGoal'
+        GROUP BY 1
+    """, [team_id] + list(game_ids_tuple)).fetchall()
+    own_goals_for = sum(n for by_subject, n in og_rows if not by_subject)
+    own_goals_against = sum(n for by_subject, n in og_rows if by_subject)
+
     multi_match_info = {
         'team_name': team_name,
         'date_range': date_range,
@@ -545,6 +561,8 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
         'is_player_csv': False,
         'player_name': None,
         'season_span': season_span_label(shots_df['seasonId'].dropna()),
+        'own_goals_for': own_goals_for,
+        'own_goals_against': own_goals_against,
     }
 
     return shots_df, multi_match_info, team_color

@@ -292,17 +292,25 @@ def _saturation(color):
     return s
 
 
-def _separated(color, against, bg_color, min_separation):
-    """True if two lines differ enough in luminance to be told apart."""
+def _separated(color, against, bg_color, min_distance):
+    """True if two drawn colours differ enough to be told apart.
+
+    Perceptual DISTANCE, not luminance. This originally compared only each
+    colour's contrast ratio against the background, which is hue-blind: red
+    and blue of similar lightness read as a clash, and measured over 479 real
+    matchups the swap fired on 58% of them - Monaco drawn white against
+    Strasbourg, Wolfsburg white against Stuttgart. RGB distance at the old
+    guard's threshold (150) keeps the true clashes (Chelsea-Brighton lift to
+    21 apart) and lets red-versus-blue through.
+    """
     if not against:
         return True
-    a = wcag_contrast(color, bg_color)
-    b = wcag_contrast(against, bg_color)
-    return max(a, b) / min(a, b) >= min_separation
+    from shared.colors import color_distance
+    return color_distance(color, against) >= min_distance
 
 
 def choose_for_background(colors, bg_color, against=None, min_ratio=3.5,
-                          min_separation=1.5, max_shift=3):
+                          min_distance=150, max_shift=3):
     """Pick what to actually draw, on THIS background, against THAT other line.
 
     primary -> secondary -> lighten, in that order:
@@ -322,7 +330,7 @@ def choose_for_background(colors, bg_color, against=None, min_ratio=3.5,
     """
     p_shift = _shift_needed(colors.primary, bg_color, min_ratio)
     p_ok = p_shift is not None and p_shift <= max_shift
-    p_distinct = _separated(colors.primary, against, bg_color, min_separation)
+    p_distinct = _separated(colors.primary, against, bg_color, min_distance)
     p_achromatic = _saturation(colors.primary) <= ACHROMATIC_SAT
 
     if p_shift == 0 and p_distinct:
@@ -333,7 +341,7 @@ def choose_for_background(colors, bg_color, against=None, min_ratio=3.5,
         s_shift = _shift_needed(colors.secondary, bg_color, min_ratio)
         s_ok = s_shift is not None and s_shift <= max_shift
         s_distinct = _separated(colors.secondary, against, bg_color,
-                                min_separation)
+                                min_distance)
         # The secondary exists to RESOLVE A CLASH between two teams. It is not
         # a general-purpose fix for a dark primary: a navy lightened five steps
         # is still recognisably navy, so a single-team chart should simply

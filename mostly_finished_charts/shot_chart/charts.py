@@ -55,9 +55,9 @@ _TEAM_SHOT_LAYOUT_DEFAULT = {
     'stat_val_y':     0.095, 'stat_val_size': 26,
     'stat_label_y':   0.055, 'stat_label_size': 10,
     'stat_xs':        (0.30, 0.50, 0.70),
-    'extras_x_goals': 0.715, 'extras_x_xg':   0.545,
+    'extras_x_goals': 0.715, 'extras_x_xg':   0.545, 'extras_x_shots': 0.345,
     'extras_size':    14,
-    'highlight_y':    0.025, 'highlight_size': 10,
+    'highlight_size': 10,
     'caption_y':      0.01,  'caption_size':   8,
 }
 
@@ -72,23 +72,30 @@ _TEAM_SHOT_LAYOUT_9X16 = {
     'axes_position':  [0.02, 0.4450, 0.96, 0.2950],
     'tight_rect':     None,
     'crop_floor':     68,
+    # Type floor: 9in wide delivered on a phone means nothing readable below
+    # 16pt (the rolling-xG vertical's rule; 26px floor = 15.6pt). Labels,
+    # legends, block headers, captions and extras all sit AT 16 - the
+    # hierarchy is carried by the values (38-40pt), not by shrinking the
+    # small text further.
     'title_y':        0.9330, 'title_size':    40, 'title_mode': 'name',
     'bar_y':          None,   'bar_height':    0.0048, 'bar_gap': 0.0115,
     'line2_size':     26,     'line2_gap':     0.0290,
-    'subtitle_y':     0.8340, 'subtitle_size': 14,
-    'legend_y':       0.7900, 'legend_size':   15,
+    'subtitle_y':     0.8340, 'subtitle_size': 16,
+    'legend_y':       0.7900, 'legend_size':   16,
     'block':          True,
     'lead_head_y':    0.3860, 'lead_top':      0.3480, 'lead_bot': 0.1620,
-    'lead_n':         5,      'head_size':     13,     'name_size': 18,
+    'lead_n':         5,      'head_size':     16,     'name_size': 18,
     'rank_x':         0.0700, 'name_x':        0.1300,
     'shots_x':        0.7600, 'xg_x':          0.9300,
     'stat_val_y':     0.1000, 'stat_val_size': 38,
-    'stat_label_y':   0.0640, 'stat_label_size': 12,
+    'stat_label_y':   0.0640, 'stat_label_size': 16,
     'stat_xs':        (0.22, 0.50, 0.78),
-    'extras_x_goals': 0.815,  'extras_x_xg':   0.555,
-    'extras_size':    14,
-    'highlight_y':    0.0330, 'highlight_size': 11,
-    'caption_y':      0.0130, 'caption_size':   9,
+    # extras_x_xg 0.595: a 38pt "1.76" reaches x=0.57 from its 0.50 centre,
+    # and the annotation overprinted it at the old 0.555.
+    'extras_x_goals': 0.815,  'extras_x_xg':   0.595, 'extras_x_shots': 0.265,
+    'extras_size':    16,
+    'highlight_size': 16,
+    'caption_y':      0.0130, 'caption_size':   16,
 }
 
 # 9:8 tile overlay - chart lives in HALF of a 9:16 short while the host
@@ -124,12 +131,14 @@ _TEAM_SHOT_LAYOUT_9X8 = {
     'bar_y':          0.925, 'bar_height':    0.005,
     'subtitle_y':     None,  'subtitle_size': None,
     'legend_y':       None,  'legend_size':   None,
-    'stat_val_y':     0.075, 'stat_val_size': 22,
-    'stat_label_y':   0.040, 'stat_label_size': 9,
+    # The tile shares the phone's 16pt floor - it is also 9in wide delivered
+    # full-width in a short, and cannot buy legibility by being squatter.
+    'stat_val_y':     0.075, 'stat_val_size': 26,
+    'stat_label_y':   0.040, 'stat_label_size': 16,
     'stat_xs':        (0.20, 0.50, 0.80),
-    'extras_x_goals': 0.84,  'extras_x_xg':   0.555,
-    'extras_size':    11,
-    'highlight_y':    None,  'highlight_size': None,
+    'extras_x_goals': 0.84,  'extras_x_xg':   0.555, 'extras_x_shots': 0.245,
+    'extras_size':    16,
+    'highlight_size': None,
     'caption_y':      None,  'caption_size':  None,
 }
 
@@ -151,8 +160,11 @@ def _marker_key(pinned=0):
     """
     key = 'Circle size = xG'
     if pinned:
-        noun = 'shot' if pinned == 1 else 'shots'
-        key += f'   ·   ▽ {pinned} {noun} from own half, shown at edge'
+        # Compact on purpose: at 16pt on a 9in frame anything longer runs
+        # into the corner footer credit (measured: the caption must stay
+        # under ~0.74 of the frame width). The chevron sits visibly AT the
+        # edge, so the position caveat doesn't need spelling out.
+        key += f'   ·   ▽ {pinned} from own half'
     return key
 
 
@@ -275,16 +287,17 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
 
     if line2 is not None:
         if player_name:
-            result = (f"{team_name.upper()} {team_final_score}-{opponent_goals} "
-                      f"{opponent_name.upper()}" if is_home else
-                      f"{opponent_name.upper()} {opponent_goals}-{team_final_score} "
-                      f"{team_name.upper()}")
+            # The player's TEAM named once, attached to the player - the full
+            # matchup contains both names and never says which side is his.
+            # Same fix as the default-aspect subtitle.
+            result = (f"{team_name.upper()}  ·  "
+                      f"{team_final_score}-{opponent_goals} vs {opponent_name.upper()}")
         else:
             result = f"{team_final_score}-{opponent_goals}  vs  {opponent_name.upper()}"
         fig.text(0.5, bar_y - layout['line2_gap'], result, ha='center',
                  va='center',
                  fontsize=fit_fontsize(fig, result, layout['line2_size'],
-                                       floor=15, max_frac=0.90),
+                                       floor=16, max_frac=0.90),
                  fontweight='bold', color=TEXT_SECONDARY)
 
     # Subtitle: match context (score, opponent, competition, date).
@@ -299,11 +312,11 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     else:
         # Match line — score from the focal team's perspective
         if player_name:
-            # Player chart: show full match matchup so team context is clear
-            if is_home:
-                match_str = f"{team_name.upper()} {team_final_score}-{opponent_goals} {opponent_name.upper()}"
-            else:
-                match_str = f"{opponent_name.upper()} {opponent_goals}-{team_final_score} {team_name.upper()}"
+            # The player's TEAM, named once and attached to the player. The
+            # full matchup ("STRASBOURG 5-4 MONACO") contains both names and
+            # a cold viewer could not tell which side the player was on.
+            match_str = (f"{team_name.upper()}  ·  "
+                         f"{team_final_score}-{opponent_goals} vs {opponent_name.upper()}")
         else:
             match_str = f"{team_final_score}-{opponent_goals} vs {opponent_name.upper()}"
 
@@ -386,23 +399,42 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                  ha='left', va='center',
                  fontsize=layout['extras_size'], color=TEXT_SECONDARY)
 
-    if highlight_stats and layout['highlight_y'] is not None:
-        hl_text = (f"{highlight_mode}:  {highlight_stats['shots']} shots  ·  "
-                   f"{highlight_stats['xg']:.2f} xG  ·  {highlight_stats['goals']} goals")
-        fig.text(0.5, layout['highlight_y'], hl_text,
-                 ha='center', va='center',
-                 fontsize=layout['highlight_size'],
-                 color=TEXT_SECONDARY, style='italic')
+    # The SHOTS total is filtered exactly like GOALS and xG, so it gets the
+    # same disclosure - without it "14 SHOTS" on a non-penalty map quietly
+    # under-reports a total someone will quote.
+    pen_shots = pen_stats.get('shots', 0)
+    if exclude_penalties and pen_shots > 0:
+        fig.text(layout['extras_x_shots'], layout['stat_val_y'],
+                 f"(+{pen_shots} pen)",
+                 ha='left', va='center',
+                 fontsize=layout['extras_size'], color=TEXT_SECONDARY)
 
     if layout['tight_rect'] is not None:
         plt.tight_layout(rect=layout['tight_rect'])
 
     add_cbs_footer(fig)
+    # One line at the foot: the highlight breakdown OR the marker key, never
+    # both. They previously drew at 0.025 and 0.01 and physically collided -
+    # the season chart already documents the one-or-other rule; this adopts
+    # it. The own-half pin note survives either branch, because it describes
+    # a mark that is ON the chart.
     if layout['caption_y'] is not None:
-        fig.text(0.5, layout['caption_y'], _marker_key(pinned),
-                 ha='center', va='bottom',
-                 fontsize=layout['caption_size'],
-                 color=TEXT_MUTED, style='italic')
+        if highlight_stats:
+            pin_note = ''
+            if pinned:
+                pin_note = f"  ·  ▽ {pinned} from own half"
+            hl_text = (f"{highlight_mode}:  {highlight_stats['shots']} shots  ·  "
+                       f"{highlight_stats['xg']:.2f} xG  ·  "
+                       f"{highlight_stats['goals']} goals" + pin_note)
+            fig.text(0.5, layout['caption_y'], hl_text,
+                     ha='center', va='bottom',
+                     fontsize=layout['highlight_size'],
+                     color=TEXT_SECONDARY, style='italic')
+        else:
+            fig.text(0.5, layout['caption_y'], _marker_key(pinned),
+                     ha='center', va='bottom',
+                     fontsize=layout['caption_size'],
+                     color=TEXT_MUTED, style='italic')
 
     return fig
 
@@ -427,20 +459,22 @@ _MULTI_LAYOUT_DEFAULT = {
 # gains a second block; see the note above _block_rows_by_player for why the
 # block's CONTENT depends on the subject rather than the aspect.
 _MULTI_LAYOUT_9X16 = {
+    # 16pt floor throughout - see the single-match 9:16 layout note.
     'axes_position': [0.02, 0.4450, 0.96, 0.2950], 'tight_rect': None,
     'title_y': 0.9330, 'title_size': 40, 'title_mode': 'name',
     'bar_y': None,     'bar_height': 0.0048, 'bar_gap': 0.0115,
     'line2_y': 0.8780, 'line2_size': 26, 'line2_gap': 0.0290,
-    'subtitle_y': 0.8340, 'subtitle_size': 14,
-    'legend_y': 0.7900, 'legend_size': 15,
+    'subtitle_y': 0.8340, 'subtitle_size': 16,
+    'legend_y': 0.7900, 'legend_size': 16,
     'block': True,
     'lead_head_y': 0.3860, 'lead_top': 0.3480, 'lead_bot': 0.1620,
-    'lead_n': 5, 'head_size': 13, 'name_size': 18,
+    'lead_n': 5, 'head_size': 16, 'name_size': 18,
     'rank_x': 0.0700, 'name_x': 0.1300, 'shots_x': 0.7600, 'xg_x': 0.9300,
     'stat_val_y': 0.1000, 'stat_val_size': 38,
-    'stat_label_y': 0.0640, 'stat_label_size': 12,
-    'context_y': 0.0340, 'context_size': 11,
-    'caption_y': 0.0130, 'caption_size': 9, 'hl_size': 10,
+    'stat_label_y': 0.0640, 'stat_label_size': 16,
+    'context_y': 0.0340, 'context_size': 16,
+    'caption_y': 0.0130, 'caption_size': 16, 'hl_size': 16,
+    'og_extras_size': 16,
 }
 
 # 9:8 tile. The half pitch's natural ~0.77 aspect fills this frame almost
@@ -448,6 +482,7 @@ _MULTI_LAYOUT_9X16 = {
 # context, so the subtitle, legend, per-game context line and marker key all
 # drop out, exactly as they do on the single-match tile.
 _MULTI_LAYOUT_9X8 = {
+    # 16pt floor - see the single-match 9:8 layout note.
     'axes_position': [0.02, 0.140, 0.96, 0.77], 'tight_rect': None,
     'title_y': 0.97,   'title_size': 22, 'title_mode': 'full',
     'bar_y': 0.925,    'bar_height': 0.005,
@@ -455,10 +490,11 @@ _MULTI_LAYOUT_9X8 = {
     'subtitle_y': None, 'subtitle_size': None,
     'legend_y': None,  'legend_size': None,
     'block': False,
-    'stat_val_y': 0.075, 'stat_val_size': 22,
-    'stat_label_y': 0.040, 'stat_label_size': 9,
+    'stat_val_y': 0.075, 'stat_val_size': 26,
+    'stat_label_y': 0.040, 'stat_label_size': 16,
     'context_y': None, 'context_size': None,
     'caption_y': None, 'caption_size': None, 'hl_size': None,
+    'og_extras_size': 16,
 }
 
 _MULTI_LAYOUTS = {
@@ -582,10 +618,13 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         title_text = custom_title or auto_title
         line2 = None
 
+    # Floor 16 on the phone aspects (both are 9in wide phone deliveries);
+    # the 12in default keeps 14, where 14pt is comfortably legible.
+    title_floor = 16 if aspect in ('9x16', '9x8') else 14
     title_obj = fig.suptitle(
         title_text,
         fontsize=fit_fontsize(fig, title_text, layout['title_size'],
-                              floor=14, max_frac=0.92),
+                              floor=title_floor, max_frac=0.92),
         fontweight='bold', color=TEXT_PRIMARY, y=layout['title_y'])
 
     # Team color accent bar matching title width
@@ -609,7 +648,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
         # fixed second line ends up underneath it.
         fig.text(0.5, bar_y - layout['line2_gap'], line2, ha='center', va='center',
                  fontsize=fit_fontsize(fig, line2, layout['line2_size'],
-                                       floor=14, max_frac=0.90),
+                                       floor=16, max_frac=0.90),
                  fontweight='bold', color=TEXT_SECONDARY)
 
     if layout['subtitle_y'] is None:
@@ -640,14 +679,20 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                      color=TEXT_MUTED if layout['title_mode'] == 'name'
                      else TEXT_SECONDARY)
 
-    # Legend: color-only (Goal = team color, Shot = black)
+    # Legend: color-only (Goal = team color, Shot = black). On an AGAINST map
+    # the words carry the reversal: a cold viewer read t3 as "Sunderland shoot
+    # a ton" because the legend still said "Goal" under the same red used for
+    # goals FOR on the sibling map. The title's AGAINST is not enough.
     if layout['legend_y'] is not None:
+        goal_word = 'Goal conceded' if shots_against else 'Goal'
+        shot_word = 'Shot faced' if shots_against else 'Shot'
         legend_handles = [
             Line2D([0], [0], marker='o', color='none', markerfacecolor=team_color,
-                   markeredgecolor='white', markeredgewidth=1, markersize=11, label='Goal'),
+                   markeredgecolor='white', markeredgewidth=1, markersize=11,
+                   label=goal_word),
             Line2D([0], [0], marker='o', color='none', markerfacecolor='#000000',
                    markeredgecolor='white', markeredgewidth=1, markersize=11,
-                   label='Shot'),
+                   label=shot_word),
         ]
         fig.legend(handles=legend_handles, loc='upper center',
                     bbox_to_anchor=(0.5, layout['legend_y']), ncol=2, frameon=False,
@@ -660,30 +705,37 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
     # Big-number row: per-90 rates for player charts, raw totals for team charts.
     # Smaller context line below gives the sample-size details without competing.
+    # Stat order is SHOTS · xG · GOALS everywhere in the family - the match
+    # charts already read volume -> quality -> outcome, and the season maps
+    # used to reverse it. On an AGAINST map the outcome column says CONCEDED,
+    # because "GOALS" under Sunderland branding read as goals Sunderland
+    # scored - the single most misread thing on the chart in a cold review.
+    goal_label = "CONCEDED" if shots_against else "GOALS"
     if minutes and player_name:
         shots_90 = total_shots / minutes * 90
         xg_90 = total_xg / minutes * 90
         goals_90 = goals / minutes * 90
         stat_cols = [
-            (0.25, f"{goals_90:.2f}", "GOALS/90"),
-            (0.50, f"{shots_90:.2f}", "SHOTS/90"),
-            (0.75, f"{xg_90:.2f}", "xG/90"),
+            (0.25, f"{shots_90:.2f}", "SHOTS/90"),
+            (0.50, f"{xg_90:.2f}", "xG/90"),
+            (0.75, f"{goals_90:.2f}", f"{goal_label}/90"),
         ]
         context_text = (
-            f"{goals} goals  ·  {total_shots} shots  ·  {total_xg:.1f} xG  "
+            f"{total_shots} shots  ·  {total_xg:.1f} xG  ·  {goals} goals  "
             f"·  {total_matches} matches  ·  {minutes} minutes"
         )
     else:
         stat_cols = [
-            (0.25, str(goals), "GOALS"),
-            (0.50, str(total_shots), "SHOTS"),
-            (0.75, f"{total_xg:.1f}", "xG"),
+            (0.25, str(total_shots), "SHOTS"),
+            (0.50, f"{total_xg:.1f}", "xG"),
+            (0.75, str(goals), goal_label),
         ]
         goals_per_game = goals / total_matches if total_matches else 0
         xg_per_game = total_xg / total_matches if total_matches else 0
+        per_game_word = 'conceded' if shots_against else 'goals'
         context_text = (
-            f"{total_matches} matches  ·  {goals_per_game:.1f} goals/game  "
-            f"·  {shots_per_game:.1f} shots/game  ·  {xg_per_game:.2f} xG/game"
+            f"{total_matches} matches  ·  {shots_per_game:.1f} shots/game  "
+            f"·  {xg_per_game:.2f} xG/game  ·  {goals_per_game:.1f} {per_game_word}/game"
         )
 
     for x, val, lbl in stat_cols:
@@ -692,6 +744,19 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                  color=TEXT_PRIMARY)
         fig.text(x, layout['stat_label_y'], lbl, ha='center', va='center',
                  fontsize=layout['stat_label_size'], color=TEXT_SECONDARY)
+
+    # Own goals across the selected games, so the season total reconciles
+    # with the league table the way every match chart already does. On a FOR
+    # map these are opponents' own goals that counted for this team; on an
+    # AGAINST map, this team's own, which no opponent shot marker can show.
+    # A player map never carries one - an own goal belongs to the TEAM.
+    og = multi_match_info.get(
+        'own_goals_against' if shots_against else 'own_goals_for', 0)
+    if og and not player_name:
+        fig.text(0.75 + 0.045, layout['stat_val_y'], f"(+{og} OG)",
+                 ha='left', va='center',
+                 fontsize=layout.get('og_extras_size', 14),
+                 color=TEXT_SECONDARY)
 
     if layout['context_y'] is not None:
         fig.text(0.5, layout['context_y'], context_text, ha='center',
@@ -706,8 +771,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     if layout['caption_y'] is not None:
         pin_note = ''
         if pinned:
-            noun = 'shot' if pinned == 1 else 'shots'
-            pin_note = f"  ·  ▽ {pinned} {noun} from own half"
+            pin_note = f"  ·  ▽ {pinned} from own half"
         if highlight_stats:
             g = highlight_stats['goals']
             goal_word = 'goal' if g == 1 else 'goals'
@@ -822,9 +886,14 @@ def _block_rows_by_shot(shots_df, accent, limit):
         if style and style.lower() not in ('none', 'nan', 'regularplay'):
             label = f"{label}  ·  {style.upper()}"
         minute = r.get('minute', r.get('gameClock', None))
+        # Broadcast minute: floor(elapsed) + 1, the xG race's convention - a
+        # goal at 60:31 happens in the 61st minute. This showed the raw floor
+        # and disagreed with the race chart on the same event. (First-half
+        # stoppage still reads as a flat minute here, not 45+X - this frame
+        # carries no Period column to split on.)
         rows.append({'accent': accent, 'label': label,
                      'goals': 1 if pt in GOAL_TYPES else 0,
-                     'v1': f"{int(minute)}'" if pd.notna(minute) else '—',
+                     'v1': f"{int(minute) + 1}'" if pd.notna(minute) else '—',
                      'v2': f"{float(r['xG']):.2f}"})
     return rows
 
@@ -878,14 +947,22 @@ def _draw_stat_block(fig, layout, heading, col_heads, rows,
     for i, row in enumerate(rows):
         y = layout['lead_top'] - step * (i + 0.5)
         scored = row['goals'] > 0
-        accent = row['accent']
+        # The accent bar is CHROME on the navy frame, so it takes the chrome
+        # lift - a raw navy bar with a hairline edge vanished at phone size,
+        # and on the combined chart the bar is the only thing saying which
+        # team a shooter plays for. Markers on the pitch keep the raw colour;
+        # this is the frame.
+        accent = ensure_bg_readable(row['accent'])
         weak = not check_bg_contrast(accent)
         fig.patches.append(Rectangle(
             (x0, y - 0.013), 0.006, 0.026, transform=fig.transFigure,
             facecolor=accent, edgecolor='white' if weak else 'none',
             linewidth=0.6 if weak else 0, zorder=4))
         label = row['label']
-        size = fit_fontsize(fig, label, name_size, floor=11, bold=scored,
+        # Floor 16: the block only exists on 9:16, where nothing readable may
+        # sit below 16pt. A very long name overflows its column slightly
+        # rather than dropping under the phone floor.
+        size = fit_fontsize(fig, label, name_size, floor=16, bold=scored,
                             max_frac=layout['shots_x'] - layout['name_x'] - 0.09)
         nt = fig.text(layout['name_x'], y, label, ha='left', va='center',
                       fontsize=size, fontweight='bold' if scored else 'normal',
@@ -910,8 +987,13 @@ def _draw_stat_block(fig, layout, heading, col_heads, rows,
             nb = nt.get_window_extent(
                 renderer=fig.canvas.get_renderer()).transformed(
                     fig.transFigure.inverted())
+            # The glyph borrows the pitch's goal colour (the accent), not
+            # chrome grey: on a season map the legend defines a grey/black
+            # circle as a SHOT, and a cold reviewer read "● 7" beside a name
+            # as seven shots. Same colour as the goals on the pitch above =
+            # same meaning.
             fig.text(nb.x1 + 0.012, y, mark, ha='left',
-                     va='center', fontsize=13, color=TEXT_SECONDARY, zorder=4)
+                     va='center', fontsize=16, color=accent, zorder=4)
         fig.text(layout['shots_x'], y, row['v1'], ha='right', va='center',
                  fontsize=name_size - 2,
                  color=TEXT_SECONDARY if scored else TEXT_MUTED, zorder=4)
@@ -998,20 +1080,21 @@ class _CombinedCtx(NamedTuple):
 # 34% of a portrait frame; the rest carries a head-to-head strip and a
 # leading-shooters list. See _combined_portrait for the two rejected shapes.
 _COMBINED_LAYOUT_9X16 = {
+    # 16pt floor - see the single-team 9:16 layout note.
     'kicker_y':     0.9760, 'kicker_size':   20,
-    'subtitle_y':   0.9520, 'subtitle_size': 12,
+    'subtitle_y':   0.9520, 'subtitle_size': 16,
     'cap_y':        0.9180, 'cap_size':      20, 'cap_max_frac': 0.40,
-    'note_size':    11,
+    'note_size':    16,
     'rule_drop':    0.0140, 'rule_h':        0.0045,
     'pitch_x':      0.0200, 'pitch_w':       0.9600, 'pitch_top': 0.8950,
     'h2h_top':      0.5250, 'h2h_bot':       0.3800,
-    'h2h_val_size': 40,     'h2h_lab_size':  13,
+    'h2h_val_size': 40,     'h2h_lab_size':  16,
     'h2h_x_left':   0.2600, 'h2h_x_right':   0.7400,
     'lead_head_y':  0.3330, 'lead_top':      0.3010, 'lead_bot': 0.0850,
-    'lead_n':       5,      'head_size':     12,
+    'lead_n':       5,      'head_size':     16,
     'rank_x':       0.0700, 'name_x':        0.1300,
     'shots_x':      0.7600, 'xg_x':          0.9300, 'name_size': 18,
-    'key_y':        0.0330, 'key_size':      12,
+    'key_y':        0.0330, 'key_size':      16,
 }
 
 # 9:8 tile — the horizontal full pitch, unchanged in geometry from the 12x9
@@ -1020,14 +1103,17 @@ _COMBINED_LAYOUT_9X16 = {
 # subtitle, shape legend, highlight line and caption drop out the way they do
 # in the single-team tile: the host carries the verbal context.
 _COMBINED_LAYOUT_9X8 = {
+    # 16pt floor - see the single-team 9:8 layout note.
     'title_size':  21,     'y_title':  0.9430, 'y_bar':   0.9080,
     'pitch_x':     0.0100, 'pitch_w':  0.9800, 'pitch_y': 0.1520,
-    'name_y':      0.1200, 'name_size': 11,
-    'val_y':       0.0790, 'val_size':  21,
-    'lab_y':       0.0450, 'lab_size':  9,
-    'centre_x':    (0.255, 0.745), 'col_dx': 0.078,
+    'name_y':      0.1200, 'name_size': 16,
+    'val_y':       0.0790, 'val_size':  24,
+    'lab_y':       0.0450, 'lab_size':  16,
+    # col_dx 0.115: the 16pt "Non-Pen xG" label needs the wide gap - at 0.100
+    # the labels were lint-clean by a sliver and visually fused.
+    'centre_x':    (0.255, 0.745), 'col_dx': 0.115,
     'swatch_w':    0.0140, 'swatch_h': 0.0090,
-    'extras_size': 10,
+    'extras_size': 16,
 }
 
 
@@ -1129,7 +1215,7 @@ def _combined_portrait(c):
             parts.append(c.match_info['date_formatted'])
         sub = '   ·   '.join(parts)
     fig.text(0.5, layout['subtitle_y'], sub, ha='center', va='center',
-             fontsize=fit_fontsize(fig, sub, layout['subtitle_size'], floor=9),
+             fontsize=fit_fontsize(fig, sub, layout['subtitle_size'], floor=16),
              color=TEXT_MUTED)
 
     # Captions left and right, matching the halves each side occupies on the
@@ -1137,11 +1223,11 @@ def _combined_portrait(c):
     # rule: ensure_bg_readable on the NAME greys out a black-kit side, which
     # reads as "muted" beside a vivid opponent.
     px0, px1 = layout['pitch_x'], layout['pitch_x'] + layout['pitch_w']
-    for x, ha, name, score, color, og in (
-            (px0, 'left', c.name1, c.goals1, c.color1, c.og1),
-            (px1, 'right', c.name2, c.goals2, c.color2, c.og2)):
+    for x, ha, name, score, color, og, pen_stats in (
+            (px0, 'left', c.name1, c.goals1, c.color1, c.og1, c.pen1),
+            (px1, 'right', c.name2, c.goals2, c.color2, c.og2, c.pen2)):
         label = f"{name.upper()}  {score}"
-        size = fit_fontsize(fig, label, layout['cap_size'], floor=13,
+        size = fit_fontsize(fig, label, layout['cap_size'], floor=16,
                             max_frac=layout['cap_max_frac'])
         t = fig.text(x, layout['cap_y'], label, ha=ha, va='center',
                      fontsize=size, fontweight='bold', color=TEXT_PRIMARY)
@@ -1152,9 +1238,20 @@ def _combined_portrait(c):
         # it: the pitch starts immediately under this row, so a second line
         # lands on the grass. Inboard also keeps it pointing at the score it
         # explains rather than drifting to the frame edge.
+        #
+        # A filtered penalty gets the same treatment: this caption shows the
+        # FULL score, and on a non-penalty map a penalty goal has no marker,
+        # so without the note "CREMONESE 1" sits above a pitch with zero red
+        # markers and no reconciliation anywhere on the chart.
+        notes = []
         if og:
+            notes.append(f"incl. {og} OG")
+        pen_goals = pen_stats.get('goals', 0)
+        if c.exclude_penalties and pen_goals > 0:
+            notes.append(f"incl. {pen_goals} pen")
+        if notes:
             fig.text(bb.x1 + 0.008 if ha == 'left' else bb.x0 - 0.008,
-                     layout['cap_y'], f"incl. {og} OG",
+                     layout['cap_y'], '  ·  '.join(notes),
                      ha='left' if ha == 'left' else 'right', va='center',
                      fontsize=layout['note_size'], color=TEXT_MUTED,
                      style='italic')
@@ -1281,7 +1378,7 @@ def _combined_tile(c):
         fontsize_title=fit_fontsize(
             fig, c.custom_title or
             f"{c.name1.upper()} {c.goals1}-{c.goals2} {c.name2.upper()}",
-            layout['title_size'], floor=14),
+            layout['title_size'], floor=16),
         y_title=layout['y_title'], y_bar=layout['y_bar'],
         bar_contrast_edge=True,
     )
@@ -1289,7 +1386,12 @@ def _combined_tile(c):
     # Stats block. The tile drops the standalone xG score line the landscape
     # layout carries under the title: at this size it is the same two numbers
     # twice, and the band it needs is worth more to the pitch.
-    xg_label = "Non-Pen xG" if c.exclude_penalties else "xG"
+    #
+    # "npxG", not "Non-Pen xG": at the tile's mandatory 16pt the long label
+    # is 0.225 of the frame wide and physically overprints its neighbours -
+    # six columns of it cannot fit 9 inches. npxG is standard analytics
+    # vocabulary and this surface plays inside a Double Pivot short.
+    xg_label = "npxG" if c.exclude_penalties else "xG"
 
     def _stats(cx, name, color, sub, goals, og, pen_stats):
         _team_swatch_label(fig, cx, layout['name_y'], name, color,
@@ -1308,19 +1410,24 @@ def _combined_tile(c):
         pen_goals = pen_stats.get('goals', 0)
         extras = []
         if og:
-            extras.append(f"incl. {og} OG")
+            extras.append(f"+{og} OG")
         if c.exclude_penalties and pen_goals > 0:
             extras.append(f"+{pen_goals} pen")
         if extras:
-            fig.text(cx + layout['col_dx'] + 0.030, layout['val_y'],
+            # 0.015 offset and no parentheses: the away side's extras end
+            # ~0.03 from the frame edge as it is - measured, not styled.
+            fig.text(cx + layout['col_dx'] + 0.015, layout['val_y'],
                      ', '.join(extras), ha='left', va='center',
                      fontsize=layout['extras_size'], color=TEXT_MUTED,
                      style='italic')
 
-    _stats(layout['centre_x'][0], c.name1, c.color1, c.s1, c.goals1, c.og1,
-           c.pen1)
-    _stats(layout['centre_x'][1], c.name2, c.color2, c.s2, c.goals2, c.og2,
-           c.pen2)
+    # SHOT goals big, the OG/pen breakdown small - the family convention the
+    # user chose 2026-09-04. This tile used to show the FULL score with an
+    # "incl. N OG" note, the one surface that led with the other number.
+    _stats(layout['centre_x'][0], c.name1, c.color1, c.s1, c.shot_goals1,
+           c.og1, c.pen1)
+    _stats(layout['centre_x'][1], c.name2, c.color2, c.s2, c.shot_goals2,
+           c.og2, c.pen2)
 
     add_cbs_footer(fig)
     return fig
@@ -1449,19 +1556,23 @@ def _combined_landscape(c):
     _draw_team_stats(0.76, c.name2, c.color2,
                      len(c.s2), team2_xg, c.shot_goals2, c.og2, c.pen2)
 
+    plt.tight_layout(rect=[0.02, 0.16, 0.98, 0.84])
+
+    add_cbs_footer(fig)
+    # One line at the foot: the highlight breakdown OR the marker key, never
+    # both. They previously drew at 0.025 and 0.01 and physically overprinted
+    # each other on every highlight-mode render - the season chart documents
+    # the one-or-other rule and this adopts it.
     if team1_hl_stats and team2_hl_stats:
         hl_text = (f"{c.highlight_mode}:  {c.name1} {team1_hl_stats['shots']}sh · "
                    f"{team1_hl_stats['xg']:.2f}xG · {team1_hl_stats['goals']}g    "
                    f"{c.name2} {team2_hl_stats['shots']}sh · "
                    f"{team2_hl_stats['xg']:.2f}xG · {team2_hl_stats['goals']}g")
-        fig.text(0.5, 0.025, hl_text, ha='center', va='center',
+        fig.text(0.5, 0.01, hl_text, ha='center', va='bottom',
                  fontsize=9, color=TEXT_SECONDARY, style='italic')
-
-    plt.tight_layout(rect=[0.02, 0.16, 0.98, 0.84])
-
-    add_cbs_footer(fig)
-    fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
-             fontsize=8, color=TEXT_MUTED, style='italic')
+    else:
+        fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
+                 fontsize=8, color=TEXT_MUTED, style='italic')
 
     return fig
 

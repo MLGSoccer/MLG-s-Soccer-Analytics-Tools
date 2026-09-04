@@ -78,11 +78,24 @@ def _load_multi_match(file_content, exclude_penalties):
 # ── Chart generation helpers ──────────────────────────────────────────────────
 
 def _ensure_team_contrast(team1_name, team2_name, team_colors):
-    """If the two team colors are too similar, swap one team to its
-    team-specific alternate color (from shared TEAM_ALTERNATE_COLORS).
-    Returns (updated_team_colors, adjusted).
+    """Resolve both teams' colours and pull them apart if they clash.
+
+    Returns (updated_team_colors, adjusted). The returned dict ALWAYS carries
+    the resolved colour for both teams - the registry's authored primary must
+    reach the chart whether or not a clash fired. It previously wrote into the
+    dict only on the adjustment path, so with no clash the chart fell through
+    to the raw feed colour and the authored primary was silently ignored
+    (Cremonese drew feed #ff0000, not authored #ED1C24).
+
+    The clash is judged on the colours as DRAWN ON THE PITCH - after
+    ensure_pitch_contrast, by RGB distance - not with the xG race's
+    line-on-navy machinery. These are filled area markers on #1E5631; the
+    navy-background lift answers a question about a surface the markers never
+    touch, and its old luminance-only test called red-versus-blue a clash
+    (58% of real matchups fired; Monaco drew white against Strasbourg).
     """
-    from shared.colors import TEAM_COLORS, fuzzy_match_team, check_color_similarity
+    from shared.colors import TEAM_COLORS, color_distance, fuzzy_match_team, \
+        check_color_similarity
     from shared.motherduck import registry_colour_by_name
 
     def _resolve_raw(name, tc):
@@ -102,36 +115,33 @@ def _ensure_team_contrast(team1_name, team2_name, team_colors):
     c1_raw = _resolve_raw(team1_name, team_colors)
     c2_raw = _resolve_raw(team2_name, team_colors)
 
-    # A clash reaches for each club's OWN second colour before falling back to
-    # check_color_similarity's alternate dictionary, which is 77% pure white
-    # or black. Same order as the xG race.
-    _s1 = registry_colour_by_name(team1_name)[1]
-    _s2 = registry_colour_by_name(team2_name)[1]
-    if _s1 or _s2:
-        from mostly_finished_charts.xg_race_chart import _separate_using_secondary
-        c1_reg, c2_reg, resolved = _separate_using_secondary(
-            c1_raw, c2_raw, _s1, _s2
-        )
-        if resolved:
-            updated = dict(team_colors)
-            updated[team1_name] = c1_reg
-            updated[team2_name] = c2_reg
-            return updated, True
+    def _clashes(a, b):
+        return color_distance(ensure_pitch_contrast(a),
+                              ensure_pitch_contrast(b)) < 150
 
-    # check_color_similarity returns (color1, color2, use_different_line_styles);
-    # in non-interactive mode it swaps one team to its alternate if too similar.
-    c1_fixed, c2_fixed, _ = check_color_similarity(
-        c1_raw, c2_raw, team1_name, team2_name, threshold=150, interactive=False
-    )
-
-    adjusted = (c1_fixed != c1_raw) or (c2_fixed != c2_raw)
-    if not adjusted:
-        return team_colors, False
+    c1, c2, adjusted = c1_raw, c2_raw, False
+    if _clashes(c1_raw, c2_raw):
+        # A clash reaches for each club's OWN second colour first - the
+        # fallback dictionary is 77% pure white or black. The second-named
+        # team moves where either move would do, same convention as the
+        # xG race.
+        _s1 = registry_colour_by_name(team1_name)[1]
+        _s2 = registry_colour_by_name(team2_name)[1]
+        if _s2 and not _clashes(c1_raw, _s2):
+            c2, adjusted = _s2, True
+        elif _s1 and not _clashes(_s1, c2_raw):
+            c1, adjusted = _s1, True
+        else:
+            c1, c2, _ = check_color_similarity(
+                c1_raw, c2_raw, team1_name, team2_name,
+                threshold=150, interactive=False
+            )
+            adjusted = (c1 != c1_raw) or (c2 != c2_raw)
 
     updated = dict(team_colors)
-    updated[team1_name] = c1_fixed
-    updated[team2_name] = c2_fixed
-    return updated, True
+    updated[team1_name] = c1
+    updated[team2_name] = c2
+    return updated, adjusted
 
 
 def _generate_single_match_charts(shots_df, match_info, team_colors, chart_options,
@@ -322,11 +332,12 @@ aspect = st.sidebar.radio(
     options=["Standard (16:9)", "Tile (9:8)", "Vertical (9:16)"],
     index=0,
     help="In-video overlay aspects for PodcastShorts. "
-         "9:8 = SBS tile single-team (chart shares the frame with the host). "
-         "9:16 = fullscreen overlay; Combined Chart renders as full "
-         "vertical pitch with both teams (home attacks up, away attacks "
-         "down). Single-team at 9:16 is parked for redesign; if "
-         "9:16 + Combined is selected only Combined renders at 9:16.",
+         "9:8 = SBS tile (chart shares the frame with the host; verbal "
+         "context comes from the host, so subtitles/legends drop out). "
+         "9:16 = fullscreen overlay; every chart gains a second stats "
+         "block (leading shooters / top matches) below the pitch, and the "
+         "Combined Chart keeps the horizontal full pitch with a "
+         "head-to-head strip beneath it.",
 )
 if aspect.startswith("Tile"):
     aspect_param = "9x8"
@@ -592,14 +603,15 @@ if data_source == "Database":
                     player_list = multi_match_info['player_list']
                     date_range = multi_match_info.get('date_range', '')
 
-                    from shared.colors import TEAM_COLORS, fuzzy_match_team
-                    color_db, _, _ = fuzzy_match_team(team_name, TEAM_COLORS)
-                    if color_db:
-                        team_color = ensure_pitch_contrast(color_db)
-                    elif team_color_raw and team_color_raw != '#888888':
-                        team_color = ensure_pitch_contrast(team_color_raw)
-                    else:
-                        team_color = '#888888'
+                    # The registry, keyed on the id already in hand. This path
+                    # previously resolved from the built-in TEAM_COLORS dict
+                    # and never consulted the registry at all, so an authored
+                    # correction reached the single-match chart but not the
+                    # season map of the same club.
+                    from shared.motherduck import resolve_single_team_colour
+                    team_color = ensure_pitch_contrast(resolve_single_team_colour(
+                        team_name, team_color_raw,
+                        team_id=selected_team['team_id']))
 
                     from pages.streamlit_utils import check_team_colors
                     check_team_colors(
@@ -990,14 +1002,11 @@ else:
                     player_list = multi_match_info['player_list']
                     date_range = multi_match_info.get('date_range', '')
 
-                    from shared.colors import TEAM_COLORS, fuzzy_match_team
-                    color_db, _, _ = fuzzy_match_team(team_name, TEAM_COLORS)
-                    if color_db:
-                        team_color = ensure_pitch_contrast(color_db)
-                    elif team_color_raw and team_color_raw != '#888888':
-                        team_color = ensure_pitch_contrast(team_color_raw)
-                    else:
-                        team_color = '#888888'
+                    # Registry first, by name - the CSV path has no id in
+                    # scope. Same reasoning as the database season path above.
+                    from shared.motherduck import resolve_single_team_colour
+                    team_color = ensure_pitch_contrast(
+                        resolve_single_team_colour(team_name, team_color_raw))
 
                     from pages.streamlit_utils import check_team_colors
                     check_team_colors([team_name], {team_name: team_color_raw} if team_color_raw != '#888888' else {})
