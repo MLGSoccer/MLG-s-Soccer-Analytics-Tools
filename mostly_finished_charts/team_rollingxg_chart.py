@@ -32,6 +32,7 @@ from shared.file_utils import get_file_path, get_output_folder
 from shared.rolling import (
     find_season_segments, segment_starts, rolling_average, longest_segment,
     partial_rolling_average, format_season_text, draw_season_boundaries,
+    fill_signed,
 )
 
 __all__ = ['parse_trumedia_csv', 'create_rolling_charts',
@@ -649,6 +650,8 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     ax1.set_facecolor(BG_COLOR)
 
     ax1.axhline(y=0, color='#556B7F', linestyle='--', linewidth=1, alpha=0.5)
+    fill_signed(ax1, match_nums, xg_diff_rolling, color_diff,
+                color_against, partial=p_diff)
     ax1.plot(match_nums, p_diff, color=color_diff, linewidth=2.2,
              **PARTIAL_STYLE)
     ax1.plot(match_nums, xg_diff_rolling, color=color_diff, linewidth=3)
@@ -815,6 +818,8 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     ax1.set_facecolor(BG_COLOR)
 
     ax1.axhline(y=0, color='#556B7F', linestyle='--', linewidth=1, alpha=0.5)
+    fill_signed(ax1, match_nums, xg_diff_rolling, color_diff,
+                color_against, partial=p_diff)
     ax1.plot(match_nums, p_diff, color=color_diff, linewidth=2.2,
              **PARTIAL_STYLE)
     ax1.plot(match_nums, xg_diff_rolling, color=color_diff, linewidth=3)
@@ -1196,6 +1201,13 @@ def create_aspect_chart(matches, team_name, team_color, output_path, window=10,
     ax = fig.add_axes([L['axes_left'], L['axes_bottom'], L['axes_width'],
                        axes_top - L['axes_bottom']])
     ax.set_facecolor(BG_COLOR)
+    # The BAND between the two lines, tinted by which is on top. This aspect
+    # carries no xG-Difference panel, so the band is the only place the
+    # for-minus-against story lives - and reading it off two crossing lines
+    # was the thing cold viewers could only do where the gap was already wide.
+    fill_signed(ax, n, roll_for, color_for, color_against, baseline=roll_ag,
+                partial=s['xg_for_partial'],
+                partial_baseline=s['xg_against_partial'])
     ax.plot(n, s['xg_for_partial'], color=color_for, lw=L['line_w_for'] * 0.7,
             zorder=3, **PARTIAL_STYLE)
     ax.plot(n, s['xg_against_partial'], color=color_against,

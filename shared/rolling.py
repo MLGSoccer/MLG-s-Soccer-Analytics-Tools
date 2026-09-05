@@ -280,3 +280,67 @@ def draw_season_boundaries(ax, segments, y_pos="top", fontsize=11,
                 xytext=(0, label_pad if va == "bottom" else -label_pad),
                 textcoords="offset points", color=color, fontsize=fontsize,
                 alpha=alpha, ha="right" if near_edge else "left", va=va)
+
+
+def fill_signed(ax, x, series, color_positive, color_negative, baseline=0.0,
+                alpha=0.14, alpha_negative=0.30, partial=None,
+                partial_baseline=None, partial_alpha=0.06,
+                partial_alpha_negative=0.13):
+    """Shade between a series and a baseline, TWO-TONE by sign.
+
+    `baseline` is either a scalar - the xG Difference panel shades to zero -
+    or a second series, which is how the For/Against charts shade the BAND
+    between the two lines. Same encoding either way: the reader sees at a
+    glance which side of the ledger the team is on, without tracing a line.
+
+    This chart shipped with a signed fill from its first commit, drawn in a
+    SINGLE hue: `fill_between(x, diff, 0, color=color_for, alpha=0.2)`. A
+    wholly negative season - Burnley's, in the case that surfaced it - was
+    therefore painted the same block of team colour as a wholly positive one.
+    The fill claimed to separate positive from negative and encoded neither.
+
+    Deleting it was the wrong correction and cost the chart a genuinely useful
+    encoding for two review cycles. `where=` plus `interpolate=True` splits the
+    band exactly at the zero crossing, which is what it needed all along.
+
+    `partial` is the provisional lead-in. It is filled far more faintly than
+    the settled series, for the same reason its line is drawn thinner: those
+    points are means of one, two, three matches, and a full-strength colour
+    block under them hands the window filling up more weight than the season.
+
+    The two sides are filled at DIFFERENT alphas, and the asymmetry is the
+    point. A saturated club colour reads far louder than a grey at the same
+    alpha, so equal alpha is not perceptually equal: measured across the 125
+    clubs in the mirror, the two fills sat a median CIEDE2000 of 17 apart but
+    as little as 4.0 (Manchester City), which is barely separable. Weighting
+    the recessive grey more heavily lifts the WORST case to 10.0 - every club
+    clearly distinguishable - and moves the median hardly at all.
+
+    Note that WCAG contrast is the wrong instrument for this question and says
+    every club is 1.01-1.29:1, i.e. identical. It is a luminance ratio and
+    cannot see hue, so it scores a warm brown against a cool grey as the same
+    colour. Contrast for text, CIEDE2000 for two adjacent fields.
+    """
+    x = np.asarray(x, dtype=float)
+
+    def _band(values, base_values, a_pos, a_neg):
+        v = np.asarray(values, dtype=float)
+        if np.all(np.isnan(v)):
+            return
+        base = (np.full_like(v, base_values, dtype=float)
+                if np.isscalar(base_values)
+                else np.asarray(base_values, dtype=float))
+        # interpolate=True is what makes this honest: without it the fill
+        # switches colour at the sample point rather than at the crossing,
+        # so a segment that changes sign is painted the wrong colour for up
+        # to a full match either side of the truth.
+        ax.fill_between(x, v, base, where=v >= base, interpolate=True,
+                        color=color_positive, alpha=a_pos, linewidth=0)
+        ax.fill_between(x, v, base, where=v <= base, interpolate=True,
+                        color=color_negative, alpha=a_neg, linewidth=0)
+
+    if partial is not None:
+        _band(partial,
+              baseline if partial_baseline is None else partial_baseline,
+              partial_alpha, partial_alpha_negative)
+    _band(series, baseline, alpha, alpha_negative)
