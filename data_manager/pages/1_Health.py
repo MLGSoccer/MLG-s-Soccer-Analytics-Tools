@@ -628,7 +628,8 @@ st.caption(
 
 sys.path.insert(0, os.path.dirname(BASE_DIR))
 from shared.team_registry import (  # noqa: E402
-    AUTHORED, choose_for_background, load_registry, resolve_all, save_registry,
+    AUTHORED, choose_for_background, has_opinion, load_registry, resolve_all,
+    save_registry,
 )
 
 CBS_BG = "#1A2332"
@@ -653,8 +654,31 @@ def load_feed_colours(token):
     return {tid: colour for tid, colour in rows}
 
 
+@st.cache_data(ttl=60, show_spinner="Reading the team registry...")
+def load_registry_mirrored(token):
+    """The registry the CHARTS read - mirror first, local file second.
+
+    This used to be a bare `load_registry()`, which is the failure its own
+    docstring warns about in bold: with no connection it reads the local JSON,
+    so the editor would show whatever shipped at the last deploy while writing
+    its edits to the MotherDuck mirror. Harmless only while the mirror was
+    empty; the moment it exists, the page reads one copy and writes another and
+    the two drift with nothing reporting it.
+
+    Cached for a minute, not an hour: this is the authoring surface, so seeing
+    your own save reflected matters more than saving a query.
+    """
+    if not token:
+        return load_registry()
+    con = get_motherduck_connection(token)
+    try:
+        return load_registry(con=con)
+    finally:
+        con.close()
+
+
 feed_colours = load_feed_colours(MOTHERDUCK_TOKEN) if MOTHERDUCK_TOKEN else {}
-registry = load_registry()
+registry = load_registry_mirrored(MOTHERDUCK_TOKEN)
 
 resolved = resolve_all(
     [(t["team_id"], t["name"], feed_colours.get(t["team_id"])) for t in teams],
@@ -669,7 +693,11 @@ for t in sorted(teams, key=lambda x: x["name"]):
         continue
     feed_val = (feed_colours.get(tid) or "").upper()
     colour_rows.append({
+        # "Team" is what the FEED calls this club and is not editable - it is
+        # how you find the row. "Shown as" is the override: blank means the
+        # feed's name is fine, which is the case for most clubs.
         "Team": t["name"],
+        "Shown as": ((registry.get(tid) or {}).get("display_name") or ""),
         "League": league_of_team.get(tid, "-"),
         "Source": c.provenance,
         "Primary": c.primary,
@@ -746,6 +774,11 @@ edited = st.data_editor(
             "Secondary",
             help="#RRGGBB. Used when a clash forces the primary aside, or when "
                  "the primary cannot be drawn at all."),
+        "Shown as": st.column_config.TextColumn(
+            "Shown as",
+            help="What charts and menus should call this club. Leave blank to "
+                 "use the name on the left. Set it when the feed's version is "
+                 "not the one you want - Bayern Munchen, Koln, Internazionale."),
         "Team": st.column_config.TextColumn(disabled=True),
         "League": st.column_config.TextColumn(disabled=True),
         "Source": st.column_config.TextColumn(disabled=True),
@@ -781,14 +814,20 @@ else:
 
 HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
 
-if st.button("Save colour changes", type="primary"):
-    before = {tid: (r["Primary"], r["Secondary"])
+if st.button("Save colour and name changes", type="primary"):
+    before = {tid: (r["Primary"], r["Secondary"], r["Shown as"])
               for tid, r in view_df.iterrows()}
     pending, bad = [], []
     for tid, row in edited.iterrows():
         primary = (row["Primary"] or "").strip()
         secondary = (row["Secondary"] or "").strip()
-        if before.get(tid) == (primary, secondary):
+        shown_as = (row["Shown as"] or "").strip()
+        # Typing the feed's own name is not an override, it is agreement.
+        # Storing it would create an entry that pins the club to a name the
+        # feed would have supplied anyway, and then goes stale on a rebrand.
+        if shown_as == row["Team"]:
+            shown_as = ""
+        if before.get(tid) == (primary, secondary, shown_as):
             continue
         # Collect ALL invalid values before writing anything. Writing the good
         # rows and reporting the bad ones would leave the editor showing values
@@ -796,7 +835,7 @@ if st.button("Save colour changes", type="primary"):
         for val in (primary, secondary):
             if val and not HEX_RE.match(val):
                 bad.append(f"{row['Team']}: {val}")
-        pending.append((tid, row["Team"], primary, secondary))
+        pending.append((tid, row["Team"], primary, secondary, shown_as))
 
     if bad:
         st.error("Nothing saved - these are not valid #RRGGBB values:\n\n"
@@ -804,17 +843,39 @@ if st.button("Save colour changes", type="primary"):
     elif not pending:
         st.info("No changes to save.")
     else:
-        for tid, name, primary, secondary in pending:
-            if not primary:
-                registry.pop(tid, None)   # blank primary = fall back to feed
-                continue
+        for tid, name, primary, secondary, shown_as in pending:
             entry = dict(registry.get(tid) or {})
-            entry["name"] = name
-            entry["primary"] = primary.upper()
+            entry["name"] = name          # descriptive: how you find the row
+
+            # The Primary cell shows the RESOLVED colour, which for most clubs
+            # is the feed's. Writing it back on every save would silently
+            # promote a feed colour to an authored one the moment you edited
+            # anything else on the row - the club would stop tracking TruMedia,
+            # vanish from the "Not authored" filter, and claim a human decision
+            # nobody made. So only write a colour that was actually edited, or
+            # one this club already owned.
+            was_authored = HEX_RE.match((registry.get(tid) or {}).get("primary") or "")
+            primary_edited = primary != (before.get(tid) or ("", "", ""))[0]
+            if primary and (primary_edited or was_authored):
+                entry["primary"] = primary.upper()
+            elif not primary:
+                entry.pop("primary", None)
             if secondary:
                 entry["secondary"] = secondary.upper()
             else:
                 entry.pop("secondary", None)
+            if shown_as:
+                entry["display_name"] = shown_as
+            else:
+                entry.pop("display_name", None)
+
+            # An entry asserting NEITHER a colour nor a name says nothing the
+            # events table does not already say. This used to test `primary`
+            # alone, so clearing a colour dropped the row outright - which
+            # would now take a name override with it.
+            if not has_opinion(entry):
+                registry.pop(tid, None)
+                continue
             entry["source_url"] = entry.get("source_url") or "edited in Health panel"
             registry[tid] = entry
 

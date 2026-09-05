@@ -179,6 +179,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "2ei66pjfsrr6uxqp1bywq31lo": {
+    "display_name": "Leon",
     "name": "León",
     "primary": "#187B56",
     "secondary": "#FFFFFF",
@@ -260,6 +261,11 @@
     "primary": "#E3361D",
     "secondary": "#C0AE33",
     "source_url": "https://www.footylogos.com/color-codes"
+  },
+  "3csexoalt9hfesmo2p4619ga4": {
+    "display_name": "Curacao",
+    "name": "Curaçao",
+    "source_url": "name override, agreed 2026-09-05"
   },
   "3czravw89omgc9o4s0w3l1bg5": {
     "name": "Athletic Club",
@@ -460,6 +466,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "54ph1k82y99hhjsf7m2usns8u": {
+    "display_name": "Atletico San Luis",
     "name": "Atlético San Luis",
     "primary": "#CD3825",
     "secondary": "#EEECEC",
@@ -736,6 +743,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "8q1ul09cygzswb7tb456bmifv": {
+    "display_name": "FC Koln",
     "name": "Köln",
     "primary": "#E20613",
     "secondary": "#FFFFFF",
@@ -746,6 +754,11 @@
     "primary": "#008066",
     "secondary": "#FFFFFF",
     "source_url": "https://www.footylogos.com/color-codes"
+  },
+  "8zt8rrm6v5nccv01v6pef0r1o": {
+    "display_name": "Atletico Madrid Women",
+    "name": "Atlético Madrid Women",
+    "source_url": "name override, agreed 2026-09-05"
   },
   "91j32z6ga16tjj140ss2i24mt": {
     "name": "Estudiantes",
@@ -794,6 +807,11 @@
     "primary": "#001489",
     "secondary": "#FFFFFF",
     "source_url": "https://www.footylogos.com/color-codes"
+  },
+  "9s2kpeunkes0g17l95r3t91j6": {
+    "display_name": "Turkiye",
+    "name": "Türkiye",
+    "source_url": "name override, agreed 2026-09-05"
   },
   "9vph9w7uflam4cks28dfp98h4": {
     "name": "Gimnasia Mendoza",
@@ -867,6 +885,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "apoawtpvac4zqlancmvw4nk4o": {
+    "display_name": "Bayern Munich",
     "name": "Bayern München",
     "primary": "#ED0038",
     "secondary": "#286CFD",
@@ -889,6 +908,11 @@
     "primary": "#132347",
     "secondary": "#CBAB58",
     "source_url": "https://www.footylogos.com/color-codes"
+  },
+  "b3r6d8ydtmtjckam6pku9y400": {
+    "display_name": "Copenhagen",
+    "name": "København",
+    "source_url": "edited in Health panel"
   },
   "b496gs285it6bheuikox6z9mj": {
     "name": "Aston Villa",
@@ -980,6 +1004,11 @@
     "secondary": "#A6192E",
     "source_url": "https://www.trucolor.net/portfolio/national-womens-soccer-league-official-colors-2013-through-present/"
   },
+  "bpx4ib85d65u9oyhglkt36k1b": {
+    "display_name": "Bayern Munich Women",
+    "name": "Bayern München Women",
+    "source_url": "name override, agreed 2026-09-05"
+  },
   "bqbbqm98ud8obe45ds9ohgyrd": {
     "name": "Juventus",
     "primary": "#000000",
@@ -1047,6 +1076,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "ccye1b5fvtq8tzlz0gosyw10b": {
+    "display_name": "Queretaro",
     "name": "Querétaro",
     "primary": "#0056B3",
     "secondary": "#FFFFFF",
@@ -1155,6 +1185,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "dsm1dxw4j3f973w7kzhe2n816": {
+    "display_name": "Mazatlan",
     "name": "Mazatlán",
     "primary": "#533278",
     "secondary": "#101820",
@@ -1227,6 +1258,7 @@
     "source_url": "https://www.footylogos.com/color-codes"
   },
   "ecphe4bqgmin2tzsohf50egvd": {
+    "display_name": "Juarez",
     "name": "Juárez",
     "primary": "#21CB35",
     "secondary": "#1F1D1C",
@@ -1269,6 +1301,7 @@
     "source_url": "https://www.trucolor.net/portfolio/national-womens-soccer-league-official-colors-2013-through-present/"
   },
   "eu8c408f59yx7egaqossbv25e": {
+    "display_name": "Club America",
     "name": "Club América",
     "primary": "#FFEB00",
     "secondary": "#003055",

@@ -206,7 +206,14 @@ def get_teams_by_league():
     Teams are assigned to exactly one league bucket by priority order.
     Result is cached for 1 hour.
     """
+    # Aliased: the local variable below is called `display_name`, and the
+    # import is function-local to match how this module loads the rest of
+    # team_registry.
+    from shared.team_registry import (
+        AUTHORED as REGISTRY_AUTHORED, display_name as resolve_display_name)
+
     config = _load_config()
+    registry = load_team_registry()
     league_teams = {league: [] for league in LEAGUE_ORDER}
 
     # Build set of base names (with " Women" stripped) that conflict with a
@@ -220,9 +227,23 @@ def get_teams_by_league():
         if not team_id:
             continue
         league = _get_team_league(team.get('season_ids', []))
-        _, matched_name, _ = fuzzy_match_team(team['name'], TEAM_COLORS)
-        display_name = matched_name if matched_name else team['name']
-        if display_name.endswith(' Women') and team['name'] not in needs_women:
+        # Resolved on team_id. This used to fuzzy-match the club's name against
+        # TEAM_COLORS, which guessed - and on clubs with no entry of their own
+        # it guessed badly: AZ was offered as Cruz Azul, KA as Kansas City
+        # Current, Tigre as Tigres UANL, and Austria Wien as the Austrian
+        # NATIONAL side. It also collapsed 29 pairs of clubs onto a shared
+        # label, every women's side onto its men's team among them.
+        resolved = resolve_display_name(team_id, team['name'], registry=registry)
+        display_name = resolved.name
+        # The " Women" strip drops a redundant suffix for clubs with no men's
+        # counterpart (the NWSL sides). It must NOT touch an authored name: an
+        # override is someone stating exactly what this club is called, and
+        # stripping it silently undid that - "Atletico Madrid Women" came back
+        # as "Atletico Madrid" while the men's side reads "Atletico de Madrid",
+        # which is not a string collision but is certainly a picker collision.
+        if (resolved.provenance != REGISTRY_AUTHORED
+                and display_name.endswith(' Women')
+                and team['name'] not in needs_women):
             display_name = display_name[:-6]
         league_teams[league].append({
             'team_id': team_id,
@@ -251,7 +272,8 @@ def get_games_for_team(team_id):
     """
     con = get_connection()
     rows = con.execute("""
-        SELECT gameId, Date, homeTeam, awayTeam, homeFinalScore, awayFinalScore, seasonId
+        SELECT gameId, Date, homeTeam, awayTeam, homeFinalScore, awayFinalScore,
+               seasonId, homeTeamId, awayTeamId
         FROM games
         WHERE homeTeamId = ? OR awayTeamId = ?
         ORDER BY Date DESC
@@ -261,16 +283,15 @@ def get_games_for_team(team_id):
     season_names = config.get('seasons', {})
 
     games = []
-    for game_id, date_str, home_team, away_team, home_score, away_score, season_id in rows:
+    for (game_id, date_str, home_team, away_team, home_score, away_score,
+         season_id, home_team_id, away_team_id) in rows:
         try:
             date_display = datetime.strptime(date_str, '%Y-%m-%d').strftime('%b %d, %Y')
         except Exception:
             date_display = date_str or 'Unknown date'
 
-        _, home_clean, _ = fuzzy_match_team(home_team or '', TEAM_COLORS)
-        _, away_clean, _ = fuzzy_match_team(away_team or '', TEAM_COLORS)
-        home_display = home_clean if home_clean else home_team
-        away_display = away_clean if away_clean else away_team
+        home_display = team_label(home_team_id, home_team)
+        away_display = team_label(away_team_id, away_team)
 
         season_name = season_names.get(season_id, '') if season_id else ''
 
@@ -337,7 +358,8 @@ def build_shot_chart_single(game_id):
                e.teamFullName, e.newestTeamColor, e.Date,
                e.homeTeam, e.awayTeam, e.ShotPlayStyle, e.shooter,
                e.gameClock,
-               g.homeFinalScore, g.awayFinalScore
+               g.homeFinalScore, g.awayFinalScore,
+               e.teamId, g.homeTeamId, g.awayTeamId
         FROM events e
         JOIN games g ON e.gameId = g.gameId
         WHERE e.gameId = ?
@@ -352,16 +374,22 @@ def build_shot_chart_single(game_id):
     meta = None
 
     for (ex, ey, xg, play_type, team_full, color, date, home, away,
-         shot_style, shooter, game_clock, h_score, a_score) in rows:
-        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
-        team_display = clean_name if clean_name else team_full
+         shot_style, shooter, game_clock, h_score, a_score,
+         team_id, home_team_id, away_team_id) in rows:
+        # The `Team` column and `meta` below are compared downstream
+        # (`shots_df[shots_df['Team'] == team1_name]`), but they come from two
+        # different source strings - events.teamFullName and games.homeTeam -
+        # which agreed only because the fuzzy matcher flattened both onto the
+        # same colour-table key. Resolving each from its own id makes them
+        # agree by construction rather than by coincidence.
+        team_display = team_label(team_id, team_full)
 
         if color and team_display:
             team_colors[team_display] = color
 
         if meta is None:
-            _, home_clean, _ = fuzzy_match_team(home or '', TEAM_COLORS)
-            _, away_clean, _ = fuzzy_match_team(away or '', TEAM_COLORS)
+            home_clean = team_label(home_team_id, home)
+            away_clean = team_label(away_team_id, away)
             try:
                 date_formatted = datetime.strptime(date, '%Y-%m-%d').strftime('%b %d, %Y').upper()
             except Exception:
@@ -457,7 +485,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId, shooterId
+               ShotPlayStyle, shooter, seasonId, shooterId, teamId
         FROM events
         WHERE gameId IN ({placeholders})
           AND {team_clause}
@@ -470,9 +498,13 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id, shooter_id) in rows:
-        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
-        team_display = clean_name if clean_name else team_full
+         away, shot_style, shooter, season_id, shooter_id, team_id) in rows:
+        # teamId is appended LAST in both SELECTs on purpose: build_shots_for
+        # _player filters international shots positionally (r[12] is seasonId),
+        # so inserting a column mid-list would shift that test onto the wrong
+        # field. In shots-against mode this id is the OPPONENT's, which is
+        # correct - those shots are theirs.
+        team_display = team_label(team_id, team_full)
         data.append({
             'gameId': game_id,
             'EventX': float(ex) if ex is not None else 50.0,
@@ -513,8 +545,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
         ).fetchone()
         if own_row:
             raw_name = own_row[0] or ''
-            _, clean_name, _ = fuzzy_match_team(raw_name, TEAM_COLORS)
-            team_name = clean_name if clean_name else raw_name
+            team_name = team_label(team_id, raw_name)
             team_color = own_row[1] or '#888888'
         else:
             team_name = ''
@@ -631,7 +662,7 @@ def build_shots_for_player(shooter_name, shooter_id=None,
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId, shooterId
+               ShotPlayStyle, shooter, seasonId, shooterId, teamId
         FROM events
         WHERE {key_col} = ?
           AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
@@ -646,9 +677,13 @@ def build_shots_for_player(shooter_name, shooter_id=None,
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id, shooter_id) in rows:
-        _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
-        team_display = clean_name if clean_name else team_full
+         away, shot_style, shooter, season_id, shooter_id, team_id) in rows:
+        # teamId is appended LAST in both SELECTs on purpose: build_shots_for
+        # _player filters international shots positionally (r[12] is seasonId),
+        # so inserting a column mid-list would shift that test onto the wrong
+        # field. In shots-against mode this id is the OPPONENT's, which is
+        # correct - those shots are theirs.
+        team_display = team_label(team_id, team_full)
         data.append({
             'gameId': game_id,
             'EventX': float(ex) if ex is not None else 50.0,
@@ -755,6 +790,23 @@ def load_team_registry():
     return reg
 
 
+def team_label(team_id, feed_name):
+    """What to call this club, resolved on the STRONG key.
+
+    Every caller in this module used to do the same three lines: fuzzy-match
+    the club's name against TEAM_COLORS and take the result if there was one.
+    That guessed, and where a club had no entry of its own it guessed a
+    different club - AZ became Cruz Azul, Austria Wien became the Austrian
+    national team - besides collapsing 29 pairs of clubs onto a shared label.
+
+    `load_team_registry` is cached for an hour, so calling this per row is a
+    dict lookup rather than a query.
+    """
+    from shared.team_registry import display_name as _resolve
+
+    return _resolve(team_id, feed_name, registry=load_team_registry()).name
+
+
 def registry_colour_by_name(team_name):
     """(primary, secondary) for an AUTHORED club, or (None, None).
 
@@ -816,11 +868,14 @@ def build_shots_from_game(game_id):
     con = get_connection()
     rows = con.execute("""
         SELECT
-            gameClock, Period, teamFullName, xG, playType, newestTeamColor,
-            Date, homeTeam, awayTeam, teamAbbrevName, teamId
-        FROM events
-        WHERE gameId = ? AND shooter IS NOT NULL AND shooter != ''
-        ORDER BY Period, gameClock
+            e.gameClock, e.Period, e.teamFullName, e.xG, e.playType,
+            e.newestTeamColor, e.Date, e.homeTeam, e.awayTeam,
+            e.teamAbbrevName, e.teamId,
+            g.homeTeamId, g.awayTeamId
+        FROM events e
+        JOIN games g ON e.gameId = g.gameId
+        WHERE e.gameId = ? AND e.shooter IS NOT NULL AND e.shooter != ''
+        ORDER BY e.Period, e.gameClock
     """, [game_id]).fetchall()
 
     if not rows:
@@ -860,7 +915,8 @@ def build_shots_from_game(game_id):
     feed_colors = {}
 
     for (game_clock, period, team_full_name, xg, play_type, team_color,
-         date_str, home_team, away_team, team_abbrev, team_id) in rows:
+         date_str, home_team, away_team, team_abbrev, team_id,
+         home_team_id, away_team_id) in rows:
         try:
             game_clock = float(game_clock or 0)
             minute = game_clock / 60
@@ -871,8 +927,9 @@ def build_shots_from_game(game_id):
             if period > 2:
                 has_extra_time = True
 
-            _, clean_name, _ = fuzzy_match_team(team_full_name or '', TEAM_COLORS)
-            team_display = clean_name if clean_name else team_full_name
+            # team_ids below is keyed on this label, so the label and the key
+            # have to move together - which they do, both being derived here.
+            team_display = team_label(team_id, team_full_name)
 
             xg = float(xg) if xg else 0.0
             outcome = _OUTCOME_MAP.get(play_type, play_type or 'Unknown')
@@ -904,8 +961,8 @@ def build_shots_from_game(game_id):
                 except Exception:
                     formatted_date = date_str
 
-                _, home_clean, _ = fuzzy_match_team(home_team or '', TEAM_COLORS)
-                _, away_clean, _ = fuzzy_match_team(away_team or '', TEAM_COLORS)
+                home_clean = team_label(home_team_id, home_team)
+                away_clean = team_label(away_team_id, away_team)
 
                 match_info = {
                     'date': formatted_date,
@@ -1340,7 +1397,7 @@ def get_goal_scorers_for_game(game_id):
     for game_clock, period, shooter, team_full, team_id, play_type in rows:
         try:
             minute = int(float(game_clock or 0) / 60)
-            _, clean_name, _ = fuzzy_match_team(team_full or '', TEAM_COLORS)
+            clean_name = team_label(team_id, team_full)
             scorers.append({
                 'minute': minute,
                 'period': int(period) if period is not None else 1,
@@ -1476,10 +1533,12 @@ def get_team_rolling_xg_data(team_id, season_id=None):
     for (game_id, date_str, home_team, away_team, home_team_id, away_team_id,
          home_goals, away_goals, sid, home_xg, away_xg, color, full_name) in rows:
         is_home = (home_team_id == team_id)
-        _, opp_clean, _ = fuzzy_match_team(
-            (away_team if is_home else home_team) or '', TEAM_COLORS
-        )
-        opponent = opp_clean or (away_team if is_home else home_team) or 'Unknown'
+        # Resolved on the OPPONENT's id, so a club can never be labelled as
+        # whichever name the colour table happened to match closest.
+        opponent = team_label(
+            away_team_id if is_home else home_team_id,
+            (away_team if is_home else home_team) or '',
+        ) or 'Unknown'
         xg_for = float(home_xg or 0) if is_home else float(away_xg or 0)
         xg_against = float(away_xg or 0) if is_home else float(home_xg or 0)
         goals_for = int(home_goals or 0) if is_home else int(away_goals or 0)

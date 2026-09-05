@@ -216,6 +216,62 @@ def get_team_colors(team_id, name=None, feed_color=None, registry=None,
     )
 
 
+@dataclass(frozen=True)
+class TeamName:
+    """What this club should be CALLED, and on whose authority."""
+
+    team_id: str
+    name: str
+    provenance: str
+
+
+def display_name(team_id, feed_name=None, registry=None):
+    """The name to print for this club.
+
+    A club's name is IDENTITY, the same layer as its colour, so it lives in the
+    same registry and follows the same rule: an authored value wins outright,
+    otherwise the feed answers. Absent both, the id is all we have.
+
+    `display_name` is deliberately separate from the entry's `name`. `name` is
+    descriptive - it exists so a human editing the Health page knows which club
+    a row belongs to - and it tracks the feed. Only `display_name` is an
+    override, so a blank one means "the feed is right about this club", which
+    is true for most of them.
+
+    This replaces resolving names by fuzzy string match against the colour
+    table. That guessed, and on clubs with no entry of their own it guessed
+    badly: AZ was shown as Cruz Azul, Angers as Rangers, KA as Kansas City
+    Current, Tigre as Tigres UANL. A `team_id` cannot be fuzzy-matched onto the
+    wrong club.
+    """
+    registry = registry if registry is not None else {}
+    entry = registry.get(team_id) or {}
+
+    authored = (entry.get("display_name") or "").strip()
+    if authored:
+        return TeamName(team_id=team_id, name=authored, provenance=AUTHORED)
+
+    feed = (feed_name or "").strip()
+    if feed:
+        return TeamName(team_id=team_id, name=feed, provenance=FEED)
+
+    return TeamName(team_id=team_id, name=team_id, provenance=NEUTRAL_SRC)
+
+
+def has_opinion(entry):
+    """Does this entry assert anything, or is it an empty row?
+
+    An entry carrying neither a colour nor a name override says nothing the
+    events table does not already say, so it should not be stored. The Health
+    page used to test `primary` alone, which meant clearing a colour deleted
+    the entry outright - and would have silently discarded a name override
+    alongside it.
+    """
+    entry = entry or {}
+    return bool(is_hex(entry.get("primary"))
+                or (entry.get("display_name") or "").strip())
+
+
 WOMENS_SUFFIX = " Women"
 
 
