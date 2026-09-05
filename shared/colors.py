@@ -1626,3 +1626,80 @@ def resolve_team_colors(teams, csv_team_colors=None, interactive=True):
         resolved_colors['_different_line_styles'] = use_different_styles
 
     return resolved_colors
+
+
+def derive_companion_line(color, bg_color='#1A2332', target_ratio=2.2,
+                          min_bg_ratio=3.0, avoid=None, min_avoid_distance=150):
+    """A same-hue partner line for `color`, separated from it in LUMINANCE.
+
+    For paired series that share a subject but differ in kind -- cumulative
+    xG For vs GOALS For, say. Colour keeps carrying "which side", luminance
+    carries "expected or actual", so the pair survives every form of colour
+    blindness.
+
+    WHY THIS EXISTS. The pair used to be the same colour with the companion at
+    alpha 0.7 and a dashed style. On a white-kitted club (Real Madrid resolves
+    to #FFFFFF) the two lines were one fuzzy line for 55 matches, and a cold
+    viewer could not say which was which -- on a panel whose entire subject is
+    the gap between them. `separate_line_luminance` cannot help here: it needs
+    two different starting colours and this pair starts identical.
+
+    WHY target_ratio IS 2.2. Not the 1.6 first tried: a cold designer measured
+    that pair at 6.3px delivered separation, with the two strokes merging into
+    one band in 27% of sampled columns. And not WCAG's 3.0 for graphical
+    objects either -- that bar is for an object against its BACKGROUND, and
+    forcing it between two same-hue lines is unreachable for a saturated kit
+    without going near-white: at 3.0 this returned Arsenal's red,
+    Southampton's red and the teal UNCHANGED, which is no separation at all.
+    The caller pairs this with a dash pattern, so luminance does not carry the
+    distinction alone.
+
+    Dims toward the background first, which keeps the hue's saturation. Falls
+    back to lightening toward white when dimming would push the companion
+    under `min_bg_ratio` -- the case for dark saturated kits, which sit just
+    above the readable floor to begin with and have no room below them.
+    """
+    # A second companion must also clear the FIRST one. Derived independently,
+    # both companions lighten toward white and land pale: on 198 of 223
+    # registry clubs the two "Goals" swatches came out within RGB 150 of each
+    # other, and a cold viewer reading the cumulative legend could not tell
+    # them apart. The constraint is dropped rather than enforced to the point
+    # of returning the base colour unchanged - that is no separation at all,
+    # and enforcing it strictly reintroduced exactly that for '#E74C3C'.
+    # Residual after this: 45 of 223 clubs still land within 150. Preferring
+    # opposite directions for the two companions was tried and changed
+    # nothing - the avoid filter already rejects whichever direction
+    # converges - so the knob was removed rather than left inert. In the plot
+    # the two pairs are far apart vertically and each sits beside its own
+    # base line, so the residual bites only in the legend row.
+    avoid = [c for c in (avoid or []) if c]
+    for constraint in (avoid, []):
+        best = None
+        for toward in (bg_color, '#FFFFFF'):
+            for step in (0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85):
+                cand = blend_colors(color, toward, step)
+                if wcag_contrast(cand, bg_color) < min_bg_ratio:
+                    continue  # unreadable on the background, whatever else
+                if any(color_distance(cand, a) < min_avoid_distance
+                       for a in constraint):
+                    continue
+                sep = wcag_contrast(color, cand)
+                if sep >= target_ratio:
+                    return cand
+                if best is None or sep > best[0]:
+                    best = (sep, cand)
+        if best:
+            return best[1]
+        if not constraint:
+            break
+    return color
+
+
+def blend_colors(c1, c2, factor):
+    """Blend c1 toward c2 by `factor` (0 = c1 unchanged, 1 = c2)."""
+    a, b = c1.lstrip('#'), c2.lstrip('#')
+    out = []
+    for i in (0, 2, 4):
+        x, y = int(a[i:i + 2], 16), int(b[i:i + 2], 16)
+        out.append(int(round(x + (y - x) * factor)))
+    return rgb_to_hex(*out)

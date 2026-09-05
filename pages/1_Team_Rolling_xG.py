@@ -12,8 +12,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mostly_finished_charts.team_rollingxg_chart import (
     parse_trumedia_csv,
     create_rolling_charts,
-    create_individual_charts
+    create_individual_charts,
+    create_aspect_chart,
+    InsufficientMatches,
 )
+from shared.rolling import longest_segment
 from pages.streamlit_utils import custom_title_inputs
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, get_team_rolling_xg_data,
@@ -28,10 +31,26 @@ st.set_page_config(page_title="Team Rolling xG", page_icon="📈", layout="wide"
 # ---------------------------------------------------------------------------
 
 def _build_chart_images(matches, team_name, team_color, window_size,
-                        custom_title=None, custom_subtitle=None):
-    """Generate chart images from a matches list. Returns charts dict."""
+                        custom_title=None, custom_subtitle=None, aspect="16:9"):
+    """Generate chart images from a matches list. Returns charts dict.
+
+    16:9 gives the four-panel dashboard plus its four standalone panels. The
+    phone aspects give ONE chart - xG For & Against - because a 2x2 grid at
+    9:16 produces four panels none of which is readable.
+    """
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
+        if aspect != "16:9":
+            key = {"9:8 (tile)": "9x8", "9:16 (vertical)": "9x16"}[aspect]
+            path = os.path.join(tmp_dir, "aspect.png")
+            create_aspect_chart(matches, team_name, team_color, path,
+                                window_size, aspect=key,
+                                custom_title=custom_title,
+                                custom_subtitle=custom_subtitle)
+            with open(path, "rb") as f:
+                charts["combined"] = f.read()
+            return charts
+
         combined_path = os.path.join(tmp_dir, "combined.png")
         create_rolling_charts(matches, team_name, team_color, combined_path, window_size,
                               custom_title=custom_title, custom_subtitle=custom_subtitle)
@@ -73,16 +92,44 @@ def _parse_csv_cached(file_content):
 
 @st.cache_data
 def _generate_charts_csv(file_content, team_name, team_color, window_size,
-                          custom_title=None, custom_subtitle=None):
+                          custom_title=None, custom_subtitle=None, aspect="16:9"):
     """Generate all charts from a CSV upload. Cached to survive reruns."""
     matches, _, _ = _parse_csv_cached(file_content)
     return _build_chart_images(matches, team_name, team_color, window_size,
-                               custom_title=custom_title, custom_subtitle=custom_subtitle)
+                               custom_title=custom_title,
+                               custom_subtitle=custom_subtitle, aspect=aspect)
 
 
 # ---------------------------------------------------------------------------
 # Chart display helper
 # ---------------------------------------------------------------------------
+
+def _window_note(matches, window):
+    """Tell the operator up front whether this selection can carry the window.
+
+    The chart now refuses to draw a rolling average from a window that is not
+    full rather than quietly averaging however many matches it has, so a
+    selection shorter than the window produces nothing. Saying so before the
+    Generate click is cheaper than an error after it. Counts the longest
+    SINGLE-SEASON run, because the window is not allowed to span a season
+    boundary either.
+    """
+    usable = longest_segment(matches)
+    if usable < window:
+        st.error(
+            f"A {window}-game rolling average needs {window} matches inside one "
+            f"season. The longest run in this selection is {usable}. "
+            f"Lower the Rolling Window slider to {max(usable, 3)} or below, or "
+            f"pick a season with more matches."
+        )
+        return False
+    if usable < window * 2:
+        st.info(
+            f"{usable} matches in the longest season here, so the line starts at "
+            f"match {window} and covers {usable - window + 1} points."
+        )
+    return True
+
 
 def _display_charts(charts, team_label):
     st.image(charts["combined"], caption=f"{team_label} - Rolling xG Analysis")
@@ -93,11 +140,15 @@ def _display_charts(charts, team_label):
         mime="image/png"
     )
 
+    individual_keys = [k for k in charts if k != "combined"]
+    if not individual_keys:
+        st.success("Chart generated successfully!")
+        return
+
     st.markdown("---")
     st.subheader("Individual Charts")
 
     col1, col2 = st.columns(2)
-    individual_keys = [k for k in charts if k != "combined"]
 
     for i, key in enumerate(individual_keys):
         title, img_bytes = charts[key]
@@ -130,6 +181,14 @@ window_size = st.sidebar.slider(
     max_value=15,
     value=10,
     help="Number of games to average over"
+)
+
+aspect = st.sidebar.radio(
+    "Aspect",
+    ["16:9", "9:8 (tile)", "9:16 (vertical)"],
+    help=("16:9 is the four-panel dashboard plus its four standalone panels. "
+          "The two phone shapes give a single xG For & Against chart on a "
+          "shared 0-3.0 scale, so two teams can be read against each other."),
 )
 
 # Data source toggle
@@ -196,8 +255,8 @@ if data_source == "Database":
                 if not matches:
                     st.warning("No match data found for this team/season selection.")
                     st.stop()
-                if len(matches) < 5:
-                    st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
+                if not _window_note(matches, window_size):
+                    st.stop()
                 team_label = db_team_name or selected_team_name
                 # Resolved on team_id, which is the strong key - this page has
                 # one, unlike the CSV-upload pages that can only offer a name.
@@ -206,7 +265,8 @@ if data_source == "Database":
                 )
                 charts = _build_chart_images(
                     matches, team_label, team_color, window_size,
-                    custom_title=custom_title, custom_subtitle=custom_subtitle
+                    custom_title=custom_title, custom_subtitle=custom_subtitle,
+                    aspect=aspect
                 )
                 st.session_state["team_rolling_xg_charts"] = charts
                 st.session_state["team_rolling_xg_team"] = team_label
@@ -245,17 +305,20 @@ else:
             csv_colors = {team_name: team_color} if team_color else {}
             check_team_colors([team_name], csv_colors)
 
-            if len(matches) < 5:
-                st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
+            # Same guard as the database path. Scoping it to one surface is the
+            # failure this project keeps repeating - a CSV upload reaches the
+            # identical chart code and would hit the identical refusal.
+            can_draw = _window_note(matches, window_size)
 
             custom_title, custom_subtitle = custom_title_inputs("team_rolling_csv", team_name.upper())
 
-            if st.button("Generate Charts", type="primary", key="csv_generate"):
+            if can_draw and st.button("Generate Charts", type="primary", key="csv_generate"):
                 st.session_state["team_rolling_xg_charts"] = None
                 with st.spinner("Generating charts..."):
                     charts = _generate_charts_csv(
                         file_content, team_name, team_color, window_size,
-                        custom_title=custom_title, custom_subtitle=custom_subtitle
+                        custom_title=custom_title,
+                        custom_subtitle=custom_subtitle, aspect=aspect
                     )
                     st.session_state["team_rolling_xg_charts"] = charts
                     st.session_state["team_rolling_xg_team"] = team_name
