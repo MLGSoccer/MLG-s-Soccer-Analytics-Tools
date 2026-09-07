@@ -93,36 +93,81 @@ def get_text_color_for_background(bg_color):
 # =============================================================================
 # LEAGUE CATEGORY MAPPING
 # =============================================================================
-def get_league_category(league_name):
-    """Map a TruMedia league name to a display category.
+# Terms a reader cannot be expected to decode. One definition, three consumers:
+# the single-player chart, the multi-player chart, and - new - the standalone
+# category panels, which carried these terms with no glossary at all.
+GLOSSARY = {
+    'xG/Shot': 'Expected Goals per Shot',
+    'xA': 'Expected Assists',
+    'npxG+xA': 'Non-Penalty xG + xA',
+}
 
-    Returns one of: "Big 5 European Leagues", "Americas Big 4", "Women's Soccer",
-    or the raw league name if no category matches.
+# Furniture grey. The old #556B7F sat at 2.85:1 against the page - below the
+# 3:1 floor for non-text, on the labels that are the ONLY thing naming the
+# PER 90 and PCTL columns. This is the grey the subtitle already uses, so it
+# raises contrast to 6.03:1 without introducing another value to the palette.
+LABEL_GREY = '#8BA3B8'
+
+
+def draw_glossary(ax, x, y, metric_names, fontsize=10, line_height=0.024,
+                  term_gap=0.075, heading=True):
+    """Define whichever GLOSSARY terms actually appear in `metric_names`.
+
+    Returns the y below the block, or `y` unchanged when nothing needed
+    defining - a heading over an empty list is worse than no heading, and only
+    two of the five categories contain a term at all.
     """
-    if not league_name or (isinstance(league_name, float) and pd.isna(league_name)):
-        return None
+    needed = [(t, d) for t, d in GLOSSARY.items() if t in set(metric_names)]
+    if not needed:
+        return y
+    if heading:
+        ax.text(x, y + 0.022, 'ABBREVIATIONS', fontsize=fontsize,
+                fontweight='bold', color=LABEL_GREY, transform=ax.transAxes)
+    for i, (term, definition) in enumerate(needed):
+        row = y - i * line_height
+        ax.text(x, row, term, fontsize=fontsize, color='white',
+                fontweight='bold', transform=ax.transAxes, va='center')
+        ax.text(x + term_gap, row, f'= {definition}', fontsize=fontsize,
+                color=LABEL_GREY, transform=ax.transAxes, va='center')
+    return y - len(needed) * line_height
 
-    league_lower = str(league_name).lower()
 
-    # Women's leagues (check first - most specific)
-    if any(w in league_lower for w in ['nwsl', 'wsl', 'women']):
-        return "Women's Soccer"
+def build_footer_text(position=None, pool_label=None):
+    """Right-hand footer: what the percentiles were actually computed against.
 
-    # Big 5 European Leagues
-    if any(w in league_lower for w in ['premier league', 'la liga', 'bundesliga', 'ligue 1',
-                                        'champions league', 'europa league', 'conference league']):
-        return "Big 5 European Leagues"
-    if 'serie a' in league_lower and not any(w in league_lower for w in ['brazil', 'brasileir']):
-        return "Big 5 European Leagues"
+    `pool_label` names the PEER POOL. It is passed in by the caller, which is
+    the only layer that knows which pool it loaded - the chart sees one player
+    row and cannot infer it.
 
-    # Americas Big 4
-    if any(w in league_lower for w in ['mls', 'major league soccer', 'liga mx',
-                                        'brasileir', 'brazil serie', 'primera division',
-                                        'argentine', 'argentina']):
-        return "Americas Big 4"
+    This replaces a `get_league_category(player_row['newestLeague'])` that
+    derived the label from the SUBJECT'S OWN LEAGUE while the sentence it built
+    described the peer set. Measured over the three live pools, that was wrong
+    or inconsistent for 2,017 of 7,242 players (27.9%):
 
-    # Fallback to raw league name
-    return league_name
+      - 786 players whose club plays in Brazilian Serie A were labelled
+        "Big 5 European Leagues". The feed writes that competition as a bare
+        "Serie A" and the Italy/Brazil guard looked for the words "brazil" or
+        "brasileir", which never appear in it.
+      - 341 Frauen Bundesliga players got the same label, because "bundesliga"
+        is a substring of the men's Big-5 test.
+      - 613 Primera Division and 277 Premiere Ligue players fell through to the
+        raw competition name and so disagreed with peers in their own pool,
+        which the footer was describing.
+
+    It was also a near miss on something worse: 'primera division' sits in the
+    Americas list, and only the accent in "Division" stopped Spain's top flight
+    being labelled "Americas Big 4".
+
+    Where no pool label is supplied the segment is OMITTED rather than guessed.
+    An uploaded CSV has no known pool, and naming a population we cannot
+    identify is what caused this in the first place.
+    """
+    parts = ['Data: Opta/STATS Perform']
+    if position:
+        parts.append(f'Percentile rank among {position}s')
+    if pool_label:
+        parts.append(pool_label)
+    return '  •  '.join(parts)
 
 
 POSITION_MAPPING = {
@@ -421,7 +466,8 @@ def get_color_from_percentile(pct):
     return _PERCENTILE_CMAP(pct / 100)
 
 
-def create_category_chart(category_name, metrics, player_row, peer_count, output_path, comparison_position=None):
+def create_category_chart(category_name, metrics, player_row, peer_count, output_path, comparison_position=None,
+                          pool_label=None):
     """Create an individual category chart with percentile bars."""
 
     # Player info
@@ -470,8 +516,12 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
 
     # Player info strip
     if has_player_info:
-        strip_y = 0.87
-        strip_height = 0.045
+        # Derived in INCHES, not as a flat fraction. This figure's height
+        # varies with the metric count (3.5 + n*0.6), so a fixed 0.045 was
+        # 20pt of strip here against 29pt on the 9in combined chart - not
+        # enough to hold two rows once they sat on the type floor.
+        strip_height = 0.40 / fig_height
+        strip_y = 0.915 - strip_height
 
         strip_rect = mpatches.FancyBboxPatch(
             (0.05, strip_y), 0.90, strip_height,
@@ -512,10 +562,12 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
         text_color = get_text_color_for_background(team_color)
 
         for pos, label, value in zip(positions, labels, values):
-            ax.text(pos, info_y + 0.006, label, fontsize=7, color=text_color,
-                    transform=ax.transAxes, ha='center', va='bottom', fontweight='bold', alpha=0.8)
-            ax.text(pos, info_y - 0.006, value, fontsize=10, color=text_color,
-                    transform=ax.transAxes, ha='center', va='top', fontweight='bold')
+            ax.text(pos, strip_y + strip_height * 0.70, label, fontsize=10,
+                    color=text_color, transform=ax.transAxes, ha='center',
+                    va='center', fontweight='bold', alpha=0.85)
+            ax.text(pos, strip_y + strip_height * 0.30, value, fontsize=10,
+                    color=text_color, transform=ax.transAxes, ha='center',
+                    va='center', fontweight='bold')
 
         subtitle_y = 0.82
     else:
@@ -539,9 +591,9 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     bar_start_x = 0.25
     val_x = bar_start_x + bar_width + 0.02
     pct_x = val_x + 0.08
-    ax.text(val_x, y_pos + 0.05, 'PER 90', fontsize=9, color='#556B7F',
+    ax.text(val_x, y_pos + 0.05, 'PER 90', fontsize=9, color=LABEL_GREY,
             transform=ax.transAxes, ha='left', fontweight='bold')
-    ax.text(pct_x, y_pos + 0.05, 'PCTL', fontsize=9, color='#556B7F',
+    ax.text(pct_x, y_pos + 0.05, 'PCTL', fontsize=9, color=LABEL_GREY,
             transform=ax.transAxes, ha='left', fontweight='bold')
 
     for metric in metrics:
@@ -582,13 +634,21 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
 
         y_pos -= row_height
 
+    # Glossary. This panel gets shared on its own, and two of the five
+    # categories carry a term a reader cannot decode - SCORING has xG/Shot,
+    # CHANCE CREATION has xA and npxG+xA - while the block that defined them
+    # existed only on the combined charts. draw_glossary emits nothing for the
+    # three categories that need nothing.
+    draw_glossary(ax, 0.08, 0.20, [m['name'] for m in metrics],
+                  fontsize=9, line_height=0.05, term_gap=0.13)
+
     # Percentile scale at bottom
     gradient_width = 0.5
     legend_x = 0.25
     legend_y = 0.08
 
     ax.text(legend_x + gradient_width/2, legend_y + 0.04, 'PERCENTILE SCALE', ha='center',
-            fontsize=9, fontweight='bold', color='#556B7F', transform=ax.transAxes)
+            fontsize=9, fontweight='bold', color=LABEL_GREY, transform=ax.transAxes)
 
     # Draw gradient bar
     for i in range(100):
@@ -607,8 +667,9 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
             ha='right', transform=ax.transAxes)
 
     # Footer
-    league_category = get_league_category(player_row.get('newestLeague', ''))
-    footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
+    # This standalone panel used to drop the "Percentile rank among Xs"
+    # segment, so shared on its own it never said what it was ranked against.
+    footer_right = build_footer_text(comparison_position, pool_label)
     fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.01, footer_right,
              fontsize=8, color='#666666', ha='right')
@@ -621,7 +682,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
 
 
 def create_comparison_chart(results, player_row, peer_count, output_path, comparison_position=None,
-                            custom_title=None, custom_subtitle=None):
+                            custom_title=None, custom_subtitle=None, pool_label=None):
     """Create the player comparison chart"""
 
     # Use full name if available, otherwise abbreviated
@@ -652,9 +713,27 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     fig.text(0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team.upper()}',
              ha='center', fontsize=24, fontweight='bold', color='white')
 
-    # ============ PLAYER INFO STRIP WITH TEAM COLOR ============
-    strip_y = 0.895
-    strip_height = 0.035
+    # ============ PLAYER BIO LINE ============
+    # This was a solid 0.90-wide band in the club colour. Measured by ink area
+    # x CIELab distance from the page, it outweighed the TITLE 10 to 1 and was
+    # the single loudest thing on the chart - carrying age, nationality, height
+    # and weight, which are the four least interesting facts on it. The five
+    # highest-energy scanlines in the whole image were all inside it.
+    #
+    # It also collided semantically: a club-colour field sat 5.0 dE from the
+    # ramp's own ~48th-percentile yellow, so the biggest block on a page whose
+    # bars mean "good to bad" was, to within a just-noticeable difference, the
+    # colour that page uses for "average". On a red-kit club it landed 10.6 dE
+    # from the 0th-percentile red, and a cold reader took the header as part of
+    # the verdict before reading a word.
+    #
+    # Club identity is now a thin rule under the title - an accent, not a
+    # ground - and the bio is a quiet line in the subtitle's own grey. That
+    # also fixes Juventus and Parma, whose real colour is black and which
+    # rendered as an empty band on a dark page.
+    rule_y = 0.917
+    rule_h = 0.006
+    bio_y = 0.893
 
     # Helper to check if value is valid (not empty, not NaN)
     def is_valid_info(val):
@@ -668,19 +747,10 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     has_player_info = any([is_valid_info(v) for v in [player_age, player_nationality, player_height, player_weight]])
 
     if has_player_info:
-        # Full team color strip
-        strip_rect = mpatches.FancyBboxPatch(
-            (0.05, strip_y), 0.90, strip_height,
-            boxstyle="round,pad=0.003",
-            facecolor=team_color, edgecolor='none',
-            transform=ax.transAxes
-        )
-        ax.add_patch(strip_rect)
-
-        # Info items centered in strip
-        info_y = strip_y + strip_height / 2
-        positions = [0.18, 0.38, 0.62, 0.82]
-        labels = ['AGE', 'NATIONALITY', 'HEIGHT', 'WEIGHT']
+        # Club colour as a rule under the title, centred on the body width.
+        ax.add_patch(mpatches.Rectangle(
+            (0.30, rule_y), 0.40, rule_h,
+            facecolor=team_color, edgecolor='none', transform=ax.transAxes))
 
         # Convert height to feet/inches
         if is_valid_info(player_height):
@@ -701,21 +771,20 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
         else:
             weight_str = '-'
 
-        values = [str(int(player_age)) if is_valid_info(player_age) else '-',
-                  str(player_nationality) if is_valid_info(player_nationality) else '-',
-                  height_str,
-                  weight_str]
+        # Labelled, because "27 · FRANCE · 5'10\" · 165 LBS" reads as a list of
+        # unrelated numbers without them.
+        bio = []
+        if is_valid_info(player_age):
+            bio.append(f'AGE {int(player_age)}')
+        if is_valid_info(player_nationality):
+            bio.append(str(player_nationality).upper())
+        if height_str != '-':
+            bio.append(height_str)
+        if weight_str != '-':
+            bio.append(weight_str.upper())
+        fig.text(0.5, bio_y, '   •   '.join(bio), ha='center', fontsize=11,
+                 color=TEXT_SECONDARY)
 
-        # Determine text color based on team color luminance
-        text_color = get_text_color_for_background(team_color)
-
-        for pos, label, value in zip(positions, labels, values):
-            ax.text(pos, info_y + 0.005, label, fontsize=8, color=text_color,
-                    transform=ax.transAxes, ha='center', va='bottom', fontweight='bold', alpha=0.8)
-            ax.text(pos, info_y - 0.005, value, fontsize=11, color=text_color,
-                    transform=ax.transAxes, ha='center', va='top', fontweight='bold')
-
-        # Subtitle below strip
         auto_subtitle = f'{position}  •  vs Position Peers  •  Last 365 Days  •  {nineties_played:.1f} 90s'
         fig.text(0.5, 0.86, custom_subtitle or auto_subtitle,
                  ha='center', fontsize=12, color='#8BA3B8')
@@ -728,11 +797,28 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     # Layout parameters
     row_height = 0.05
     category_gap = 0.03
-    bar_width = 0.22
+    # 0.22 put the right column's bars at x=0.91, leaving 0.09 for two number
+    # columns AND a margin - which is why the PCTL column ran to the frame edge
+    # with 18px of right margin against 99px on the left. 0.19 buys the margin
+    # back without touching the encoding, since bar length stays proportional.
+    bar_width = 0.19
 
-    # Column positions
-    left_col_x = 0.05
-    right_col_x = 0.54
+    # Column positions. 0.04/0.53 rather than 0.05/0.54 so that the right
+    # column's PCTL edge lands at 0.96 and both margins are 0.04 - the body ink
+    # used to run x99..1762 of 1782, a 99px left margin against 18px on the
+    # right, with the percentile column overhanging the strip above it by 74px.
+    left_col_x = 0.04
+    right_col_x = 0.53
+
+    # Numbers are RIGHT-aligned to these edges. Left-aligned, the per-90 column
+    # ran 26px ragged and put "44.0%" where a bare decimal was expected, and the
+    # percent signs staggered down the PCTL column. Columns of figures are read
+    # by scanning down, which needs a common right edge.
+    NUM_W = 0.035          # room for the widest string ("86.2%")
+    val_right = {left_col_x: left_col_x + 0.15 + bar_width + 0.05,
+                 right_col_x: right_col_x + 0.15 + bar_width + 0.05}
+    pct_right = {left_col_x: val_right[left_col_x] + NUM_W + 0.005,
+                 right_col_x: val_right[right_col_x] + NUM_W + 0.005}
 
     def draw_category(cat_name, metrics, start_x, start_y):
         """Draw a category section"""
@@ -770,14 +856,13 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
             ax.add_patch(fill_rect)
 
             # Value text
-            val_x = bar_start_x + bar_width + 0.015
-            ax.text(val_x, y_pos, value_str, fontsize=10, color='white',
-                    transform=ax.transAxes, va='center', ha='left')
+            ax.text(val_right[start_x], y_pos, value_str, fontsize=10, color='white',
+                    transform=ax.transAxes, va='center', ha='right')
 
             # Percentile text
-            pct_x = val_x + 0.05
-            ax.text(pct_x, y_pos, f'{percentile:.0f}%', fontsize=10, fontweight='bold',
-                    color='white', transform=ax.transAxes, va='center', ha='left')
+            ax.text(pct_right[start_x], y_pos, f'{percentile:.0f}%', fontsize=10,
+                    fontweight='bold', color='white', transform=ax.transAxes,
+                    va='center', ha='right')
 
             y_pos -= row_height
 
@@ -790,15 +875,15 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     # Column headers
     header_y = y_start + 0.025
     # Left column headers
-    ax.text(left_col_x + 0.15 + bar_width + 0.015, header_y, 'PER 90', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
-    ax.text(left_col_x + 0.15 + bar_width + 0.065, header_y, 'PCTL', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
+    ax.text(val_right[left_col_x], header_y, 'PER 90', fontsize=10,
+            color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
+    ax.text(pct_right[left_col_x], header_y, 'PCTL', fontsize=10,
+            color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
     # Right column headers
-    ax.text(right_col_x + 0.15 + bar_width + 0.015, header_y, 'PER 90', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
-    ax.text(right_col_x + 0.15 + bar_width + 0.065, header_y, 'PCTL', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
+    ax.text(val_right[right_col_x], header_y, 'PER 90', fontsize=10,
+            color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
+    ax.text(pct_right[right_col_x], header_y, 'PCTL', fontsize=10,
+            color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
 
     y_left = y_start
     for cat in ['SCORING', 'CHANCE CREATION', 'PASSING']:
@@ -813,29 +898,18 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     gradient_width = 0.32
     legend_x = 0.75 - (gradient_width / 2)
 
-    abbrev_y = 0.20
-    ax.text(legend_x, abbrev_y + 0.02, 'ABBREVIATIONS', fontsize=8, fontweight='bold',
-            color='#556B7F', transform=ax.transAxes)
-
-    abbreviations = [
-        ('xG/Shot', 'Expected Goals per Shot'),
-        ('xA', 'Expected Assists'),
-        ('npxG+xA', 'Non-Penalty xG + xA'),
-    ]
-
-    line_height = 0.016
-    for i, (abbrev, full) in enumerate(abbreviations):
-        y = abbrev_y - (i * line_height)
-        ax.text(legend_x, y, f'{abbrev}', fontsize=7, color='white', fontweight='bold',
-                transform=ax.transAxes, va='center')
-        ax.text(legend_x + 0.065, y, f'= {full}', fontsize=7, color='#888888',
-                transform=ax.transAxes, va='center')
+    # Left where it is. It defines LEFT-column terms and sits on the right,
+    # which is a fair criticism - but the left column runs all three of its
+    # categories down to y=0.02 and has no room to receive it. Moving it needs
+    # a column rebalance, not a nudge, so that stays a Tier 3 question.
+    all_metric_names = [m['name'] for ms in results.values() for m in ms]
+    draw_glossary(ax, legend_x, 0.20, all_metric_names)
 
     # Percentile scale (below abbreviations)
     legend_y = 0.06
 
     ax.text(legend_x + gradient_width/2, legend_y + 0.03, 'PERCENTILE SCALE', ha='center',
-            fontsize=9, fontweight='bold', color='#556B7F', transform=ax.transAxes)
+            fontsize=10, fontweight='bold', color=LABEL_GREY, transform=ax.transAxes)
 
     # Draw gradient bar
     for i in range(100):
@@ -846,16 +920,15 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
                                     transform=ax.transAxes)
         ax.add_patch(rect)
 
-    ax.text(legend_x, legend_y - 0.015, '0%', fontsize=8, color='#888888',
+    ax.text(legend_x, legend_y - 0.018, '0%', fontsize=10, color=LABEL_GREY,
             ha='left', transform=ax.transAxes)
-    ax.text(legend_x + gradient_width/2, legend_y - 0.015, '50%', fontsize=8, color='#888888',
+    ax.text(legend_x + gradient_width/2, legend_y - 0.018, '50%', fontsize=10, color=LABEL_GREY,
             ha='center', transform=ax.transAxes)
-    ax.text(legend_x + gradient_width, legend_y - 0.015, '100%', fontsize=8, color='#888888',
+    ax.text(legend_x + gradient_width, legend_y - 0.018, '100%', fontsize=10, color=LABEL_GREY,
             ha='right', transform=ax.transAxes)
 
     # Footer
-    league_category = get_league_category(player_row.get('newestLeague', ''))
-    footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {position}s'
+    footer_right = build_footer_text(position, pool_label)
     fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.015, footer_right,
              fontsize=9, color='#666666', ha='right')
@@ -927,7 +1000,18 @@ def resolve_player_colors(player_rows, threshold=60):
                                 best_improvement = improvement
                                 best_fix = ('i', alt_i)
 
-                    # Check if alternate for player j helps
+                    # Check if alternate for player j helps.
+                    #
+                    # NOTE the >= here against the > above: on a tie the LATER
+                    # player is the one displaced. Two players from the same
+                    # club have identical alternates, so the tie is the common
+                    # case, and a strict > meant index 0 always lost its club
+                    # colour. That made a player's colour depend on who else
+                    # was in the frame: Mbappe rendered black beside a Real
+                    # Madrid team-mate and gold beside two other clubs, so the
+                    # same gold meant two different people across one family.
+                    # Displacing the later player keeps the first subject on
+                    # their own colour in every comparison they appear in.
                     if alt_j:
                         new_dist = color_distance(colors[i], alt_j)
                         other_ok = all(
@@ -936,7 +1020,7 @@ def resolve_player_colors(player_rows, threshold=60):
                         )
                         if new_dist >= threshold and other_ok:
                             improvement = new_dist - dist
-                            if improvement > best_improvement:
+                            if improvement >= best_improvement:
                                 best_improvement = improvement
                                 best_fix = ('j', alt_j)
 
@@ -1158,18 +1242,20 @@ def draw_player_info_strips(ax, fig, player_rows, player_colors, start_y, strip_
 
         # Layout: HEIGHT | WEIGHT | 90s - spread across this player's strip
         strip_center = strip_x + strip_width / 2
+        # Both branches now sit on the 9.6pt floor. The 3-player strip was at
+        # 6pt/9pt - 10.0px and 15.0px delivered - which is the reference data
+        # nobody could read on the chart carrying the MOST of it. The narrower
+        # card is paid for with the shorter labels, not with smaller type.
         if num_players == 2:
             # More space - spread out
             positions = [strip_x + strip_width * 0.2, strip_x + strip_width * 0.5, strip_x + strip_width * 0.8]
             labels = ['HEIGHT', 'WEIGHT', '90s']
-            label_size = 7
-            value_size = 10
         else:
             # 3 players - more compact
             positions = [strip_x + strip_width * 0.22, strip_x + strip_width * 0.5, strip_x + strip_width * 0.78]
             labels = ['HT', 'WT', '90s']
-            label_size = 6
-            value_size = 9
+        label_size = 10
+        value_size = 11
 
         values = [height_str, weight_str, f"{nineties:.1f}"]
 
@@ -1184,7 +1270,7 @@ def draw_player_info_strips(ax, fig, player_rows, player_colors, start_y, strip_
 
 def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, bar_x, start_y,
                       bar_width=0.25, bar_height=0.018, row_spacing=0.07,
-                      label_fontsize=9):
+                      label_fontsize=10):
     """Draw grouped horizontal bars for multiple players per metric.
 
     Bar fill is the player's team color at full saturation. Player identity is
@@ -1194,12 +1280,34 @@ def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, ba
     """
     y_pos = start_y
     num_players = len(player_names)
-    bar_gap = 0.003
-    group_height = num_players * (bar_height + bar_gap)
+    # Proportional to the bar, not a constant: when the 3-player layout thins
+    # its bars a fixed 0.003 became a proportionally WIDER split inside the
+    # group, working against the grouping it sits in.
+    bar_gap = 0.19 * bar_height
+    pitch = bar_height + bar_gap
+
+    # Bar i is centred at y_pos - i*pitch, so the group spans (n-1) pitches
+    # between the FIRST and LAST centres - not n. Using n put every metric
+    # label exactly half a pitch below its group: on a 2-player chart that
+    # landed the label on player 2's bar, so the label read as belonging to
+    # that player's row rather than to the pair.
+    group_span = (num_players - 1) * pitch
+
+    # The gap BETWEEN groups has to be held constant, not left as whatever
+    # row_spacing has after the group has eaten its share. Pinned at 0.07 it
+    # gave 2 players a 0.031 edge-to-edge gap against 0.003 within (10x, and
+    # legible) but 3 players only 0.010 (3x) - twelve bars fused into a single
+    # slab with the metric boundaries invisible.
+    #
+    # Solve for the gap instead of the pitch. GROUP_GAP is exactly what the
+    # 2-player layout already had, so that chart is unchanged to the pixel and
+    # only the 3-player case moves.
+    GROUP_GAP = row_spacing - pitch - bar_height
+    row_pitch = group_span + bar_height + GROUP_GAP
 
     for metric in metrics_data:
         metric_name = metric['name']
-        group_center_y = y_pos - group_height / 2
+        group_center_y = y_pos - group_span / 2
 
         ax.text(label_x, group_center_y, metric_name, fontsize=label_fontsize, color='white',
                 transform=ax.transAxes, va='center', ha='left')
@@ -1227,22 +1335,28 @@ def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, ba
             )
             ax.add_patch(fill_rect)
 
-            val_x = bar_x + bar_width + 0.01
-            ax.text(val_x, bar_y + bar_height / 2, value_str, fontsize=8, color='white',
-                    transform=ax.transAxes, va='center', ha='left')
+            # Right-aligned, same reason as the single-player chart: three
+            # figures stacked per metric are read by scanning DOWN, and
+            # left-aligned they stagger - "44.0%" sat where a bare decimal was
+            # expected and the percent signs never lined up.
+            ax.text(bar_x + bar_width + 0.045, bar_y + bar_height / 2, value_str,
+                    fontsize=10, color='white', transform=ax.transAxes,
+                    va='center', ha='right')
 
-            pct_x = val_x + 0.04
-            ax.text(pct_x, bar_y + bar_height / 2, f'{percentile:.0f}%', fontsize=8, fontweight='bold',
-                    color='white', transform=ax.transAxes, va='center', ha='left')
+            ax.text(bar_x + bar_width + 0.087, bar_y + bar_height / 2,
+                    f'{percentile:.0f}%', fontsize=10, fontweight='bold',
+                    color='white', transform=ax.transAxes, va='center',
+                    ha='right')
 
-        y_pos -= row_spacing
+        y_pos -= row_pitch
 
     return y_pos
 
 
 def create_multi_player_comparison_chart(results_by_player, player_rows, peer_count,
                                           comparison_position, output_path,
-                                          custom_title=None, custom_subtitle=None):
+                                          custom_title=None, custom_subtitle=None,
+                                          pool_label=None):
     """Create the multi-player comparison chart (combined view).
 
     Args:
@@ -1344,16 +1458,27 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     right_bar_x = 0.66
     bar_width = 0.23
 
-    # Row spacing and bar height depend on number of players
+    # Row spacing and bar height depend on number of players.
+    #
+    # The vertical budget is y_start (0.840) down to the legend (0.040) = 0.800,
+    # and the left column has to fit 11 metrics plus three category headers.
+    # The 3-player numbers below are SOLVED against that budget rather than
+    # guessed: the old 0.048/0.014 spent everything it had on the third bar and
+    # left the between-group gap at exactly 0.000, fusing twelve bars into one
+    # slab. Buying the gap back out of bar height and category chrome fits in
+    # 0.788 and separates better than the 2-player chart does.
+    #
+    #        row_pitch  content  between-group : within-group
+    #  n=2     0.0550    0.782         6.6x
+    #  n=3     0.0586    0.788         7.9x   (was 0.0480 / 0.684 / 0.0x)
     if num_players == 2:
         row_spacing = 0.055
         bar_height = 0.016
         category_gap = 0.025
     else:
-        # 3 players - more compact to fit everything
-        row_spacing = 0.048
-        bar_height = 0.014
-        category_gap = 0.018
+        row_spacing = 0.0443
+        bar_height = 0.012
+        category_gap = 0.014
 
     def draw_category_section(category, label_x, bar_x, y_pos):
         """Draw a category section with grouped bars."""
@@ -1363,10 +1488,10 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
         y_pos -= 0.022
 
         # Column headers (above bars)
-        ax.text(bar_x + bar_width + 0.01, y_pos + 0.01, 'PER 90', fontsize=7,
-                color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
-        ax.text(bar_x + bar_width + 0.05, y_pos + 0.01, 'PCTL', fontsize=7,
-                color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
+        ax.text(bar_x + bar_width + 0.045, y_pos + 0.01, 'PER 90', fontsize=10,
+                color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
+        ax.text(bar_x + bar_width + 0.087, y_pos + 0.01, 'PCTL', fontsize=10,
+                color=LABEL_GREY, transform=ax.transAxes, ha='right', fontweight='bold')
 
         y_pos -= 0.012
 
@@ -1389,47 +1514,31 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
         y_right = draw_category_section(cat, right_label_x, right_bar_x, y_right)
 
     # ── Abbreviations box (mid-right, consistency with single-player) ────
-    abbrev_x = 0.68
-    abbrev_y = 0.13
-    ax.text(abbrev_x, abbrev_y + 0.02, 'ABBREVIATIONS', fontsize=8,
-            fontweight='bold', color='#556B7F', transform=ax.transAxes)
-    for i, (ab, full) in enumerate([
-        ('xG/Shot', 'Expected Goals per Shot'),
-        ('xA',      'Expected Assists'),
-        ('npxG+xA', 'Non-Penalty xG + xA'),
-    ]):
-        y = abbrev_y - (i * 0.018)
-        ax.text(abbrev_x, y, ab, fontsize=7, color='white', fontweight='bold',
-                transform=ax.transAxes, va='center')
-        ax.text(abbrev_x + 0.06, y, f'= {full}', fontsize=7, color='#888888',
-                transform=ax.transAxes, va='center')
+    _all_names = [m[0] for ms in METRICS.values() for m in ms]
+    draw_glossary(ax, 0.68, 0.13, _all_names, line_height=0.020, term_gap=0.07)
 
-    # ── Compact player legend (bottom-left) ──────────────────────────────
-    # Reinforces "color = player" as a backup to the team-colored info strips
-    legend_y = 0.04
-    legend_start_x = 0.04
-    for i, (pname, color) in enumerate(zip(player_names, player_colors)):
-        item_x = legend_start_x + i * 0.13
-        display_name = (player_rows[i]['playerFullName']
-                        if 'playerFullName' in player_rows[i].index
-                        else player_rows[i].get('Player', ''))
-        if len(display_name) > 18:
-            display_name = display_name[:16] + '..'
-        swatch = mpatches.Rectangle((item_x, legend_y), 0.012, 0.012,
-                                     facecolor=color, edgecolor='none',
-                                     transform=ax.transAxes)
-        ax.add_patch(swatch)
-        ax.text(item_x + 0.015, legend_y + 0.006, display_name,
-                fontsize=8, color='white', transform=ax.transAxes, va='center')
+    # The compact player legend that used to sit here is GONE. It restated
+    # colour -> player about 1200px below the header cards, which already carry
+    # each player's name directly above their own coloured strip and their own
+    # bars. Both a cold viewer and a cold designer reported it independently:
+    # the viewer never used it and decoded the chart from the header chips, the
+    # designer called it redundant. Removing it also stops the "Final 3rd
+    # Passes" label colliding with it on the taller 3-player layout.
 
     # ── Footer ───────────────────────────────────────────────────────────
     info_x = 0.98
-    league_category = get_league_category(player_rows[0].get('newestLeague', ''))
-    footer_right = f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s  •  {league_category}' if league_category else f'Data: Opta/STATS Perform  •  Percentile rank among {comparison_position}s'
-    fig.text(info_x, 0.038, footer_right,
-             fontsize=8, color='#666666', ha='right')
-    fig.text(info_x, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
-             color=CBS_BLUE_LIGHT, ha='right')
+    # Was player_rows[0] - so on a multi-player chart whichever player the user
+    # happened to pick FIRST labelled the whole frame, and no single player's
+    # league can describe a pool at all.
+    footer_right = build_footer_text(comparison_position, pool_label)
+    # CBS SPORTS bottom-LEFT with the source line bottom-right, matching the
+    # single-player chart and the rest of the CBS family. This builder had them
+    # stacked on the right, so two charts from one family branded on opposite
+    # sides of the frame.
+    fig.text(info_x, 0.015, footer_right, fontsize=8, color='#666666',
+             ha='right')
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
+             color=CBS_BLUE_LIGHT)
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
@@ -1437,7 +1546,8 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
 
 
 def create_multi_player_category_chart(category, results_by_player, player_rows,
-                                        peer_count, comparison_position, output_path):
+                                        peer_count, comparison_position, output_path,
+                                        pool_label=None):
     """Create an individual category chart for multi-player comparison.
 
     Args:
@@ -1506,9 +1616,9 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
 
     # Column headers
     ax.text(bar_x + bar_width + 0.02, bars_start_y + 0.02, 'PER 90', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
+            color=LABEL_GREY, transform=ax.transAxes, ha='left', fontweight='bold')
     ax.text(bar_x + bar_width + 0.07, bars_start_y + 0.02, 'PCTL', fontsize=8,
-            color='#556B7F', transform=ax.transAxes, ha='left', fontweight='bold')
+            color=LABEL_GREY, transform=ax.transAxes, ha='left', fontweight='bold')
 
     # Calculate row spacing to fit content in available space
     available_height = bars_start_y - content_bottom - 0.02
@@ -1520,8 +1630,7 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
                       row_spacing=row_spacing, label_fontsize=15)
 
     # Footer
-    league_category = get_league_category(player_rows[0].get('newestLeague', ''))
-    footer_right = f'Data: Opta/STATS Perform  •  {league_category}' if league_category else 'Data: Opta/STATS Perform'
+    footer_right = build_footer_text(comparison_position, pool_label)
     fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
     fig.text(0.98, 0.015, footer_right,
              fontsize=8, color='#666666', ha='right')

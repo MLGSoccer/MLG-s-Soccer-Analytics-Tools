@@ -37,6 +37,16 @@ POOL_LABELS = {
 }
 MEN_POOLS = {"europe", "north_america"}
 
+# What the PEER POOL is called on the chart footer. Deliberately not POOL_LABELS
+# above: those name the picker option ("Europe"), these name the population the
+# percentiles were computed against, which is what the footer claims.
+POOL_FOOTER = {
+    "europe": "Big 5 European Leagues",
+    "north_america": "Americas Big 4",
+    "womens": "Women's Soccer",
+    "combined": "Europe + North America",
+}
+
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 
@@ -74,7 +84,8 @@ def _load_player_data_cached(file_content):
 
 @st.cache_data(show_spinner=False)
 def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=(),
-                                    custom_title=None, custom_subtitle=None, player_id=None):
+                                    custom_title=None, custom_subtitle=None, player_id=None,
+                                    pool_label=None):
     """Generate single-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results, player_row, peer_count, final_position = get_player_percentiles(
@@ -98,7 +109,8 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, "player_comparison.png")
         create_comparison_chart(results, player_row, peer_count, output_path, final_position,
-                                custom_title=custom_title, custom_subtitle=custom_subtitle)
+                                custom_title=custom_title, custom_subtitle=custom_subtitle,
+                                pool_label=pool_label)
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
@@ -107,7 +119,8 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
             if category in results:
                 cat_slug = category.lower().replace(' ', '_')
                 cat_path = os.path.join(tmp_dir, f"{cat_slug}.png")
-                create_category_chart(category, results[category], player_row, peer_count, cat_path, final_position)
+                create_category_chart(category, results[category], player_row, peer_count, cat_path, final_position,
+                                      pool_label=pool_label)
                 with open(cat_path, "rb") as f:
                     charts[f"{cat_slug}.png"] = (category.title(), f.read())
 
@@ -116,7 +129,8 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
 
 @st.cache_data(show_spinner=False)
 def _generate_multi_player_charts(file_content, selected_players, min_minutes, compare_position, color_overrides=(),
-                                   custom_title=None, custom_subtitle=None, player_ids=()):
+                                   custom_title=None, custom_subtitle=None, player_ids=(),
+                                   pool_label=None):
     """Generate multi-player comparison charts and return image bytes."""
     df = _load_player_data_cached(file_content)
     results_by_player, player_rows, peer_count, final_position = get_multiple_player_percentiles(
@@ -143,7 +157,8 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, "multi_player_comparison.png")
         create_multi_player_comparison_chart(results_by_player, player_rows, peer_count, final_position, output_path,
-                                             custom_title=custom_title, custom_subtitle=custom_subtitle)
+                                             custom_title=custom_title, custom_subtitle=custom_subtitle,
+                                             pool_label=pool_label)
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
@@ -151,7 +166,8 @@ def _generate_multi_player_charts(file_content, selected_players, min_minutes, c
         for category in categories:
             cat_slug = category.lower().replace(' ', '_')
             cat_path = os.path.join(tmp_dir, f"multi_{cat_slug}.png")
-            create_multi_player_category_chart(category, results_by_player, player_rows, peer_count, final_position, cat_path)
+            create_multi_player_category_chart(category, results_by_player, player_rows, peer_count, final_position, cat_path,
+                                               pool_label=pool_label)
             with open(cat_path, "rb") as f:
                 charts[f"multi_{cat_slug}.png"] = (category.title(), f.read())
 
@@ -271,7 +287,7 @@ def _get_team_overrides(selected_players, df, selected_ids=None):
 
 
 def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None,
-                    custom_title=None, custom_subtitle=None, selected_ids=None):
+                    custom_title=None, custom_subtitle=None, selected_ids=None, pool_label=None):
     """Run chart generation and store results in session state."""
     st.session_state["player_comparison_charts"] = None
 
@@ -285,7 +301,7 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             charts, peer_count, final_position = _generate_single_player_charts(
                 file_content, player_name, min_minutes, compare_position, color_overrides,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
-                player_id=(selected_ids or [None])[0]
+                player_id=(selected_ids or [None])[0], pool_label=pool_label
             )
             if charts is None:
                 st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
@@ -302,7 +318,7 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             charts, peer_count, final_position = _generate_multi_player_charts(
                 file_content, tuple(selected_players), min_minutes, compare_position, color_overrides,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
-                player_ids=tuple(selected_ids or ())
+                player_ids=tuple(selected_ids or ()), pool_label=pool_label
             )
             if charts is None:
                 st.error("One or more players not found or don't meet minimum minutes.")
@@ -476,6 +492,7 @@ if not use_manual:
 
     # Pool routing for selected players
     file_content = None
+    pool_label = None          # names the PEER POOL on the footer
     if selected_labels:
         # Find which pools the selected players are in
         player_pools_found = set()
@@ -491,6 +508,7 @@ if not use_manual:
             # Normal case — single pool
             pool_key = list(player_pools_found)[0]
             file_content = pools[pool_key]["content"]
+            pool_label = POOL_FOOTER.get(pool_key)
 
         elif player_pools_found <= MEN_POOLS:
             # Europe + North America overlap — offer choice
@@ -505,10 +523,12 @@ if not use_manual:
                 combined_df = pd.concat(dfs, ignore_index=True).drop_duplicates()
                 combined_bytes = combined_df.to_csv(index=False).encode("utf-8")
                 file_content = combined_bytes
+                pool_label = POOL_FOOTER["combined"]
                 can_generate = True
             else:
                 chosen_key = [k for k, v in POOL_LABELS.items() if v == pool_choice][0]
                 file_content = pools[chosen_key]["content"]
+                pool_label = POOL_FOOTER.get(chosen_key)
                 can_generate = True
 
         elif "womens" in player_pools_found and (player_pools_found & MEN_POOLS):
@@ -534,7 +554,7 @@ if not use_manual:
                     _df = pools[next(iter(pool_keys))]["df"]
             _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df,
                             custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc,
-                            selected_ids=selected_ids)
+                            selected_ids=selected_ids, pool_label=pool_label)
     elif not selected_labels:
         if comparison_mode == "Single Player":
             st.info("Select a player from the sidebar to analyze")
@@ -569,6 +589,8 @@ else:
 
             if can_generate:
                 if st.button("Generate Charts", type="primary"):
+                    # No pool_label: an uploaded CSV has no known peer pool, so
+                    # the footer omits that segment rather than naming one.
                     _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position,
                                     custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc)
             else:
