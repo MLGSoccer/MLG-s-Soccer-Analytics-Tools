@@ -20,7 +20,7 @@ from shared.motherduck import (
     get_teams_by_league, get_players_with_minutes_for_team, get_player_game_log,
     season_label, player_chart_subject,
 )
-from shared.rolling import longest_segment
+from shared.rolling import longest_segment, season_competition
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Player Rolling xG", page_icon="📊", layout="wide")
@@ -288,11 +288,32 @@ if data_source == "Database":
             # seen is ordered by first appearance (chronological since matches sorted ASC)
             season_options = list(seen.values())
             if len(season_options) > 1:
+                # Entries are seasonIds, and a European campaign is its OWN
+                # seasonId - so this control already separates competitions,
+                # not just years. Labelling it "Filter by Season" hid that: on
+                # Watkins both entries are 2025/26 and the only thing that
+                # differs is Premier League vs Europa League.
+                n_comps = len({season_competition(o) for o in season_options})
                 selected_seasons = st.multiselect(
-                    "Filter by Season",
+                    "Filter by competition / season",
                     options=season_options,
                     default=season_options,
+                    help=("Deselect a competition to chart one alone. Worth "
+                          "doing when the mix matters: a rolling form line "
+                          "pools every competition selected, and so does the "
+                          "'vs his average' baseline."),
                 )
+                if n_comps > 1:
+                    # 28.3% of chartable players mix competitions, a median 23%
+                    # of their matches in the secondary one. The chart cannot
+                    # mark them - they interleave, averaging 9.9 switches per
+                    # career - so the honest answer is to make separating them
+                    # a two-click job and say so.
+                    st.caption(
+                        f"This selection spans **{n_comps} competitions**. The "
+                        f"rolling lines average them together — deselect above "
+                        f"to chart one on its own."
+                    )
                 selected_season_ids = {sid for sid, name in seen.items() if name in selected_seasons}
                 matches = [m for m in matches if m["season"] in selected_season_ids]
             else:
