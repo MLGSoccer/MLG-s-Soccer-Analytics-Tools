@@ -32,7 +32,7 @@ from shared.file_utils import get_file_path, get_output_folder
 from shared.rolling import (
     find_season_segments, segment_starts, rolling_average, longest_segment,
     partial_rolling_average, format_season_text, draw_season_boundaries,
-    fill_signed,
+    fill_signed, InsufficientMatches,
 )
 
 __all__ = ['parse_trumedia_csv', 'create_rolling_charts',
@@ -408,24 +408,6 @@ def parse_event_log_csv(filepath, target_team=None, gui_mode=False):
     print(f"[OK] Found {len(team_matches)} matches")
 
     return team_matches, target_team, team_color
-
-
-class InsufficientMatches(ValueError):
-    """Raised when no rolling window in the selection is ever full.
-
-    Not a warning: a 'W-game rolling average' over fewer than W matches in any
-    one season has nothing to draw, and the old code drew the raw per-match
-    values instead - a 2-match selection rendered as a '10-GAME ROLLING
-    AVERAGE'. Callers should catch this and offer the largest usable window.
-    """
-
-    def __init__(self, window, usable):
-        self.window = window
-        self.usable = usable
-        super().__init__(
-            f"A {window}-game rolling average needs {window} matches in one "
-            f"season; the longest run here is {usable}."
-        )
 
 
 def _series(matches, window):

@@ -92,6 +92,94 @@ def segment_starts(segments):
     return [s["start"] for s in segments]
 
 
+class InsufficientMatches(ValueError):
+    """Raised when no rolling window in the selection is ever full.
+
+    Not a warning: a 'W-game rolling average' over fewer than W matches in any
+    one season has nothing to draw, and the old code drew the raw per-match
+    values instead - a 2-match selection rendered as a '10-GAME ROLLING
+    AVERAGE'. Callers should catch this and offer the largest usable window.
+
+    Lives here rather than in either chart because both raise it. It was
+    defined in team_rollingxg_chart.py first and is still re-exported from
+    there, so existing imports keep working.
+    """
+
+    def __init__(self, window, usable):
+        self.window = window
+        self.usable = usable
+        super().__init__(
+            f"A {window}-game rolling average needs {window} matches in one "
+            f"season; the longest run here is {usable}."
+        )
+
+
+def _segment_start(i, starts):
+    """1-indexed start of the segment containing 0-indexed position `i`."""
+    seg_start = 1
+    for s in starts:
+        if s <= i + 1:
+            seg_start = s
+        else:
+            break
+    return seg_start
+
+
+def rolling_ratio(numerators, denominators, window=10, starts=None, scale=1.0):
+    """Trailing SUM(num) / SUM(den) * scale, NaN until the window is full.
+
+    The general form of `rolling_average`, which is the case where every
+    denominator is 1 and scale is 1. The player chart needs the other cases: a
+    minutes-weighted per-90 rate (denominator = minutes, scale = 90) and xG per
+    shot (denominator = shots, scale = 1).
+
+    Weighting by the denominator rather than averaging per-match rates is the
+    correct estimator and already what the player chart did. What it did not do
+    is refuse to draw an unfilled window, which is the whole point of this
+    module - see the note at the top of the file.
+
+    NaN, not 0, where the denominator sums to zero. xG per shot across a
+    stretch with no shots is undefined; drawn as 0.0 it reads as "he was taking
+    worthless shots" rather than "he took none", and a cold analyst read it
+    exactly that way.
+    """
+    starts = sorted(starts or [1])
+    out = []
+    for i in range(len(numerators)):
+        available = (i + 1) - _segment_start(i, starts) + 1
+        if available < window:
+            out.append(float("nan"))
+            continue
+        lo = i - window + 1
+        den = float(sum(denominators[lo:i + 1]))
+        out.append(float(sum(numerators[lo:i + 1])) / den * scale
+                   if den > 0 else float("nan"))
+    return out
+
+
+def partial_rolling_ratio(numerators, denominators, window=10, starts=None,
+                          scale=1.0, min_samples=1):
+    """The provisional lead-in for `rolling_ratio`. See `partial_rolling_average`."""
+    starts = sorted(starts or [1])
+    full = rolling_ratio(numerators, denominators, window, starts, scale)
+    out = []
+    for i in range(len(numerators)):
+        seg_start = _segment_start(i, starts)
+        available = (i + 1) - seg_start + 1
+        first_full = available == window
+        if not (min_samples <= available < window or first_full):
+            out.append(float("nan"))
+            continue
+        if first_full:
+            out.append(full[i])
+            continue
+        lo = seg_start - 1
+        den = float(sum(denominators[lo:i + 1]))
+        out.append(float(sum(numerators[lo:i + 1])) / den * scale
+                   if den > 0 else float("nan"))
+    return out
+
+
 def rolling_average(values, window=10, starts=None):
     """Trailing mean over `window` values, NaN wherever the window is not full.
 
@@ -100,21 +188,7 @@ def rolling_average(values, window=10, starts=None):
     point: matplotlib leaves a gap, so the chart draws the statistic it claims
     to draw and nothing else.
     """
-    starts = sorted(starts or [1])
-    out = []
-    for i in range(len(values)):
-        seg_start = 1
-        for s in starts:
-            if s <= i + 1:
-                seg_start = s
-            else:
-                break
-        available = (i + 1) - seg_start + 1
-        if available < window:
-            out.append(float("nan"))
-        else:
-            out.append(float(np.mean(values[i - window + 1:i + 1])))
-    return out
+    return rolling_ratio(values, [1] * len(values), window, starts)
 
 
 def partial_rolling_average(values, window=10, starts=None, min_samples=1):
@@ -137,25 +211,8 @@ def partial_rolling_average(values, window=10, starts=None, min_samples=1):
     by the full-window series with only a bounded stretch for this one. See
     `_PARTIAL_HEADROOM` in team_rollingxg_chart.py.
     """
-    starts = sorted(starts or [1])
-    full = rolling_average(values, window, starts)
-    out = []
-    for i in range(len(values)):
-        seg_start = 1
-        for s in starts:
-            if s <= i + 1:
-                seg_start = s
-            else:
-                break
-        available = (i + 1) - seg_start + 1
-        first_full = available == window
-        if min_samples <= available < window or first_full:
-            lo = seg_start - 1
-            out.append(full[i] if first_full
-                       else float(np.mean(values[lo:i + 1])))
-        else:
-            out.append(float("nan"))
-    return out
+    return partial_rolling_ratio(values, [1] * len(values), window, starts,
+                                 min_samples=min_samples)
 
 
 def longest_segment(matches):

@@ -11,12 +11,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mostly_finished_charts.player_rollingxg_chart import (
     parse_player_summary_csv,
     create_rolling_charts,
-    create_individual_charts
+    create_individual_charts,
+    create_aspect_chart,
+    InsufficientMatches,
+    NoShots,
 )
 from shared.motherduck import (
     get_teams_by_league, get_players_with_minutes_for_team, get_player_game_log,
-    season_label,
+    season_label, player_chart_subject,
 )
+from shared.rolling import longest_segment
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Player Rolling xG", page_icon="📊", layout="wide")
@@ -35,31 +39,52 @@ def _parse_player_csv_cached(file_content):
         os.unlink(tmp_path)
 
 
-@st.cache_data
-def _generate_player_charts(file_content, player_name, team_name, team_color, season, window_size, player_info,
-                            custom_title=None, custom_subtitle=None):
-    """Generate all charts and return image bytes, cached to survive reruns."""
-    matches, _, _, _, _, _ = _parse_player_csv_cached(file_content)
+def _build_chart_images(matches, player_name, team_name, team_color, season,
+                        window_size, player_info=None, custom_title=None,
+                        custom_subtitle=None, aspect="16:9"):
+    """Generate chart images from a matches list. Returns charts dict.
 
+    ONE generation path for both data sources and all three aspects. The DB
+    branch used to inline this whole block inside its `st.button`, so the
+    review harness could not call the page's own code the way the momentum and
+    team harnesses do - it had to reproduce the page's argument derivation and
+    keep it in sync by hand. Mirrors `_build_chart_images` on page 1.
+
+    16:9 gives the four-panel dashboard plus its four standalone panels. The
+    phone aspects give ONE chart - GOALS/90 vs xG/90 - because a 2x2 grid at
+    9:16 produces four panels none of which is readable.
+    """
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
+        if aspect != "16:9":
+            key = {"9:8 (tile)": "9x8", "9:16 (vertical)": "9x16"}[aspect]
+            path = os.path.join(tmp_dir, "aspect.png")
+            create_aspect_chart(matches, player_name, team_name, team_color,
+                                path, window_size, aspect=key,
+                                custom_title=custom_title,
+                                custom_subtitle=custom_subtitle)
+            with open(path, "rb") as f:
+                charts["combined"] = f.read()
+            return charts
+
         safe_name = player_name.replace(' ', '_').replace('.', '')
         output_path = os.path.join(tmp_dir, f"{safe_name}_rolling_analysis.png")
 
         create_rolling_charts(matches, player_name, team_name, team_color,
-                             season, output_path, window_size, player_info,
-                             custom_title=custom_title, custom_subtitle=custom_subtitle)
+                              season, output_path, window_size, player_info,
+                              custom_title=custom_title,
+                              custom_subtitle=custom_subtitle)
         with open(output_path, "rb") as f:
             charts["combined"] = f.read()
 
         create_individual_charts(matches, player_name, team_name, team_color,
-                                season, tmp_dir, window_size, player_info)
+                                 season, tmp_dir, window_size, player_info)
 
         individual_charts = [
             ("player_goals_vs_xg_rolling.png", "Goals vs xG Rolling"),
-            ("player_xg_per90_trend.png", "xG per 90 Trend"),
+            ("player_xg_per90_trend.png", "xG Trend"),
             ("player_shot_volume_quality.png", "Shot Volume & Quality"),
-            ("player_last10_vs_avg.png", "Last 10 vs Season Avg"),
+            ("player_last10_vs_avg.png", "Last 10 vs His Average"),
         ]
         for filename, title in individual_charts:
             filepath = os.path.join(tmp_dir, filename)
@@ -68,6 +93,46 @@ def _generate_player_charts(file_content, player_name, team_name, team_color, se
                     charts[filename] = (title, f.read())
 
     return charts
+
+
+@st.cache_data
+def _generate_player_charts(file_content, player_name, team_name, team_color, season, window_size, player_info,
+                            custom_title=None, custom_subtitle=None, aspect="16:9"):
+    """CSV-mode wrapper: parse the upload, then build. Cached across reruns."""
+    matches, _, _, _, _, _ = _parse_player_csv_cached(file_content)
+    return _build_chart_images(matches, player_name, team_name, team_color,
+                               season, window_size, player_info,
+                               custom_title=custom_title,
+                               custom_subtitle=custom_subtitle, aspect=aspect)
+
+
+def _player_chart_note(matches, window, player_name):
+    """Tell the operator up front whether this selection can carry the chart.
+
+    The chart now refuses two selections it used to draw: one with no shots in
+    it at all, and one shorter than the rolling window. Both are common - 22.1%
+    and 45.4% of selectable players respectively - and every goalkeeper in the
+    picker is one click from the first. Saying so before the Generate click is
+    cheaper than an error after it. Mirrors `_window_note` on the team page.
+    """
+    if sum(m["shots"] for m in matches) == 0:
+        st.error(
+            f"**{player_name}** has no shots in this selection, so there is no "
+            f"xG to chart. This is normal for a goalkeeper or a defender - try "
+            f"an attacking player, or widen the season filter."
+        )
+        return False
+    usable = longest_segment([{"season": m.get("season_name") or m.get("season", "")}
+                              for m in matches])
+    if usable < window:
+        st.error(
+            f"A {window}-game rolling average needs {window} matches inside one "
+            f"season. The longest run in this selection is {usable}. Lower the "
+            f"Rolling Window slider to {max(usable, 3)} or below, or widen the "
+            f"season filter."
+        )
+        return False
+    return True
 
 
 def _render_chart_outputs(charts, player_name):
@@ -82,11 +147,18 @@ def _render_chart_outputs(charts, player_name):
         mime="image/png"
     )
 
+    # The phone aspects return a single chart, so there is no panel section to
+    # head. Without this guard they printed an "Individual Charts" subheader
+    # over nothing.
+    individual_keys = [k for k in charts if k != "combined"]
+    if not individual_keys:
+        st.success("Chart generated successfully!")
+        return
+
     st.markdown("---")
     st.subheader("Individual Charts")
 
     col1, col2 = st.columns(2)
-    individual_keys = [k for k in charts if k != "combined"]
 
     for i, key in enumerate(individual_keys):
         title, img_bytes = charts[key]
@@ -125,6 +197,16 @@ window_size = st.sidebar.slider(
     max_value=15,
     value=10,
     help="Number of games to average over"
+)
+
+aspect = st.sidebar.radio(
+    "Aspect",
+    ["16:9", "9:8 (tile)", "9:16 (vertical)"],
+    help=("16:9 is the four-panel dashboard plus its four standalone panels. "
+          "The two phone shapes give a single GOALS/90 vs xG/90 chart. Unlike "
+          "the team charts these use a per-chart y-scale rather than a shared "
+          "one: player rates run from a goalkeeper's zero to a striker's 3.5, "
+          "and no shared ceiling fits both."),
 )
 
 # ── DATABASE MODE ──────────────────────────────────────────────────────────────
@@ -186,9 +268,10 @@ if data_source == "Database":
                 "run the Data Manager → Minutes & Cards Downloads."
             )
         else:
-            # Derive team info from most recent match
-            team_name = matches[-1]['team_name']
-            team_color = matches[-1]['team_color']
+            # The club with the most appearances, resolved on team_id through
+            # the registry -- NOT matches[-1], which for 5.2% of players is an
+            # international and titled the chart with a national side.
+            _tid, team_name, team_color = player_chart_subject(matches)
             season = ""  # DB mode spans multiple seasons
 
             st.success(
@@ -219,50 +302,35 @@ if data_source == "Database":
                 st.warning("No games match the selected seasons.")
                 st.stop()
 
-            if len(matches) < 5:
-                st.warning("Warning: Few matches found. Rolling average may be less meaningful.")
+            # Re-resolve after the season filter: narrowing to one season can
+            # change which club owns most of the selection.
+            _tid, team_name, team_color = player_chart_subject(matches)
 
             custom_title, custom_subtitle = custom_title_inputs(
                 "player_rolling_db", selected_player_name.upper()
             )
+
+            if not _player_chart_note(matches, window_size,
+                                      selected_player_name):
+                st.stop()
 
             if st.button("Generate Charts", type="primary", key="db_gen"):
                 st.session_state["player_rolling_xg_charts"] = None
                 st.session_state["player_rolling_xg_name"] = None
                 with st.spinner("Generating charts..."):
                     try:
-                        charts = {}
-                        with tempfile.TemporaryDirectory() as tmp_dir:
-                            safe_name = selected_player_name.replace(' ', '_').replace('.', '')
-                            output_path = os.path.join(tmp_dir, f"{safe_name}_rolling_analysis.png")
-
-                            create_rolling_charts(
-                                matches, selected_player_name, team_name, team_color,
-                                season, output_path, window_size, player_info=None,
-                                custom_title=custom_title, custom_subtitle=custom_subtitle
-                            )
-                            with open(output_path, "rb") as f:
-                                charts["combined"] = f.read()
-
-                            create_individual_charts(
-                                matches, selected_player_name, team_name, team_color,
-                                season, tmp_dir, window_size
-                            )
-
-                            individual_charts = [
-                                ("player_goals_vs_xg_rolling.png", "Goals vs xG Rolling"),
-                                ("player_xg_per90_trend.png", "xG per 90 Trend"),
-                                ("player_shot_volume_quality.png", "Shot Volume & Quality"),
-                                ("player_last10_vs_avg.png", "Last 10 vs Season Avg"),
-                            ]
-                            for filename, title in individual_charts:
-                                filepath = os.path.join(tmp_dir, filename)
-                                if os.path.exists(filepath):
-                                    with open(filepath, "rb") as f:
-                                        charts[filename] = (title, f.read())
-
+                        charts = _build_chart_images(
+                            matches, selected_player_name, team_name,
+                            team_color, season, window_size, player_info=None,
+                            custom_title=custom_title,
+                            custom_subtitle=custom_subtitle, aspect=aspect)
                         st.session_state["player_rolling_xg_charts"] = charts
                         st.session_state["player_rolling_xg_name"] = selected_player_name
+                    except (InsufficientMatches, NoShots) as e:
+                        # The pre-flight note above should have caught these;
+                        # the chart refuses too so a stale session or a code
+                        # path that skips the note cannot draw something false.
+                        st.error(str(e))
                     except Exception as e:
                         st.error(f"Chart generation failed: {e}")
 
@@ -314,9 +382,11 @@ else:
             if st.button("Generate Charts", type="primary"):
                 st.session_state["player_rolling_xg_charts"] = None
                 with st.spinner("Generating charts..."):
-                    charts = _generate_player_charts(file_content, player_name, team_name,
-                                                     team_color, season, window_size, player_info,
-                                                     custom_title=custom_title, custom_subtitle=custom_subtitle)
+                    charts = _generate_player_charts(
+                        file_content, player_name, team_name, team_color,
+                        season, window_size, player_info,
+                        custom_title=custom_title,
+                        custom_subtitle=custom_subtitle, aspect=aspect)
                     st.session_state["player_rolling_xg_charts"] = charts
                     st.session_state["player_rolling_xg_name"] = player_name
 

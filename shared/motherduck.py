@@ -1225,19 +1225,36 @@ def get_player_all_minutes(player_name, shooter_id=None,
 
 
 @st.cache_data(ttl=3600)
-def get_player_game_log(player_id, player_name):
+def get_player_game_log(player_id, player_name, include_international=False):
     """Return per-game stats for a player joined with minutes played.
 
     Drives from player_game_minutes (keyed by playerId -- no fuzzy matching) so
     shot-free games are included (shown as 0 shots/xg/goals).
     Returns list of dicts matching the format expected by create_rolling_charts():
-        {date, opponent, result, minutes, goals, xg, shots, season, team_name, team_color}
+        {date, opponent, result, minutes, goals, xg, shots, season, team_id,
+         team_name, team_color}
     Only includes games where minutes data is available in player_game_minutes.
+
+    NATIONAL-TEAM GAMES ARE EXCLUDED by default, matching
+    `get_player_all_minutes`, which has always taken this position. This
+    function did not, and the mismatch showed: a club player's chart carried
+    his World Cup matches with nothing marking them, so 23.6% of regular
+    attackers had club and country averaged into one "form" line, the subtitle
+    counted the World Cup as a competition, and the most recent appearance -
+    which the chart took its title and colour from - was an international for
+    579 players.
+
+    Measured over production: 1,039 of 11,212 selectable players (9.3%) have at
+    least one international game, and 667 of the 6,125 with a chartable sample
+    carry one inside their last ten.
     """
     if not player_id:
         return []
     con = get_connection()
-    rows = con.execute("""
+    exclude = () if include_international else tuple(sorted(international_season_ids()))
+    intl_filter = ("" if not exclude else
+                   " AND g.seasonId NOT IN (" + ",".join("?" * len(exclude)) + ")")
+    rows = con.execute(f"""
         WITH shot_stats AS (
             SELECT gameId,
                    SUM(CASE WHEN playType IN ('Goal', 'PenaltyGoal') THEN 1 ELSE 0 END) AS goals,
@@ -1274,20 +1291,21 @@ def get_player_game_log(player_id, player_name):
             COALESCE(ss.xg,    0.0) AS xg,
             COALESCE(ss.shots, 0) AS shots,
             ti.newestTeamColor,
-            g.seasonId
+            g.seasonId,
+            pgm.teamId
         FROM player_game_minutes pgm
         JOIN games g ON pgm.gameId = g.gameId
         LEFT JOIN shot_stats ss ON pgm.gameId = ss.gameId
         LEFT JOIN team_info ti ON pgm.gameId = ti.gameId
-        WHERE pgm.playerId = ?
+        WHERE pgm.playerId = ?{intl_filter}
         ORDER BY g.Date ASC
-    """, [player_id, player_id, player_id]).fetchall()
+    """, [player_id, player_id, player_id, *exclude]).fetchall()
 
     season_names = _load_config().get('seasons', {})
 
     matches = []
     for (date_str, opponent, home_score, away_score, home_team, team_full,
-         minutes, goals, xg, shots, team_color, season_id) in rows:
+         minutes, goals, xg, shots, team_color, season_id, team_id) in rows:
         is_home = team_full == home_team
         team_score = home_score if is_home else away_score
         opp_score = away_score if is_home else home_score
@@ -1310,10 +1328,65 @@ def get_player_game_log(player_id, player_name):
             "shots": int(shots or 0),
             "season": season_id or "",
             "season_name": season_names.get(season_id, "") if season_id else "",
+            "team_id": team_id or "",
             "team_name": team_full or "",
-            "team_color": team_color or "#808080",
+            "team_color": team_color or "",
         })
     return matches
+
+
+def player_chart_subject(matches):
+    """Which club a player chart is ABOUT, resolved on team_id.
+
+    Returns (team_id, display_name, colour).
+
+    The subject is the MOST RECENT CLUB appearance - the last match in the
+    selection that is not a national-team one.
+
+    The page used to take both from `matches[-1]`, the most recent appearance
+    of any kind. For 579 of the 11,212 selectable players (5.2%) that match is
+    INTERNATIONAL, so the chart was titled and coloured with a national side:
+    Ollie Watkins' 54-match chart read "OLLIE WATKINS - ENGLAND" in England red
+    with 52 of those games played for Aston Villa, and the same happened to
+    Gyokeres, Saliba, Tchouameni, Martinelli and Sorloth. All three cold lenses
+    named it; the viewer said "the chart never names his club anywhere".
+
+    Picking the club with the MOST appearances was tried first and is WRONG.
+    It fixes the international case by accident and breaks the transfer case on
+    purpose: a player who moved in January has more games for the club he LEFT,
+    so his chart would be titled with it. Recency is the right key - "who does
+    he play for" has one answer and it is the current one - and skipping
+    internationals is the whole of the actual defect.
+
+    A transfer inside the window remains a real limitation: both clubs' matches
+    sit under the current club's name. That is a MARKING problem, not a naming
+    one - the title is right and the frame should say a move happened.
+
+    Name and colour then resolve through the REGISTRY on that id, which this
+    surface never did. It was the one CBS chart the team-naming pass missed -
+    it had no fuzzy call to convert, so it was not among the 14 sites - and it
+    read the feed's own `newestTeamColor`, which is absent for 19.2% of
+    players' final appearance and fell through to a flat grey #808080.
+    """
+    from shared.team_registry import NEUTRAL
+    if not matches:
+        return "", "", NEUTRAL
+
+    intl = international_season_ids()
+    club_games = [m for m in matches if (m.get("season") or "") not in intl]
+    # A selection holding nothing but national-team games has no club to name,
+    # so the national side is then the honest subject.
+    pool = club_games or matches
+    team_id = pool[-1].get("team_id") or ""
+
+    feed_name, feed_colour = "", None
+    for m in pool:
+        if (m.get("team_id") or "") == team_id:
+            feed_name = m.get("team_name") or feed_name
+            feed_colour = feed_colour or (m.get("team_color") or None)
+    return (team_id,
+            team_label(team_id, feed_name),
+            resolve_single_team_colour(feed_name, feed_colour, team_id=team_id))
 
 
 def _events_has(con, *cols):
