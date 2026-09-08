@@ -18,6 +18,7 @@ from shared.colors import fuzzy_match_team, TEAM_COLORS
 from pages.streamlit_utils import custom_title_inputs
 from mostly_finished_charts.player_comparison_chart import (
     load_player_data,
+    create_comparison_aspect_chart,
     get_player_percentiles,
     get_multiple_player_percentiles,
     create_comparison_chart,
@@ -43,7 +44,11 @@ MEN_POOLS = {"europe", "north_america"}
 POOL_FOOTER = {
     "europe": "Big 5 European Leagues",
     "north_america": "Americas Big 4",
-    "womens": "Women's Soccer",
+    # NOT "Women's Soccer" - that is a sport, not a population. The two men's
+    # labels name a countable set and this one did not, so a cold reader took
+    # a 100th percentile on that card as best in women's football. The pool is
+    # exactly four leagues: NWSL, Frauen Bundesliga, Premiere Ligue, WSL.
+    "womens": "Big 4 Women's Leagues",
     "combined": "Europe + North America",
 }
 
@@ -85,8 +90,16 @@ def _load_player_data_cached(file_content):
 @st.cache_data(show_spinner=False)
 def _generate_single_player_charts(file_content, player_name, min_minutes, compare_position, color_overrides=(),
                                     custom_title=None, custom_subtitle=None, player_id=None,
-                                    pool_label=None):
-    """Generate single-player comparison charts and return image bytes."""
+                                    pool_label=None, aspect="16:9"):
+    """Generate single-player comparison charts and return image bytes.
+
+    The two phone aspects return ONE chart carrying the same 19 metrics as the
+    dashboard. The tile shortens some metric labels to fit two columns, but it
+    keeps both number columns: dropping PER 90 was tried and reverted, because
+    a lone number beside a metric named "Pass %" cannot say which quantity it
+    is, and every notation tried for it was misread in one direction or the
+    other.
+    """
     df = _load_player_data_cached(file_content)
     results, player_row, peer_count, final_position = get_player_percentiles(
         df, player_name, min_minutes, compare_position, player_id=player_id
@@ -107,6 +120,17 @@ def _generate_single_player_charts(file_content, player_name, min_minutes, compa
 
     charts = {}
     with tempfile.TemporaryDirectory() as tmp_dir:
+        if aspect != "16:9":
+            key = {"9:8 (tile)": "9x8", "9:16 (vertical)": "9x16"}[aspect]
+            path = os.path.join(tmp_dir, "comparison_aspect.png")
+            create_comparison_aspect_chart(
+                results, player_row, peer_count, path, final_position,
+                aspect=key, custom_title=custom_title,
+                custom_subtitle=custom_subtitle, pool_label=pool_label)
+            with open(path, "rb") as f:
+                charts["combined"] = f.read()
+            return charts, peer_count, final_position
+
         output_path = os.path.join(tmp_dir, "player_comparison.png")
         create_comparison_chart(results, player_row, peer_count, output_path, final_position,
                                 custom_title=custom_title, custom_subtitle=custom_subtitle,
@@ -197,10 +221,15 @@ def _display_charts():
             mime="image/png"
         )
 
-        st.markdown("---")
-        st.subheader("Individual Category Charts")
+        # The phone aspects return one chart, so there is no category section
+        # to head. Guarded rather than left to render an empty subheader - the
+        # same trap the player rolling xG page hit on its own variants.
+        category_keys = [k for k in charts if k != "combined"]
+        if category_keys:
+            st.markdown("---")
+            st.subheader("Individual Category Charts")
         col1, col2 = st.columns(2)
-        for i, key in enumerate([k for k in charts if k != "combined"]):
+        for i, key in enumerate(category_keys):
             title, img_bytes = charts[key]
             cat_slug = key.replace('.png', '')
             with (col1 if i % 2 == 0 else col2):
@@ -287,7 +316,8 @@ def _get_team_overrides(selected_players, df, selected_ids=None):
 
 
 def _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=None,
-                    custom_title=None, custom_subtitle=None, selected_ids=None, pool_label=None):
+                    custom_title=None, custom_subtitle=None, selected_ids=None, pool_label=None,
+                    aspect="16:9"):
     """Run chart generation and store results in session state."""
     st.session_state["player_comparison_charts"] = None
 
@@ -301,7 +331,8 @@ def _run_generation(file_content, comparison_mode, selected_players, min_minutes
             charts, peer_count, final_position = _generate_single_player_charts(
                 file_content, player_name, min_minutes, compare_position, color_overrides,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
-                player_id=(selected_ids or [None])[0], pool_label=pool_label
+                player_id=(selected_ids or [None])[0], pool_label=pool_label,
+                aspect=aspect
             )
             if charts is None:
                 st.error(f"Player '{player_name}' not found or doesn't meet minimum minutes.")
@@ -405,6 +436,21 @@ def _sidebar_controls(player_list, df=None, label_index=None):
         min_value=0, max_value=5000, value=900, step=100,
     )
 
+    # Single-player only. The multi-player chart already sizes its own canvas
+    # to its player count, so offering it a fixed phone frame would be a
+    # choice with no good answer.
+    aspect = "16:9" if comparison_mode != "Single Player" else st.sidebar.radio(
+        "Aspect",
+        ["16:9", "9:8 (tile)", "9:16 (vertical)"],
+        help=("16:9 is the dashboard plus its five standalone category panels. "
+              "The two phone shapes give a single chart carrying all 19 "
+              "metrics, with shorter metric labels on the tile. Percentiles "
+              "print as a bare number under a PCTL header on the phone frames "
+              "- a percent sign reads as a rate and an ordinal reads as a "
+              "league position. Single-player only; the multi-player chart "
+              "already sizes its own canvas."),
+    )
+
     compare_position = st.sidebar.selectbox(
         "Compare Against Position",
         options=["Auto (use player's position)"] + POSITION_CATEGORIES,
@@ -439,7 +485,8 @@ def _sidebar_controls(player_list, df=None, label_index=None):
 
     _dt_pc = " & ".join(p.upper() for p in selected_players) if selected_players else ""
     custom_title_pc, custom_subtitle_pc = custom_title_inputs("player_comparison", _dt_pc)
-    return comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc
+    return (comparison_mode, selected_players, min_minutes, compare_position,
+            can_generate, custom_title_pc, custom_subtitle_pc, aspect)
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -481,7 +528,8 @@ if not use_manual:
     all_players = sorted(label_index.keys())
 
     # Sidebar controls
-    comparison_mode, selected_labels, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
+    (comparison_mode, selected_labels, min_minutes, compare_position,
+     can_generate, custom_title_pc, custom_subtitle_pc, aspect) = _sidebar_controls(
         all_players, label_index=label_index
     )
     # Labels are for the picker; everything downstream works in names + ids.
@@ -554,7 +602,8 @@ if not use_manual:
                     _df = pools[next(iter(pool_keys))]["df"]
             _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position, df=_df,
                             custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc,
-                            selected_ids=selected_ids, pool_label=pool_label)
+                            selected_ids=selected_ids, pool_label=pool_label,
+                            aspect=aspect)
     elif not selected_labels:
         if comparison_mode == "Single Player":
             st.info("Select a player from the sidebar to analyze")
@@ -583,7 +632,8 @@ else:
             col = 'playerFullName' if 'playerFullName' in df.columns else 'Player'
             player_list = sorted(df[col].dropna().unique().tolist())
 
-            comparison_mode, selected_players, min_minutes, compare_position, can_generate, custom_title_pc, custom_subtitle_pc = _sidebar_controls(
+            (comparison_mode, selected_players, min_minutes, compare_position,
+             can_generate, custom_title_pc, custom_subtitle_pc, aspect) = _sidebar_controls(
                 player_list, df
             )
 
@@ -592,7 +642,8 @@ else:
                     # No pool_label: an uploaded CSV has no known peer pool, so
                     # the footer omits that segment rather than naming one.
                     _run_generation(file_content, comparison_mode, selected_players, min_minutes, compare_position,
-                                    custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc)
+                                    custom_title=custom_title_pc, custom_subtitle=custom_subtitle_pc,
+                                    aspect=aspect)
             else:
                 if comparison_mode == "Single Player":
                     st.info("Select a player from the sidebar to analyze")

@@ -66,8 +66,48 @@ def get_validated_team_color(team_name, csv_color=None):
     if csv_color and isinstance(csv_color, str) and _HEX_COLOR_RE.match(csv_color):
         return csv_color
 
-    # Default fallback
-    return '#6CABDD'
+    # Default fallback. NOT #6CABDD - that is this chart family's own
+    # category-heading blue, so "no colour found" was being drawn as a
+    # confident-looking brand accent byte-identical to the furniture around it.
+    # 22 of 265 clubs in the live pools land here (8.3%), almost all with a
+    # missing feed colour; Werder Bremen Women rendered its club rule in the
+    # same blue as the words SCORING and PASSING beside it.
+    #
+    # A neutral grey is the honest answer: it reads as "unknown", not as a
+    # brand, and it cannot be mistaken for chart chrome.
+    return TEAM_COLOR_UNKNOWN
+
+
+# Drawn when a club has neither a registry entry nor a usable feed colour.
+# Deliberately a desaturated grey: it must not look like a team's colour and
+# must not collide with any UI colour on the chart.
+TEAM_COLOR_UNKNOWN = '#8A94A6'
+
+
+def has_bio_value(val):
+    """True if a bio field carries a real measurement.
+
+    ZERO counts as missing, and that is the whole point of this function.
+    `load_player_data` runs `pd.to_numeric(...).fillna(0)` over a stat list
+    that includes Height, Weight and Age, so a player the feed knows nothing
+    about arrives as 0.0 rather than NaN and sails through an
+    "is it None/blank/NaN" test. The chart then printed 0'0" and 0 LBS as
+    though they were measurements.
+
+    Not rare: height is 0-or-missing for 12.8% of players across the three
+    live pools and weight for 25.5%. It reached the shipped 16:9 chart as
+    well - every fixture in that review happened to have a height, which is
+    exactly the kind of gap a fixture set cannot show you. Three builders had
+    their own private copy of the old test; they now share this one.
+    """
+    if val is None or val == '':
+        return False
+    if isinstance(val, float) and pd.isna(val):
+        return False
+    try:
+        return float(val) != 0
+    except (TypeError, ValueError):
+        return True          # a non-numeric field (nationality) is fine as-is
 
 
 def get_text_color_for_background(bg_color):
@@ -168,6 +208,23 @@ def build_footer_text(position=None, pool_label=None):
     if pool_label:
         parts.append(pool_label)
     return '  •  '.join(parts)
+
+
+def footer_segments(position=None, pool_label=None):
+    """The footer split for narrow frames: (what it ranks against, source).
+
+    One line of this is ~6.5in of type at the phone floor, which fits a 16in
+    canvas and does not fit a 9in one - on the variants it ran off the left
+    edge to x=-0.32 and straight through CBS SPORTS. Splitting keeps every
+    segment the 16:9 review established has to be there rather than dropping
+    the peer set or the pool to make it fit.
+    """
+    scope = []
+    if position:
+        scope.append(f'Percentile rank among {position}s')
+    if pool_label:
+        scope.append(pool_label)
+    return '  •  '.join(scope), 'Data: Opta/STATS Perform'
 
 
 POSITION_MAPPING = {
@@ -487,12 +544,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     nineties_played = player_minutes / 90 if player_minutes else 0
 
     # Helper to check if value is valid (not empty, not NaN)
-    def is_valid_info(val):
-        if val is None or val == '':
-            return False
-        if isinstance(val, float) and pd.isna(val):
-            return False
-        return True
+    is_valid_info = has_bio_value
 
     has_player_info = any([is_valid_info(v) for v in [player_age, player_nationality, player_height, player_weight]])
 
@@ -629,7 +681,7 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
 
         # Percentile text
         pct_x = val_x + 0.08
-        ax.text(pct_x, y_pos, f'{percentile:.0f}%', fontsize=11, fontweight='bold',
+        ax.text(pct_x, y_pos, f'{percentile:.0f}', fontsize=11, fontweight='bold',
                 color='white', transform=ax.transAxes, va='center', ha='left')
 
         y_pos -= row_height
@@ -736,12 +788,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     bio_y = 0.893
 
     # Helper to check if value is valid (not empty, not NaN)
-    def is_valid_info(val):
-        if val is None or val == '':
-            return False
-        if isinstance(val, float) and pd.isna(val):
-            return False
-        return True
+    is_valid_info = has_bio_value
 
     # Check if we have player info to display
     has_player_info = any([is_valid_info(v) for v in [player_age, player_nationality, player_height, player_weight]])
@@ -860,7 +907,7 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
                     transform=ax.transAxes, va='center', ha='right')
 
             # Percentile text
-            ax.text(pct_right[start_x], y_pos, f'{percentile:.0f}%', fontsize=10,
+            ax.text(pct_right[start_x], y_pos, f'{percentile:.0f}', fontsize=10,
                     fontweight='bold', color='white', transform=ax.transAxes,
                     va='center', ha='right')
 
@@ -936,6 +983,373 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
     print(f"\nSaved: {output_path}")
     plt.close()
+
+
+# =============================================================================
+# ASPECT VARIANTS - phone frames, single player only
+# =============================================================================
+# The user's call (2026-09-07): variants come off the SINGLE-PLAYER chart only.
+# The other three builders size their canvas to their content and are left
+# alone.
+#
+# Both frames are linted at delivery="phone", which is a 26-delivered-px floor
+# = 15.6pt on a 9in-wide canvas. That floor is the whole design constraint
+# here: 19 metrics plus 5 category headers is 24 rows, and at floor size one
+# row of type is 1.35% of a 9:16 frame's height but 2.7% of a 9:8's.
+#
+# So the two frames carry the same 19 metrics but not the same annotation,
+# which is the rule the DP family already follows - detail scales down with the
+# frame rather than being crushed into it:
+#
+#   9:16  one column, 24 rows, bar + PER 90 + PCTL. The natural port.
+#   9:8   two columns, and the PER 90 column is DROPPED.
+#
+# Dropping PER 90 on the tile is not an editorial cut - no metric is lost, and
+# it buys the horizontal room two columns need at floor type. It also removes
+# this chart's single worst misread: a cold viewer read the bar as the per-90
+# number sitting next to it, twice, having already caught the mistake once. On
+# the tile the bar and the number now mean the same thing.
+# ── frame geometry ───────────────────────────────────────────────────────────
+# Two rules, both learned the hard way over four passes:
+#
+# 1. Anything right-aligned is given as an explicit RIGHT EDGE. Expressed as
+#    "bar end plus a gap", a right-aligned string's LEFT edge lands back inside
+#    the bar it is meant to sit beside - and the lint cannot see it, because
+#    text-on-patch is not text-on-text.
+#
+# 2. A column is as wide as the WIDER of its value and its HEADER, measured at
+#    the size it is actually drawn. "PCTL" is wider than "100", "PER 90" beats
+#    most rates, and "Final 3rd Pass" at 16.5pt is wider than the same string
+#    at the 15.6pt I kept measuring it at. Every collision in this builder came
+#    from sizing a column to one of the strings that goes in it rather than to
+#    the widest.
+#
+# Type: separation is bought ABOVE the floor, not at it. Letting every role
+# settle onto 15.6pt is how the DP type pass went lint-clean with no hierarchy
+# left - the category heading and the payload number are what earn the room.
+_COMPARISON_LAYOUT_9X16 = {
+    'figsize': (9, 16), 'dpi': 120,          # -> 1080 x 1920
+    'columns': 1, 'show_per90': True,
+    'title_size': 34, 'bio_size': 16, 'subtitle_size': 16,
+    'cat_size': 23, 'metric_size': 18, 'num_size': 19, 'colhdr_size': 16,
+    'footer_size': 16, 'brand_size': 17,
+    'body_top': 0.845, 'body_bottom': 0.052, 'cat_extra': 0.011,
+    'bar_h': 0.0132, 'rule_y': 0.947, 'rule_h': 0.0034,
+    'title_y': 0.962, 'bio_y': 0.930, 'subtitle_y': 0.908,
+    'col_x': [0.055],
+    # PCTL sits BESIDE the bar, PER 90 outboard of it. The bar encodes the
+    # percentile, and with PER 90 in between it was 49px from the bar and the
+    # percentile 51px further out - so proximity paired the bar with the number
+    # it does NOT encode. Both a cold analyst and a cold viewer independently
+    # assumed bar length was the per-90 rate.
+    'bar_dx': 0.300, 'bar_right_dx': 0.678,
+    'pct_right_dx': 0.774, 'num_right_dx': 0.890,
+    'footer_scope_y': 0.038,
+}
+_COMPARISON_LAYOUT_9X8 = {
+    'figsize': (9, 8), 'dpi': 120,           # -> 1080 x 960
+    # PER 90 is present. Dropping it was my call and it was wrong: it left the
+    # percentile as the only number on a row, and a lone number beside a metric
+    # named "Pass %" cannot say which quantity it is. Both cold analysts argued
+    # to restore it. The tile pays for it in bar length - ~105px against the
+    # tall frame's ~420 - which is the right trade for a number nobody misreads.
+    'columns': 2, 'show_per90': True,
+    'title_size': 27, 'bio_size': 15.6, 'subtitle_size': 15.6,
+    'cat_size': 19, 'metric_size': 16, 'num_size': 17.5, 'colhdr_size': 15.6,
+    'footer_size': 15.6, 'brand_size': 16,
+    'body_top': 0.735, 'body_bottom': 0.092, 'cat_extra': 0.018,
+    'bar_h': 0.0210, 'rule_y': 0.905, 'rule_h': 0.0060,
+    'title_y': 0.930, 'bio_y': 0.867, 'subtitle_y': 0.822,
+    'col_x': [0.024, 0.509],
+    # Solved as a whole budget, not nudged: the 0.467 column has to hold the
+    # longest label (0.168), the widest per-90 or its header (0.094) and the
+    # PCTL header (0.067) = 0.329, leaving 0.138 for the bar and three gaps.
+    # ~20px gaps buy an 89px bar, and that is the real ceiling for two columns
+    # of nineteen metrics at the phone type floor.
+    'bar_dx': 0.190, 'bar_right_dx': 0.272,
+    'pct_right_dx': 0.358, 'num_right_dx': 0.467,
+    'short_labels': True,
+    'footer_scope_y': 0.068,
+}
+
+# Only for the 9:8 tile, where the full name does not fit the label column.
+# Shorten the WRAPPER, never the statistic: dropping "(non-pen)" from Goals and
+# xG was flagged independently by two cold analysts, because without it the
+# tile states a penalty taker's total goal rate when it is showing his
+# non-penalty rate, and it silently breaks the goals-minus-xG comparison since
+# the reader cannot know the two rows share a basis. "Final 3rd" alone lost its
+# noun and drew "Passes? Touches? Entries?" from a cold reader.
+SHORT_METRIC_LABELS = {
+    'Goals (non-pen)': 'Goals (np)',
+    'xG (non-pen)': 'xG (np)',
+    'Final 3rd Passes': 'Final 3rd Pass',
+    'Prog. Passes': 'Prog. Pass',
+    'Prog. Carries': 'Prog. Carry',
+}
+
+_COMPARISON_LAYOUTS = {'9x16': _COMPARISON_LAYOUT_9X16,
+                       '9x8': _COMPARISON_LAYOUT_9X8}
+
+# How the five categories split across columns. One column takes them in order;
+# two columns split 3/2, which is 14 rows against 10 - the same imbalance the
+# 16:9 has, and it is the metric counts (4,4,3,4,4) that cause it, not the
+# split. 2/3 is just the mirror.
+_ASPECT_COLUMN_SPLIT = {
+    1: [['SCORING', 'CHANCE CREATION', 'PASSING', 'PROGRESSION', 'DEFENSIVE']],
+    2: [['SCORING', 'CHANCE CREATION', 'PASSING'],
+        ['PROGRESSION', 'DEFENSIVE']],
+}
+
+
+def accent_on_page(hex_colour, floor_de=18.0, page=BG_COLOR):
+    """A club colour bright enough to read as a mark on the dark page.
+
+    The accent rule is the one brand-carrying element left on the chart, and a
+    club whose colour is near-black vanishes into the ground. Measured against
+    the live pools: 4 of 246 clubs sit under dE 10 and 43 under dE 15, and
+    Juventus at dE 12.2 is BELOW the bar track (12.6) - the most deliberately
+    recessive thing on the card.
+
+    Lightness is raised in HSL, which preserves hue and saturation, so the club
+    still reads as black-ish or navy rather than being swapped for another
+    colour. This is the same tradeoff the xG Race family settled: where the
+    furniture cannot move, the mark yields just enough to be seen.
+    """
+    from shared.colors import ciede2000, lighten_hsl
+    colour = hex_colour
+    for _ in range(12):
+        if ciede2000(colour, page) >= floor_de:
+            return colour
+        colour = lighten_hsl(colour, 0.06)
+    return colour
+
+
+# Percentiles print as a BARE INTEGER under a PCTL header, and the reason is
+# worth keeping: both of the obvious alternatives were tried on real readers
+# and both produced a confidently wrong number.
+#
+#   "77%"  beside a metric named "Take-On %" reads as a 77% take-on rate.
+#          The rate is 44.0%. Two of the nineteen metrics name a unit in their
+#          own label, and beside those a percent sign is simply misread.
+#
+#   "77th" under a header saying RANK reads as a league position - and that
+#          INVERTS the meaning at the bottom of the scale, which is far worse.
+#          A cold reader took "xG 1st / Shots 4th / xG/Shot 1st" as the best
+#          centre back in the Big 5 at shooting. He is the worst: 1st, 4th and
+#          1st percentile. They resolved the contradiction by concluding the
+#          BARS were broken. A second reviewer reached the same reading
+#          independently, and noted the mirror case - "Shots 100th" beside a
+#          full bar reads as a bad rank next to the best score on the card.
+#
+# A bare integer is neither a rate (no unit) nor a position (no ordinal), and
+# the bar and colour agree with it in both directions.
+
+
+def _player_facts(player_row, comparison_position=None):
+    """Name, club, colour and bio line - shared by every single-player frame."""
+    name = (player_row['playerFullName']
+            if 'playerFullName' in player_row.index
+            else player_row.get('Player', ''))
+    position = comparison_position or player_row['PositionCategory']
+    team = player_row.get('newestTeam', player_row.get('teamName', ''))
+    colour = get_validated_team_color(team, player_row.get('newestTeamColor'))
+
+    ok = has_bio_value
+    bio = []
+    age = player_row.get('Age', '')
+    if ok(age):
+        bio.append(f'AGE {int(age)}')
+    nation = player_row.get('Nation', player_row.get('Nationality', ''))
+    if ok(nation):
+        bio.append(str(nation).upper())
+    height = player_row.get('Height', '')
+    if ok(height):
+        total_in = float(height) / 2.54
+        feet, inches = int(total_in // 12), int(round(total_in % 12))
+        if inches == 12:
+            feet, inches = feet + 1, 0
+        bio.append(f"{feet}'{inches}\"")
+    weight = player_row.get('Weight', '')
+    if ok(weight):
+        bio.append(f'{int(round(float(weight) * 2.20462))} LBS')
+
+    minutes = player_row.get('Min', 0) or 0
+    return name, team, position, colour, bio, minutes / 90
+
+
+def create_comparison_aspect_chart(results, player_row, peer_count, output_path,
+                                   comparison_position=None, aspect='9x16',
+                                   custom_title=None, custom_subtitle=None,
+                                   pool_label=None):
+    """The percentile profile, rendered for a phone-shaped frame."""
+    if aspect not in _COMPARISON_LAYOUTS:
+        raise ValueError(f'aspect must be one of {sorted(_COMPARISON_LAYOUTS)}')
+    L = _COMPARISON_LAYOUTS[aspect]
+
+    name, team, position, colour, bio, nineties = _player_facts(
+        player_row, comparison_position)
+
+    fig = plt.figure(figsize=L['figsize'], dpi=L['dpi'])
+    fig.patch.set_facecolor(BG_COLOR)
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set_facecolor(BG_COLOR)
+    ax.axis('off')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    # ── header ────────────────────────────────────────────────────────────
+    title_text = custom_title or name.upper()
+    # Shrink to fit. The bio line already had a budget; the title did not, and
+    # the longest name in the pool ran 990px inside a 1080px canvas - past the
+    # body grid on both sides and one character from clipping.
+    t_size = L['title_size']
+    for _ in range(8):
+        probe = fig.text(0.5, L['title_y'], title_text, ha='center',
+                         fontsize=t_size, fontweight='bold')
+        fig.canvas.draw()
+        tw = probe.get_window_extent().transformed(
+            fig.transFigure.inverted()).width
+        probe.remove()
+        if tw <= 0.88:
+            break
+        t_size *= 0.94
+    title = fig.text(0.5, L['title_y'], title_text, ha='center',
+                     fontsize=t_size, fontweight='bold', color='white')
+
+    # The rule is drawn to the TITLE's measured width, not a hard-coded 0.40.
+    # Fixed, it overhung short names by 62-67px a side (a black bar 43% wider
+    # than "JHON LUCUMI") and ran half the length of the longest one. Measured
+    # after a draw, because the width is not knowable before the text exists.
+    fig.canvas.draw()
+    tb = title.get_window_extent().transformed(fig.transFigure.inverted())
+    rule_w = min(max(tb.width * 0.92, 0.16), 0.90)
+    ax.add_patch(mpatches.Rectangle(
+        (0.5 - rule_w / 2, L['rule_y']), rule_w, L['rule_h'],
+        facecolor=accent_on_page(colour), edgecolor='none',
+        transform=ax.transAxes))
+
+    # The bio has to fit the frame, and it is the only line whose length is
+    # driven by the DATA - club name plus nationality. With no budget it just
+    # ran until it neared the edge: the left margin fell from 53px to 20px on
+    # "WERDER BREMEN WOMEN", one character from clipping, while every other
+    # element held a 59px grid. Shed the least important item first (weight,
+    # then height, then nationality) rather than shrinking the type or letting
+    # it run.
+    parts = [team.upper()] + list(bio)
+    while len(parts) > 1:
+        probe = fig.text(0.5, L['bio_y'], '   •   '.join(parts), ha='center',
+                         fontsize=L['bio_size'], color=TEXT_SECONDARY)
+        fig.canvas.draw()
+        w = probe.get_window_extent().transformed(
+            fig.transFigure.inverted()).width
+        probe.remove()
+        if w <= 0.90:
+            break
+        parts.pop()          # drop from the tail: weight, height, nationality
+    fig.text(0.5, L['bio_y'], '   •   '.join(parts), ha='center',
+             fontsize=L['bio_size'], color=TEXT_SECONDARY)
+
+    # "vs Position Peers" never said how many, and with N unknown a reader
+    # cannot tell 100 from 99.6 rounded up. Naming the count costs no more
+    # room than the phrase it replaces, and both reviews asked for it.
+    peers_txt = (f'vs {peer_count} {position}s' if peer_count
+                 else f'vs {position} Peers')
+    sub = custom_subtitle or (f'{peers_txt}  •  Last 365 Days  •  '
+                              f'{nineties:.1f} 90s')
+    fig.text(0.5, L['subtitle_y'], sub, ha='center',
+             fontsize=L['subtitle_size'], color=LABEL_GREY)
+
+    # ── body ──────────────────────────────────────────────────────────────
+    # Row pitch is DERIVED from the row count so the body always fits its
+    # budget by construction, rather than being a tuned constant that silently
+    # overflows when the metric set changes.
+    split = _ASPECT_COLUMN_SPLIT[L['columns']]
+    rows_per_col = [sum(1 + len(results[c]) for c in cats) for cats in split]
+    extra = max(len(c) - 1 for c in split) * L['cat_extra']
+    pitch = (L['body_top'] - L['body_bottom'] - extra) / max(rows_per_col)
+
+    for col_i, cats in enumerate(split):
+        x = L['col_x'][col_i]
+        bar_x = x + L['bar_dx']
+        bar_w = L['bar_right_dx'] - L['bar_dx']
+        num_right = (x + L['num_right_dx']) if L['show_per90'] else None
+        pct_right = x + L['pct_right_dx']
+        y = L['body_top']
+
+        # 0.42 of a pitch put the header 6px under the first SCORING cap and
+        # 53px above the number it labels - nine times closer to the wrong
+        # thing, so it read as part of the section title. Sit it just above its
+        # own column instead.
+        # 0.78 of a pitch put this 28px above SCORING and 93px above the first
+        # number it labels, with a larger-type heading in between - so it read
+        # as SCORING's top line. It also inverted that heading's spacing: 28px
+        # above against 35px below, where every other heading gets 49/35.
+        hdr_y = y + pitch * 1.15
+        ax.text(pct_right, hdr_y, 'PCTL', fontsize=L['colhdr_size'],
+                color=LABEL_GREY, fontweight='bold', ha='right',
+                transform=ax.transAxes)
+        if L['show_per90']:
+            ax.text(num_right, hdr_y, 'PER 90',
+                    fontsize=L['colhdr_size'], color=LABEL_GREY,
+                    fontweight='bold', ha='right', transform=ax.transAxes)
+
+        for ci, cat in enumerate(cats):
+            # A heading was allotted exactly one data row, so it floated
+            # midway and sat ~30% CLOSER to the section above it than to the
+            # one it labels (26px vs 34px, every heading, both shapes).
+            # Gestalt proximity was grouping it with the wrong block.
+            if ci:
+                y -= L['cat_extra']
+            ax.text(x, y, cat, fontsize=L['cat_size'], fontweight='bold',
+                    color='#6CABDD', transform=ax.transAxes, va='center')
+            y -= pitch
+            for metric in results[cat]:
+                pctl = metric['percentile']
+                label = metric['name']
+                if L.get('short_labels'):
+                    label = SHORT_METRIC_LABELS.get(label, label)
+                ax.text(x, y, label, fontsize=L['metric_size'],
+                        color='white', transform=ax.transAxes, va='center')
+                # The pad rounds the ends, and it is charged to BOTH axes.
+                # Fixed at 0.004 it was 2.3% of the tall frame's track but 7%
+                # of the tile's, so the same percentile drew at nearly three
+                # times the length fraction depending on the shape - and it
+                # inflated a 25px-designed bar to 42px with elliptical
+                # corners. Scale it with the bar and subtract it back out.
+                pad = 0.0115 * bar_w
+                h = max(L['bar_h'] - 2 * pad, L['bar_h'] * 0.35)
+                box = f'round,pad={pad}'
+                ax.add_patch(mpatches.FancyBboxPatch(
+                    (bar_x, y - h / 2), bar_w, h, boxstyle=box,
+                    facecolor='#3A4A5C', edgecolor='none',
+                    transform=ax.transAxes))
+                ax.add_patch(mpatches.FancyBboxPatch(
+                    (bar_x, y - h / 2), bar_w * (pctl / 100), h, boxstyle=box,
+                    facecolor=get_color_from_percentile(pctl), edgecolor='none',
+                    transform=ax.transAxes))
+                if L['show_per90']:
+                    ax.text(num_right, y, metric['value_str'],
+                            fontsize=L['num_size'], color='white',
+                            transform=ax.transAxes, va='center', ha='right')
+                ax.text(pct_right, y, f'{pctl:.0f}', fontsize=L['num_size'],
+                        fontweight='bold', color='white',
+                        transform=ax.transAxes, va='center', ha='right')
+                y -= pitch
+
+    # ── footer ────────────────────────────────────────────────────────────
+    scope, source = footer_segments(position, pool_label)
+    fig.text(0.5, L['footer_scope_y'], scope, ha='center',
+             fontsize=L['footer_size'], color=LABEL_GREY)
+    fig.text(0.048, 0.018, 'CBS SPORTS', fontsize=L['brand_size'],
+             fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(1 - 0.048, 0.018, source, fontsize=L['footer_size'],
+             color='#666666', ha='right')
+
+    plt.savefig(output_path, dpi=L['dpi'], facecolor=BG_COLOR,
+                edgecolor='none')
+    print(f"  Saved: {output_path}")
+    plt.close()
+    return output_path
 
 
 # =============================================================================
@@ -1193,12 +1607,7 @@ def draw_player_info_strips(ax, fig, player_rows, player_colors, start_y, strip_
     strip_width = (total_width - (num_players - 1) * gap) / num_players
     start_x = 0.05
 
-    def is_valid_info(val):
-        if val is None or val == '':
-            return False
-        if isinstance(val, float) and pd.isna(val):
-            return False
-        return True
+    is_valid_info = has_bio_value
 
     for i, (player_row, color) in enumerate(zip(player_rows, player_colors)):
         strip_x = start_x + i * (strip_width + gap)
@@ -1344,7 +1753,7 @@ def draw_grouped_bars(ax, metrics_data, player_colors, player_names, label_x, ba
                     va='center', ha='right')
 
             ax.text(bar_x + bar_width + 0.087, bar_y + bar_height / 2,
-                    f'{percentile:.0f}%', fontsize=10, fontweight='bold',
+                    f'{percentile:.0f}', fontsize=10, fontweight='bold',
                     color='white', transform=ax.transAxes, va='center',
                     ha='right')
 
