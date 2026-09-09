@@ -24,6 +24,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8",
                               errors="replace", line_buffering=True)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import duckdb                                                     # noqa: E402
 import pandas as pd                                              # noqa: E402
 import downloader as dl                                          # noqa: E402
 
@@ -73,12 +74,30 @@ check("default batch size is half the proven ceiling",
       dl.MAX_GAMES_PER_REQUEST == 20,
       "40 returned 182,618 rows against LIMIT 200000 - too close")
 
-print("\n[3] the work list can SEE anchor-written games")
-check("WORK_ANCHORED exists", hasattr(dl, "WORK_ANCHORED"))
-check("it is in WORK_ORDER", dl.WORK_ANCHORED in dl.WORK_ORDER)
-check("campaigns re-download it by default",
-      dl.WORK_ANCHORED in dl.run_campaign.__defaults__[0]
-      if dl.run_campaign.__defaults__ else False)
+print("\n[3] anchor-written games are still DETECTED")
+# WORK_ANCHORED was removed on 2026-09-09. It was a work-list state meaning
+# "select these and re-download", and after the full rebuild that stopped being
+# the right response: measured across all 5,619 production games, zero are
+# anchored, so the branch could never be taken. If one ever appears the answer
+# is to fix `build_game_event_statement`, not to re-fetch under it.
+#
+# The DETECTION had to survive the state's removal, because the bug was silent
+# - plausible row counts, no error, 21 wrong columns. It lives in
+# `count_anchored_games` and is surfaced on the Health page.
+check("the state is gone", not hasattr(dl, "WORK_ANCHORED"))
+check("the detector remains", hasattr(dl, "count_anchored_games"))
+
+_probe = duckdb.connect()
+_probe.execute("CREATE TABLE events (gameId VARCHAR, teamId VARCHAR, "
+               '"teamAbbrevName" VARCHAR)')
+_probe.execute("INSERT INTO events VALUES "
+               "('clean','home','CRY'),('clean','away','ARS')")
+check("clean game is not flagged", dl.count_anchored_games(_probe) == 0)
+_probe.execute("INSERT INTO events VALUES "
+               "('anchored','home','CRY'),('anchored','away','CRY')")
+check("anchored game IS flagged", dl.count_anchored_games(_probe) == 1,
+      "two sides sharing one abbreviation")
+_probe.close()
 
 print("\n[4] THE ASSERTION THAT WOULD HAVE CAUGHT IT")
 # A two-sided match where both teams carry the home side's identity - exactly

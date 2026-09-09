@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from downloader import (
     parse_cookies_from_curl, create_session, probe_endpoint_health,
-    download_player_pool, upload_to_supabase, load_secrets,
+    load_secrets,
     download_event_log, upsert_events_to_motherduck,
     download_minutes_and_cards, upsert_minutes_to_motherduck,
     get_motherduck_connection, get_team_season_last_dates,
@@ -39,14 +39,9 @@ with open(CONFIG_PATH, encoding="utf-8") as f:
     config = json.load(f)
 
 secrets = load_secrets(SECRETS_PATH)
-SUPABASE_URL = secrets.get("SUPABASE_URL")
-SUPABASE_KEY = secrets.get("SUPABASE_KEY")
 MOTHERDUCK_TOKEN = secrets.get("MOTHERDUCK_TOKEN")
-supabase_configured = bool(SUPABASE_URL and SUPABASE_KEY)
 motherduck_configured = bool(MOTHERDUCK_TOKEN)
 
-DATA_DIR = os.path.join(BASE_DIR, "data", "player_pools")
-os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
 
 
@@ -127,42 +122,10 @@ leagues = group_teams_by_league(config)  # league_name -> [team_dict, ...]
 _season_names = config.get("seasons", {})
 _season_leagues = config.get("season_leagues", {})
 
-POOL_DISPLAY = {
-    "europe": "Europe",
-    "north_america": "North America",
-    "womens": "Women's Soccer",
-}
-
-
-def run_pool_download(session, pool_key, pool_name):
-    """Download a pool and upload to Supabase. Returns (success, message)."""
-    csv_path = os.path.join(DATA_DIR, f"{pool_key}.csv")
-    season_ids = config["player_pools"][pool_key]["seasons"]
-
-    try:
-        row_count, size_kb = download_player_pool(session, season_ids, csv_path)
-    except Exception as e:
-        msg = str(e)
-        if "401" in msg or "403" in msg or "expired" in msg.lower():
-            return False, "Session expired — paste a fresh cURL command."
-        return False, f"Download failed: {msg}"
-
-    if supabase_configured:
-        try:
-            upload_to_supabase(SUPABASE_URL, SUPABASE_KEY, csv_path, f"{pool_key}.csv")
-            return True, f"{row_count:,} players — saved locally and uploaded to Supabase"
-        except Exception as e:
-            return True, f"{row_count:,} players — saved locally (Supabase upload failed: {e})"
-    else:
-        return True, f"{row_count:,} players — saved locally (Supabase not configured)"
-
-
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("TruMedia Data Manager")
 st.caption("Manages data downloads for the CBS Sports Soccer Chart Builder")
 
-if not supabase_configured:
-    st.warning("Supabase credentials not found in secrets.env — player pool data will only be saved locally.")
 if not motherduck_configured:
     st.warning("MotherDuck token not found in secrets.env — event log downloads will not work.")
 
@@ -244,84 +207,19 @@ with col_status:
 
 st.divider()
 
-# ── Player Pools ──────────────────────────────────────────────────────────────
-st.header("Player Pools")
-
+# Player pools moved to the Campaign page on 2026-09-09. They are derived
+# from the games a campaign downloads, so they belong beside the download
+# that produces them - not here, next to the per-team downloader nothing
+# uses any more. See `refresh_player_pool` in downloader.py.
 authenticated = "cookies" in st.session_state
-cols = st.columns(3)
-
-for i, (pool_key, pool_name) in enumerate(POOL_DISPLAY.items()):
-    with cols[i]:
-        csv_path = os.path.join(DATA_DIR, f"{pool_key}.csv")
-
-        st.subheader(pool_name)
-
-        if os.path.exists(csv_path):
-            mtime = os.path.getmtime(csv_path)
-            last_updated = datetime.fromtimestamp(mtime).strftime("%b %d, %Y  %H:%M")
-            size_kb = os.path.getsize(csv_path) / 1024
-            try:
-                with open(csv_path, encoding="utf-8") as f:
-                    row_count = sum(1 for _ in f) - 1
-                st.caption(f"Last updated: {last_updated}")
-                st.caption(f"{row_count:,} players  •  {size_kb:.0f} KB")
-            except Exception:
-                st.caption(f"Last updated: {last_updated}")
-        else:
-            st.caption("Never downloaded")
-            st.caption("")
-
-        result_key = f"result_{pool_key}"
-        if result_key in st.session_state:
-            success, message = st.session_state.pop(result_key)
-            if success:
-                st.success(message)
-            else:
-                st.error(message)
-
-        if st.button(f"Download {pool_name}", key=f"dl_{pool_key}", disabled=not authenticated):
-            with st.spinner(f"Downloading {pool_name}..."):
-                session = create_session(st.session_state["cookies"])
-                success, message = run_pool_download(session, pool_key, pool_name)
-                st.session_state[result_key] = (success, message)
-                st.rerun()
-
-st.divider()
-
-# ── Bulk Actions ──────────────────────────────────────────────────────────────
-st.header("Bulk Actions")
-
-if "bulk_results" in st.session_state:
-    for pool_name, success, message in st.session_state.pop("bulk_results"):
-        if success:
-            st.success(f"{pool_name}: {message}")
-        else:
-            st.error(f"{pool_name}: {message}")
-
-if st.button("Download All Pools", type="primary", disabled=not authenticated):
-    session = create_session(st.session_state["cookies"])
-    results = []
-    progress = st.progress(0)
-    status = st.empty()
-
-    for i, (pool_key, pool_name) in enumerate(POOL_DISPLAY.items()):
-        status.text(f"Downloading {pool_name}...")
-        success, message = run_pool_download(session, pool_key, pool_name)
-        results.append((pool_name, success, message))
-        progress.progress((i + 1) / len(POOL_DISPLAY))
-
-    status.empty()
-    progress.empty()
-
-    st.session_state["bulk_results"] = results
-    st.rerun()
 
 st.divider()
 
 # ── Downloads ─────────────────────────────────────────────────────────────────
 st.header("Downloads")
 st.caption("Downloads event logs and player minutes from TruMedia and upserts to MotherDuck. "
-           "Also fetches red card and own goal timing from API-Football for chart annotations.")
+           "Cards, own goals and substitutions arrive in the TruMedia feed itself — "
+           "the API-Football step was removed on 2026-09-01.")
 
 TEST_DOWNLOAD_DIR = os.path.join(BASE_DIR, "data", "test_downloads")
 

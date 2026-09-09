@@ -4,7 +4,10 @@ Handles authentication via cURL parsing and data downloads via POST requests.
 """
 import io
 import re
+import gzip
+import hashlib
 import os
+import shutil
 import json
 import tempfile
 import difflib
@@ -620,6 +623,369 @@ EXPANDED_EVENT_FIELDS = [
     ("[1v1Success|EVENT]",                 "OneVOneSuccess",     "VARCHAR"),
     ("[1v1Next|EVENT]",                    "OneVOneNext",        "VARCHAR"),
     ("[Carry1v1|EVENT]",                   "CarryIs1v1",         "VARCHAR"),
+    # -- Opta qualifier flags ------------------------------------------------
+    # Added 2026-09-08. Probed over 20 games: 309 of q1..q400 populate; these
+    # are the 301 we did not already request. Stored raw as qNNN - the
+    # friendly-name map lives in the read layer, so identifying one later is a
+    # code change rather than a schema migration. Percentages are fire rates.
+    # Sparse booleans cost ~0.023 bytes/col/row; do NOT price them with the
+    # mixed-type average, which is ~40x too high for these.
+    ("event.q1", "q1", "BOOLEAN"),                  # 5.90%
+    ("event.q2", "q2", "BOOLEAN"),                  # 1.67%
+    ("event.q3", "q3", "BOOLEAN"),                  # 2.19%
+    ("event.q4", "q4", "BOOLEAN"),                  # 0.15%
+    ("event.q5", "q5", "BOOLEAN"),                  # 1.28%
+    ("event.q8", "q8", "BOOLEAN"),                  # 0.00%
+    ("event.q9", "q9", "BOOLEAN"),                  # 0.12%
+    ("event.q10", "q10", "BOOLEAN"),                # 0.10%
+    ("event.q11", "q11", "BOOLEAN"),                # 0.00%
+    ("event.q12", "q12", "BOOLEAN"),                # 0.00%
+    ("event.q13", "q13", "BOOLEAN"),                # 2.40%
+    ("event.q14", "q14", "BOOLEAN"),                # 0.05%
+    ("event.q15", "q15", "BOOLEAN"),                # 1.51%
+    ("event.q16", "q16", "BOOLEAN"),                # 0.06%
+    ("event.q17", "q17", "BOOLEAN"),                # 0.53%
+    ("event.q18", "q18", "BOOLEAN"),                # 0.50%
+    ("event.q19", "q19", "BOOLEAN"),                # 0.01%
+    ("event.q20", "q20", "BOOLEAN"),                # 1.47%
+    ("event.q21", "q21", "BOOLEAN"),                # 0.02%
+    ("event.q22", "q22", "BOOLEAN"),                # 0.93%
+    ("event.q23", "q23", "BOOLEAN"),                # 0.15%
+    ("event.q24", "q24", "BOOLEAN"),                # 0.12%
+    ("event.q25", "q25", "BOOLEAN"),                # 0.23%
+    ("event.q26", "q26", "BOOLEAN"),                # 0.04%
+    ("event.q28", "q28", "BOOLEAN"),                # 0.01%
+    ("event.q29", "q29", "BOOLEAN"),                # 1.07%
+    ("event.q34", "q34", "BOOLEAN"),                # 0.00%
+    ("event.q35", "q35", "BOOLEAN"),                # 0.01%
+    ("event.q36", "q36", "BOOLEAN"),                # 0.00%
+    ("event.q37", "q37", "BOOLEAN"),                # 0.02%
+    ("event.q38", "q38", "BOOLEAN"),                # 0.00%
+    ("event.q40", "q40", "BOOLEAN"),                # 0.00%
+    ("event.q41", "q41", "BOOLEAN"),                # 0.08%
+    ("event.q42", "q42", "BOOLEAN"),                # 0.74%
+    ("event.q46", "q46", "DOUBLE"),                 # 0.01%
+    ("event.q47", "q47", "DOUBLE"),                 # 0.01%
+    ("event.q52", "q52", "BOOLEAN"),                # 0.00%
+    ("event.q56", "q56", "VARCHAR"),                # 70.47%
+    ("event.q57", "q57", "BOOLEAN"),                # 0.00%
+    ("event.q59", "q59", "BOOLEAN"),                # 0.82%
+    ("event.q60", "q60", "BOOLEAN"),                # 0.02%
+    ("event.q61", "q61", "BOOLEAN"),                # 0.04%
+    ("event.q62", "q62", "BOOLEAN"),                # 0.02%
+    ("event.q63", "q63", "BOOLEAN"),                # 0.11%
+    ("event.q64", "q64", "BOOLEAN"),                # 0.11%
+    ("event.q65", "q65", "BOOLEAN"),                # 0.02%
+    ("event.q66", "q66", "BOOLEAN"),                # 0.00%
+    ("event.q67", "q67", "BOOLEAN"),                # 0.01%
+    ("event.q68", "q68", "BOOLEAN"),                # 0.00%
+    ("event.q69", "q69", "BOOLEAN"),                # 0.00%
+    ("event.q70", "q70", "BOOLEAN"),                # 0.00%
+    ("event.q71", "q71", "BOOLEAN"),                # 0.00%
+    ("event.q72", "q72", "BOOLEAN"),                # 1.11%
+    ("event.q73", "q73", "BOOLEAN"),                # 0.83%
+    ("event.q74", "q74", "BOOLEAN"),                # 0.39%
+    ("event.q75", "q75", "BOOLEAN"),                # 0.38%
+    ("event.q76", "q76", "BOOLEAN"),                # 0.20%
+    ("event.q77", "q77", "BOOLEAN"),                # 0.09%
+    ("event.q78", "q78", "BOOLEAN"),                # 0.37%
+    ("event.q79", "q79", "BOOLEAN"),                # 0.06%
+    ("event.q80", "q80", "BOOLEAN"),                # 0.19%
+    ("event.q81", "q81", "BOOLEAN"),                # 0.09%
+    ("event.q83", "q83", "BOOLEAN"),                # 0.05%
+    ("event.q84", "q84", "BOOLEAN"),                # 0.06%
+    ("event.q85", "q85", "BOOLEAN"),                # 0.01%
+    ("event.q86", "q86", "BOOLEAN"),                # 0.00%
+    ("event.q87", "q87", "BOOLEAN"),                # 0.00%
+    ("event.q88", "q88", "BOOLEAN"),                # 0.08%
+    ("event.q89", "q89", "BOOLEAN"),                # 0.01%
+    ("event.q90", "q90", "BOOLEAN"),                # 0.00%
+    ("event.q91", "q91", "BOOLEAN"),                # 0.00%
+    ("event.q92", "q92", "BOOLEAN"),                # 0.00%
+    ("event.q93", "q93", "BOOLEAN"),                # 0.00%
+    ("event.q94", "q94", "BOOLEAN"),                # 0.38%
+    ("event.q95", "q95", "BOOLEAN"),                # 0.00%
+    ("event.q96", "q96", "BOOLEAN"),                # 0.00%
+    ("event.q98", "q98", "BOOLEAN"),                # 0.00%
+    ("event.q99", "q99", "BOOLEAN"),                # 0.00%
+    ("event.q100", "q100", "BOOLEAN"),              # 0.04%
+    ("event.q101", "q101", "BOOLEAN"),              # 0.01%
+    ("event.q104", "q104", "BOOLEAN"),              # 0.00%
+    ("event.q105", "q105", "BOOLEAN"),              # 0.00%
+    ("event.q106", "q106", "BOOLEAN"),              # 0.00%
+    ("event.q108", "q108", "BOOLEAN"),              # 0.13%
+    ("event.q109", "q109", "BOOLEAN"),              # 0.00%
+    ("event.q110", "q110", "BOOLEAN"),              # 0.00%
+    ("event.q111", "q111", "BOOLEAN"),              # 0.00%
+    ("event.q113", "q113", "BOOLEAN"),              # 0.06%
+    ("event.q114", "q114", "BOOLEAN"),              # 0.02%
+    ("event.q117", "q117", "BOOLEAN"),              # 0.00%
+    ("event.q118", "q118", "BOOLEAN"),              # 0.00%
+    ("event.q119", "q119", "BOOLEAN"),              # 0.00%
+    ("event.q120", "q120", "BOOLEAN"),              # 0.07%
+    ("event.q121", "q121", "BOOLEAN"),              # 0.05%
+    ("event.q122", "q122", "BOOLEAN"),              # 0.00%
+    ("event.q123", "q123", "BOOLEAN"),              # 0.38%
+    ("event.q128", "q128", "BOOLEAN"),              # 0.00%
+    ("event.q129", "q129", "BOOLEAN"),              # 0.00%
+    ("event.q130", "q130", "DOUBLE"),               # 0.16%
+    ("event.q132", "q132", "BOOLEAN"),              # 0.00%
+    ("event.q133", "q133", "BOOLEAN"),              # 0.03%
+    ("event.q136", "q136", "BOOLEAN"),              # 0.02%
+    ("event.q137", "q137", "BOOLEAN"),              # 0.00%
+    ("event.q138", "q138", "BOOLEAN"),              # 0.02%
+    ("event.q139", "q139", "BOOLEAN"),              # 0.02%
+    ("event.q150", "q150", "BOOLEAN"),              # 0.00%
+    ("event.q152", "q152", "BOOLEAN"),              # 3.49%
+    ("event.q153", "q153", "BOOLEAN"),              # 0.08%
+    ("event.q154", "q154", "BOOLEAN"),              # 1.35%
+    ("event.q155", "q155", "BOOLEAN"),              # 4.22%
+    ("event.q156", "q156", "BOOLEAN"),              # 0.64%
+    ("event.q157", "q157", "BOOLEAN"),              # 1.67%
+    ("event.q158", "q158", "BOOLEAN"),              # 0.00%
+    ("event.q159", "q159", "BOOLEAN"),              # 0.00%
+    ("event.q160", "q160", "BOOLEAN"),              # 0.04%
+    ("event.q161", "q161", "BOOLEAN"),              # 0.00%
+    ("event.q162", "q162", "BOOLEAN"),              # 0.00%
+    ("event.q163", "q163", "BOOLEAN"),              # 0.00%
+    ("event.q164", "q164", "BOOLEAN"),              # 0.00%
+    ("event.q165", "q165", "BOOLEAN"),              # 0.00%
+    ("event.q166", "q166", "BOOLEAN"),              # 0.00%
+    ("event.q167", "q167", "BOOLEAN"),              # 0.69%
+    ("event.q168", "q168", "BOOLEAN"),              # 0.44%
+    ("event.q169", "q169", "BOOLEAN"),              # 0.05%
+    ("event.q170", "q170", "BOOLEAN"),              # 0.02%
+    ("event.q172", "q172", "BOOLEAN"),              # 0.00%
+    ("event.q173", "q173", "BOOLEAN"),              # 0.14%
+    ("event.q174", "q174", "BOOLEAN"),              # 0.08%
+    ("event.q175", "q175", "BOOLEAN"),              # 0.00%
+    ("event.q176", "q176", "BOOLEAN"),              # 0.02%
+    ("event.q177", "q177", "BOOLEAN"),              # 0.11%
+    ("event.q178", "q178", "BOOLEAN"),              # 2.05%
+    ("event.q179", "q179", "BOOLEAN"),              # 0.16%
+    ("event.q180", "q180", "BOOLEAN"),              # 0.05%
+    ("event.q181", "q181", "BOOLEAN"),              # 0.03%
+    ("event.q182", "q182", "BOOLEAN"),              # 0.31%
+    ("event.q183", "q183", "BOOLEAN"),              # 0.02%
+    ("event.q184", "q184", "BOOLEAN"),              # 0.03%
+    ("event.q185", "q185", "BOOLEAN"),              # 0.14%
+    ("event.q186", "q186", "BOOLEAN"),              # 0.03%
+    ("event.q187", "q187", "BOOLEAN"),              # 0.00%
+    ("event.q188", "q188", "BOOLEAN"),              # 0.00%
+    ("event.q189", "q189", "BOOLEAN"),              # 1.43%
+    ("event.q190", "q190", "BOOLEAN"),              # 0.00%
+    ("event.q191", "q191", "BOOLEAN"),              # 0.00%
+    ("event.q192", "q192", "BOOLEAN"),              # 0.00%
+    ("event.q193", "q193", "BOOLEAN"),              # 0.00%
+    ("event.q195", "q195", "BOOLEAN"),              # 0.08%
+    ("event.q196", "q196", "BOOLEAN"),              # 0.20%
+    ("event.q197", "q197", "DOUBLE"),               # 0.07%
+    ("event.q198", "q198", "BOOLEAN"),              # 0.02%
+    ("event.q199", "q199", "BOOLEAN"),              # 0.16%
+    ("event.q209", "q209", "BOOLEAN"),              # 0.00%
+    ("event.q210", "q210", "BOOLEAN"),              # 1.02%
+    ("event.q211", "q211", "BOOLEAN"),              # 0.09%
+    ("event.q214", "q214", "BOOLEAN"),              # 0.30%
+    ("event.q215", "q215", "BOOLEAN"),              # 0.50%
+    ("event.q217", "q217", "BOOLEAN"),              # 0.01%
+    ("event.q218", "q218", "BOOLEAN"),              # 0.01%
+    ("event.q219", "q219", "BOOLEAN"),              # 0.00%
+    ("event.q220", "q220", "BOOLEAN"),              # 0.00%
+    ("event.q221", "q221", "BOOLEAN"),              # 0.00%
+    ("event.q222", "q222", "BOOLEAN"),              # 0.00%
+    ("event.q223", "q223", "BOOLEAN"),              # 0.52%
+    ("event.q224", "q224", "BOOLEAN"),              # 0.76%
+    ("event.q225", "q225", "BOOLEAN"),              # 0.13%
+    ("event.q227", "q227", "BOOLEAN"),              # 0.00%
+    ("event.q228", "q228", "BOOLEAN"),              # 0.02%
+    ("event.q232", "q232", "BOOLEAN"),              # 0.01%
+    ("event.q233", "q233", "BOOLEAN"),              # 0.00%
+    ("event.q236", "q236", "BOOLEAN"),              # 0.89%
+    ("event.q237", "q237", "BOOLEAN"),              # 0.41%
+    ("event.q238", "q238", "BOOLEAN"),              # 0.05%
+    ("event.q239", "q239", "BOOLEAN"),              # 0.01%
+    ("event.q240", "q240", "BOOLEAN"),              # 0.00%
+    ("event.q241", "q241", "BOOLEAN"),              # 0.17%
+    ("event.q242", "q242", "BOOLEAN"),              # 0.01%
+    ("event.q243", "q243", "BOOLEAN"),              # 0.00%
+    ("event.q244", "q244", "BOOLEAN"),              # 0.00%
+    ("event.q245", "q245", "BOOLEAN"),              # 0.00%
+    ("event.q247", "q247", "BOOLEAN"),              # 0.00%
+    ("event.q248", "q248", "BOOLEAN"),              # 0.00%
+    ("event.q249", "q249", "BOOLEAN"),              # 0.00%
+    ("event.q250", "q250", "BOOLEAN"),              # 0.00%
+    ("event.q251", "q251", "BOOLEAN"),              # 0.00%
+    ("event.q252", "q252", "BOOLEAN"),              # 0.00%
+    ("event.q253", "q253", "BOOLEAN"),              # 0.00%
+    ("event.q254", "q254", "BOOLEAN"),              # 0.01%
+    ("event.q261", "q261", "BOOLEAN"),              # 0.00%
+    ("event.q262", "q262", "BOOLEAN"),              # 0.00%
+    ("event.q263", "q263", "BOOLEAN"),              # 0.00%
+    ("event.q264", "q264", "BOOLEAN"),              # 0.02%
+    ("event.q265", "q265", "BOOLEAN"),              # 1.20%
+    ("event.q266", "q266", "BOOLEAN"),              # 0.00%
+    ("event.q267", "q267", "BOOLEAN"),              # 0.00%
+    ("event.q268", "q268", "BOOLEAN"),              # 0.00%
+    ("event.q269", "q269", "BOOLEAN"),              # 0.00%
+    ("event.q270", "q270", "BOOLEAN"),              # 0.00%
+    ("event.q271", "q271", "BOOLEAN"),              # 0.00%
+    ("event.q272", "q272", "BOOLEAN"),              # 0.00%
+    ("event.q273", "q273", "BOOLEAN"),              # 0.00%
+    ("event.q274", "q274", "BOOLEAN"),              # 0.01%
+    ("event.q275", "q275", "BOOLEAN"),              # 0.01%
+    ("event.q276", "q276", "BOOLEAN"),              # 0.00%
+    ("event.q277", "q277", "BOOLEAN"),              # 0.00%
+    ("event.q278", "q278", "BOOLEAN"),              # 0.04%
+    ("event.q279", "q279", "BOOLEAN"),              # 0.28%
+    ("event.q280", "q280", "BOOLEAN"),              # 0.05%
+    ("event.q281", "q281", "BOOLEAN"),              # 0.05%
+    ("event.q282", "q282", "BOOLEAN"),              # 0.05%
+    ("event.q284", "q284", "BOOLEAN"),              # 0.00%
+    ("event.q285", "q285", "BOOLEAN"),              # 5.41%
+    ("event.q286", "q286", "BOOLEAN"),              # 5.63%
+    ("event.q287", "q287", "BOOLEAN"),              # 0.09%
+    ("event.q289", "q289", "BOOLEAN"),              # 0.00%
+    ("event.q292", "q292", "BOOLEAN"),              # 0.41%
+    ("event.q293", "q293", "BOOLEAN"),              # 0.41%
+    ("event.q294", "q294", "BOOLEAN"),              # 0.49%
+    ("event.q295", "q295", "BOOLEAN"),              # 0.54%
+    ("event.q296", "q296", "BOOLEAN"),              # 0.00%
+    ("event.q297", "q297", "BOOLEAN"),              # 0.01%
+    ("event.q298", "q298", "BOOLEAN"),              # 0.00%
+    ("event.q300", "q300", "BOOLEAN"),              # 0.00%
+    ("event.q301", "q301", "BOOLEAN"),              # 0.00%
+    ("event.q307", "q307", "BOOLEAN"),              # 0.00%
+    ("event.q312", "q312", "BOOLEAN"),              # 0.00%
+    ("event.q313", "q313", "BOOLEAN"),              # 0.00%
+    ("event.q314", "q314", "BOOLEAN"),              # 0.00%
+    ("event.q315", "q315", "BOOLEAN"),              # 0.00%
+    ("event.q316", "q316", "BOOLEAN"),              # 0.00%
+    ("event.q317", "q317", "BOOLEAN"),              # 0.00%
+    ("event.q318", "q318", "BOOLEAN"),              # 36.27%
+    ("event.q319", "q319", "BOOLEAN"),              # 0.03%
+    ("event.q320", "q320", "BOOLEAN"),              # 0.00%
+    ("event.q321", "q321", "DOUBLE"),               # 1.43%
+    ("event.q322", "q322", "DOUBLE"),               # 1.43%
+    ("event.q323", "q323", "BOOLEAN"),              # 0.03%
+    ("event.q324", "q324", "BOOLEAN"),              # 0.05%
+    ("event.q326", "q326", "BOOLEAN"),              # 1.43%
+    ("event.q327", "q327", "BOOLEAN"),              # 1.43%
+    ("event.q328", "q328", "BOOLEAN"),              # 0.66%
+    ("event.q329", "q329", "BOOLEAN"),              # 0.00%
+    ("event.q330", "q330", "BOOLEAN"),              # 0.00%
+    ("event.q331", "q331", "BOOLEAN"),              # 0.00%
+    ("event.q332", "q332", "BOOLEAN"),              # 0.00%
+    ("event.q333", "q333", "BOOLEAN"),              # 0.00%
+    ("event.q334", "q334", "BOOLEAN"),              # 0.00%
+    ("event.q335", "q335", "BOOLEAN"),              # 0.00%
+    ("event.q336", "q336", "BOOLEAN"),              # 0.01%
+    ("event.q338", "q338", "BOOLEAN"),              # 0.03%
+    ("event.q341", "q341", "BOOLEAN"),              # 0.00%
+    ("event.q342", "q342", "BOOLEAN"),              # 0.00%
+    ("event.q343", "q343", "BOOLEAN"),              # 0.02%
+    ("event.q344", "q344", "BOOLEAN"),              # 0.00%
+    ("event.q345", "q345", "BOOLEAN"),              # 0.05%
+    ("event.q346", "q346", "BOOLEAN"),              # 1.45%
+    ("event.q347", "q347", "BOOLEAN"),              # 3.51%
+    ("event.q348", "q348", "BOOLEAN"),              # 0.02%
+    ("event.q353", "q353", "BOOLEAN"),              # 0.04%
+    ("event.q355", "q355", "BOOLEAN"),              # 0.00%
+    ("event.q356", "q356", "BOOLEAN"),              # 0.00%
+    ("event.q357", "q357", "BOOLEAN"),              # 0.00%
+    ("event.q358", "q358", "BOOLEAN"),              # 0.00%
+    ("event.q359", "q359", "BOOLEAN"),              # 0.00%
+    ("event.q360", "q360", "BOOLEAN"),              # 0.00%
+    ("event.q361", "q361", "BOOLEAN"),              # 0.03%
+    ("event.q362", "q362", "BOOLEAN"),              # 0.01%
+    ("event.q363", "q363", "BOOLEAN"),              # 0.01%
+    ("event.q365", "q365", "BOOLEAN"),              # 0.01%
+    ("event.q367", "q367", "BOOLEAN"),              # 0.00%
+    ("event.q368", "q368", "BOOLEAN"),              # 0.00%
+    ("event.q369", "q369", "BOOLEAN"),              # 0.00%
+    ("event.q370", "q370", "BOOLEAN"),              # 0.00%
+    ("event.q371", "q371", "BOOLEAN"),              # 0.00%
+    ("event.q372", "q372", "BOOLEAN"),              # 0.00%
+    ("event.q373", "q373", "BOOLEAN"),              # 0.00%
+    ("event.q374", "q374", "BOOLEAN"),              # 0.20%
+    ("event.q375", "q375", "BOOLEAN"),              # 0.20%
+    ("event.q376", "q376", "BOOLEAN"),              # 0.40%
+    ("event.q377", "q377", "BOOLEAN"),              # 0.20%
+    ("event.q378", "q378", "BOOLEAN"),              # 0.27%
+    ("event.q379", "q379", "BOOLEAN"),              # 0.00%
+    ("event.q380", "q380", "BOOLEAN"),              # 0.02%
+    ("event.q381", "q381", "BOOLEAN"),              # 0.01%
+    ("event.q383", "q383", "BOOLEAN"),              # 0.57%
+    ("event.q384", "q384", "BOOLEAN"),              # 0.57%
+    ("event.q385", "q385", "BOOLEAN"),              # 0.69%
+    ("event.q386", "q386", "BOOLEAN"),              # 0.09%
+    ("event.q387", "q387", "BOOLEAN"),              # 0.03%
+    ("event.q388", "q388", "BOOLEAN"),              # 0.02%
+    ("event.q389", "q389", "BOOLEAN"),              # 0.18%
+    ("event.q390", "q390", "BOOLEAN"),              # 0.02%
+    ("event.q391", "q391", "BOOLEAN"),              # 0.08%
+    ("event.q392", "q392", "BOOLEAN"),              # 0.06%
+    ("event.q393", "q393", "BOOLEAN"),              # 0.10%
+    ("event.q394", "q394", "BOOLEAN"),              # 0.00%
+    ("event.q395", "q395", "BOOLEAN"),              # 0.16%
+    ("event.q396", "q396", "BOOLEAN"),              # 0.16%
+    ("event.q397", "q397", "BOOLEAN"),              # 0.06%
+    ("event.q398", "q398", "BOOLEAN"),              # 0.02%
+    ("event.q399", "q399", "BOOLEAN"),              # 1.28%
+    # -- named event fields not previously requested --------------------------
+    # Notably event.success / event.fail: outcome for tackles, take-ons and
+    # clearances, which we hold ~800k of and cannot currently score.
+    # DELIBERATELY EXCLUDED: the dense sequence/possession geometry
+    # (sequenceStartX, passLength, passAngle, secondsSincePriorEvent and the
+    # rest) - 97% of the storage cost and all derivable from sequenceId,
+    # possessionSeqNum and the coordinates. Compute them; do not store them.
+    ("event.assist_q107", "assist_q107", "BOOLEAN"),# 0.00%
+    ("event.assist_q2", "assist_q2", "BOOLEAN"),    # 0.24%
+    ("event.assist_q223", "assist_q223", "BOOLEAN"),# 0.07%
+    ("event.assist_q224", "assist_q224", "BOOLEAN"),# 0.10%
+    ("event.assist_q225", "assist_q225", "BOOLEAN"),# 0.02%
+    ("event.carryContinuation", "carryContinuation", "BOOLEAN"),# 0.66%
+    ("event.caughtOffsides", "caughtOffsides", "BOOLEAN"),# 0.07%
+    ("event.fail", "fail", "BOOLEAN"),              # 19.27%
+    ("event.minusGoal", "minusGoal", "BOOLEAN"),    # 0.09%
+    ("event.minusShot", "minusShot", "BOOLEAN"),    # 0.70%
+    ("event.onField", "onField", "BOOLEAN"),        # 0.00%
+    ("event.optaExpectedGoals", "optaExpectedGoals", "DOUBLE"),# 1.40%
+    ("event.passerExpectedGoals", "passerExpectedGoals", "DOUBLE"),# 0.54%
+    ("event.plusGoal", "plusGoal", "BOOLEAN"),      # 0.09%
+    ("event.possession", "possession", "BOOLEAN"),  # 40.86%
+    ("event.possessionStartq107", "possessionStartq107", "BOOLEAN"),# 0.80%
+    ("event.possessionStartq124", "possessionStartq124", "BOOLEAN"),# 0.69%
+    ("event.possessionStartq2", "possessionStartq2", "BOOLEAN"),# 0.01%
+    ("event.possessionStartq24", "possessionStartq24", "BOOLEAN"),# 0.00%
+    ("event.possessionStartq5", "possessionStartq5", "BOOLEAN"),# 0.50%
+    ("event.possessionStartq6", "possessionStartq6", "BOOLEAN"),# 0.01%
+    ("event.possessionStartq74", "possessionStartq74", "BOOLEAN"),# 0.30%
+    ("event.save_q176", "save_q176", "BOOLEAN"),    # 0.02%
+    ("event.save_q177", "save_q177", "BOOLEAN"),    # 0.10%
+    ("event.save_q190", "save_q190", "BOOLEAN"),    # 0.00%
+    ("event.scorer", "scorer", "BOOLEAN"),          # 0.09%
+    ("event.secondarySuccess", "secondarySuccess", "BOOLEAN"),# 29.60%
+    ("event.sequenceOptaExpectedGoalsSum", "sequenceOptaExpectedGoalsSum", "DOUBLE"),# 1.40%
+    ("event.sequenceStartq107", "sequenceStartq107", "BOOLEAN"),# 1.74%
+    ("event.sequenceStartq124", "sequenceStartq124", "BOOLEAN"),# 0.71%
+    ("event.sequenceStartq2", "sequenceStartq2", "BOOLEAN"),# 0.59%
+    ("event.sequenceStartq24", "sequenceStartq24", "BOOLEAN"),# 0.04%
+    ("event.sequenceStartq5", "sequenceStartq5", "BOOLEAN"),# 1.27%
+    ("event.sequenceStartq6", "sequenceStartq6", "BOOLEAN"),# 0.48%
+    ("event.sequenceStartq74", "sequenceStartq74", "BOOLEAN"),# 0.32%
+    ("event.shooterShotLength", "shooterShotLength", "DOUBLE"),# 0.70%
+    ("event.shot_playType", "shot_playType", "VARCHAR"),# 2.49%
+    ("event.shot_q15", "shot_q15", "BOOLEAN"),      # 0.42%
+    ("event.shot_q160", "shot_q160", "BOOLEAN"),    # 0.06%
+    ("event.shot_q214", "shot_q214", "BOOLEAN"),    # 0.50%
+    ("event.shot_q22", "shot_q22", "BOOLEAN"),      # 1.55%
+    ("event.shot_q23", "shot_q23", "BOOLEAN"),      # 0.25%
+    ("event.shot_q24", "shot_q24", "BOOLEAN"),      # 0.20%
+    ("event.shot_q25", "shot_q25", "BOOLEAN"),      # 0.37%
+    ("event.shot_q26", "shot_q26", "BOOLEAN"),      # 0.04%
+    ("event.shot_q328", "shot_q328", "BOOLEAN"),    # 1.18%
+    ("event.shotLength", "shotLength", "DOUBLE"),   # 1.40%
+    ("event.success", "success", "BOOLEAN"),        # 58.55%
 ]
 
 _EXPANDED_SELECT = ",".join(f"{expr} AS {name}"
@@ -881,6 +1247,76 @@ def _ensure_config_table(con):
 # silently updates a file on their laptop instead - a quieter failure than
 # the one this guards against. Practice mode is opt-in.
 LOCAL_DB_ENV = "DATA_MANAGER_LOCAL_DB"
+
+
+PLAYER_POOL_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "player_pools")
+
+POOL_DISPLAY = {
+    "europe": "Europe",
+    "north_america": "North America",
+    "womens": "Women's Soccer",
+}
+
+
+def refresh_player_pool(session, pool_key, config, supabase_url=None,
+                        supabase_key=None, output_dir=None):
+    """Download one player pool and mirror it to Supabase.
+
+    Returns (ok, message). Never raises: a pool refresh runs at the end of a
+    campaign and must not lose the run's result by throwing.
+
+    THIS IS BUSINESS LOGIC, NOT PAGE CODE. It used to live in app.py beside
+    the superseded per-team downloader, which meant the pools could only be
+    refreshed from the page you no longer use to download anything. The pools
+    are DERIVED from the games a campaign fetches - a new season's players do
+    not appear until this runs - so it belongs where the download happens.
+
+    The pools are read from Supabase by the DP player-compare charts, which
+    resolve membership there rather than from `events`; a stale pool silently
+    omits players rather than failing.
+    """
+    out_dir = output_dir or PLAYER_POOL_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    csv_path = os.path.join(out_dir, f"{pool_key}.csv")
+    season_ids = (config.get("player_pools", {})
+                  .get(pool_key, {})
+                  .get("seasons", []))
+    if not season_ids:
+        return False, f"no seasons configured for pool {pool_key!r}"
+
+    try:
+        row_count, _size_kb = download_player_pool(session, season_ids, csv_path)
+    except Exception as e:
+        msg = str(e)
+        if "401" in msg or "403" in msg or "expired" in msg.lower():
+            return False, "Session expired - paste a fresh cURL command."
+        return False, f"Download failed: {msg}"
+
+    if not (supabase_url and supabase_key):
+        return True, f"{row_count:,} players - saved locally (Supabase not configured)"
+    try:
+        upload_to_supabase(supabase_url, supabase_key, csv_path, f"{pool_key}.csv")
+    except Exception as e:
+        # The local file is good; only the mirror failed. Say so rather than
+        # reporting a clean success the charts will not see.
+        return True, f"{row_count:,} players - saved locally (Supabase upload FAILED: {e})"
+    return True, f"{row_count:,} players - uploaded to Supabase"
+
+
+def load_known_empty_games():
+    """gameId -> reason, for fixtures that are settled and will never have
+    events. Read from config.json so it travels with every other season fact
+    and reaches the deployed app through the same `save_config` mirror.
+
+    Missing key returns {} - the feature is additive and its absence must not
+    break a work list.
+    """
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as fh:
+            return json.load(fh).get("known_empty_games", {}) or {}
+    except Exception:
+        return {}
 
 
 def _apply_schema(con):
@@ -1173,47 +1609,76 @@ def build_game_event_statement(season_ids, game_ids):
 # Work-list states, in the order a campaign should attack them.
 WORK_MISSING = "missing"        # no events at all
 WORK_ONE_SIDED = "one_sided"    # half a match - the 22.6% problem
-WORK_OLD_FEED = "old_feed"      # both sides, but ingested under event.toucher
-WORK_ANCHORED = "anchored"      # both sides, new feed, but written by an
-                                # anchored request - see below
 WORK_NOT_PLAYED = "not_played"  # fixture exists, no result yet
+WORK_NO_DATA = "no_data"        # decided, and no events will ever exist
 WORK_COMPLETE = "complete"      # both sides, correct on every column
-WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED, WORK_ANCHORED,
-              WORK_NOT_PLAYED, WORK_COMPLETE]
+WORK_ORDER = [WORK_MISSING, WORK_ONE_SIDED, WORK_NOT_PLAYED,
+              WORK_NO_DATA, WORK_COMPLETE]
 
-# WORK_ANCHORED: games written between 2026-08-29 and 2026-09-01, when
+# WORK_NO_DATA: fixtures that are settled and eventless, listed by gameId in
+# config.json's `known_empty_games`. Without it they sit in `missing` forever,
+# get re-attempted by every campaign, and every completeness check has to
+# explain them away.
+#
+# IT HAS TO BE PER-GAME, NOT PER-STATUS. `Awarded` covers three different
+# things and only the events tell them apart - measured on all five awarded
+# fixtures in the database:
+#
+#   PSG v Le Havre W        0 events      never played
+#   PSG v Fleury W          0 events      never played
+#   Strasbourg W v PSG      0 events      never played
+#   Lens W v PSG        1,973 events      PLAYED IN FULL, then awarded
+#   Nantes v Toulouse     567 events      ABANDONED after 21 minutes
+#
+# Excluding the status wholesale would silently drop a complete 94-minute
+# match and a real abandoned one, which is why `INGESTABLE_STATUSES` still
+# includes it.
+#
+# AND IT MUST STAY MANUAL. A game that returns zero events because the session
+# expired mid-run looks identical to one that has no events to give;
+# auto-listing would permanently skip a real fixture after one bad night. A
+# postponed match is NOT this - `not_played` already handles it correctly.
+
+# THE ANCHOR CHECK - an invariant now, not a work-list state.
+#
+# Games written between 2026-08-29 and 2026-09-01 were fetched while
 # `build_game_event_statement` still named a team. Naming one made it the
 # ANCHOR, and TruMedia answered every team-scoped column from that team's
 # point of view - including on the opponent's rows. 21 columns on 4.3M away
-# rows held the home side's values.
+# rows held the home side's values, with nothing erroring.
 #
 # The detector is one aggregate: a two-sided game whose rows carry only ONE
 # distinct `teamAbbrevName` was written by an anchored request. Two distinct
 # values means each side kept its own identity, which only the anchor-free
 # statement produces.
 #
-# It is deliberately the same shape as the `new_feed` check below - a cheap
-# property of the stored rows that says which code wrote them, so a
-# re-download is self-tracking and resumable rather than needing a ledger.
+# WHY IT IS NO LONGER A STATE. A state means "select these and re-download",
+# and that stopped being the right response once the whole database was
+# rebuilt: measured 2026-09-09, all 5,619 games are two-sided with two
+# abbreviations, so the state was a branch that could never be taken. But
+# deleting the CHECK would make the bug invisible again, and it was silent the
+# first time - plausible row counts, no error, wrong values. So it lives on the
+# Health page as a pass/fail assertion: if it ever fires the answer is to fix
+# the statement, not to re-fetch under a broken one.
+#
+# `count_anchored_games` is that check. It also subsumes the old
+# WORK_OLD_FEED state, which detected an `event.toucher` ingest predicate that
+# no longer exists anywhere in the code path - its only route back was the same
+# "someone rewrote the statement" scenario this covers.
 
-# The 22 play types `event.toucher` can return. A game holding ONLY these was
-# ingested under the old predicate.
-#
-# WHY THIS IS A SEPARATE STATE. "Both sides present" was the original test for
-# complete, and it is true of every game already in production - they were
-# downloaded a team at a time, but they were downloaded. It says nothing about
-# WHICH FEED they came from. Calling them complete meant a campaign would skip
-# them and leave them on 22 play types with no cards and no substitutions,
-# forever, while reporting the migration as finished.
-#
-# Caught before any production run: WSL showed 38 "complete" against 94
-# one-sided, and the 38 were old-feed games.
-OLD_FEED_PLAY_TYPES = (
-    'Pass', 'BallTouch', 'Clearance', 'TakeOn', 'Tackle', 'FreeKick',
-    'Dispossessed', 'Interception', 'BlockedPass', 'AttemptSaved', 'Save',
-    'Miss', 'OffsidePass', 'Goal', 'Claim', 'DropOfBall', 'Punch', 'Post',
-    'PenaltyGoal', 'Smother', 'GoodSkill', 'OwnGoal',
-)
+
+def count_anchored_games(con):
+    """Games whose two sides share one team abbreviation. Should be 0.
+
+    Non-zero means something re-introduced a team name into the event
+    statement and the away rows are carrying the home side's values.
+    """
+    return con.execute(
+        "SELECT count(*) FROM ("
+        "  SELECT gameId FROM events GROUP BY gameId"
+        "  HAVING count(DISTINCT teamId) >= 2"
+        "     AND count(DISTINCT \"teamAbbrevName\") < 2)"
+    ).fetchone()[0]
 
 # Statuses worth attempting a download for. Checked against every season in
 # config on 2026-08-29; the full set seen was Played, Awarded, Fixture,
@@ -1263,46 +1728,34 @@ def build_work_list(con, fixtures):
     """
     if fixtures.empty:
         return fixtures.assign(sides_present=0, events_stored=0,
-                               new_feed=False, state=WORK_MISSING)
+                               state=WORK_MISSING)
     gids = list(fixtures["gameId"])
     ph = ",".join("?" * len(gids))
-    old_types = ",".join(f"'{t}'" for t in OLD_FEED_PLAY_TYPES)
     have = con.execute(
-        f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n, "
-        f"       max(CASE WHEN playType NOT IN ({old_types}) THEN 1 ELSE 0 END)"
-        f"       AS new_feed, "
-        f"       count(DISTINCT \"teamAbbrevName\") AS abbrevs "
+        f"SELECT gameId, count(DISTINCT teamId) AS sides, count(*) AS n "
         f"FROM events WHERE gameId IN ({ph}) GROUP BY gameId", gids
     ).fetchall()
-    sides = {g: s for g, s, _, _, _ in have}
-    counts = {g: n for g, _, n, _, _ in have}
-    newfeed = {g: bool(f) for g, _, _, f, _ in have}
-    abbrevs = {g: a for g, _, _, _, a in have}
+    sides = {g: s for g, s, _ in have}
+    counts = {g: n for g, _, n in have}
+
+    # Settled, eventless fixtures. Listed by gameId because the status cannot
+    # distinguish them - see WORK_NO_DATA above.
+    no_data = set(load_known_empty_games())
 
     out = fixtures.copy()
     out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
     out["events_stored"] = out["gameId"].map(counts).fillna(0).astype(int)
-    out["new_feed"] = out["gameId"].map(newfeed).fillna(False).astype(bool)
-    out["abbrevs"] = out["gameId"].map(abbrevs).fillna(0).astype(int)
 
     played = (out["status"].astype(str).str.lower().isin(INGESTABLE_STATUSES)
               if "status" in out.columns else True)
 
     def _state(row, is_played):
         if row["sides_present"] >= 2:
-            # Both sides, but which code wrote it? Two questions, in order.
-            #
-            # A game holding only the old 22 play types still needs
-            # re-downloading - it has no cards and no substitutions, whatever
-            # its row count says.
-            if not row["new_feed"]:
-                return WORK_OLD_FEED
-            # And a game whose two sides share ONE abbreviation was written by
-            # an anchored request, so 21 team-scoped columns on the away rows
-            # hold the home side's values.
-            if row["abbrevs"] < 2:
-                return WORK_ANCHORED
             return WORK_COMPLETE
+        # Checked before `missing` but after `complete`: if a game we thought
+        # was eventless turns out to have events, believe the events.
+        if row["gameId"] in no_data:
+            return WORK_NO_DATA
         if not is_played:
             return WORK_NOT_PLAYED
         return WORK_ONE_SIDED if row["sides_present"] == 1 else WORK_MISSING
@@ -1371,8 +1824,7 @@ def estimate_requests(todo, batch_size=MAX_GAMES_PER_REQUEST,
 
 
 def run_campaign(session, token, fixtures, work, output_dir, season_ids,
-                 states=(WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
-                         WORK_ANCHORED),
+                 states=(WORK_MISSING, WORK_ONE_SIDED),
                  con=None,
                  progress=None, stop=None, batch_size=MAX_GAMES_PER_REQUEST,
                  with_minutes=True):
@@ -1434,6 +1886,7 @@ def run_campaign(session, token, fixtures, work, output_dir, season_ids,
                     m = upsert_game_minutes(token, mn_path, con=con)
                     note += f", {m:,} minute rows"
                     _quiet_remove(mn_path)
+                _archive_events(ev_path, gids)
                 _quiet_remove(ev_path)
                 written += len(batch)
             except Exception as e:
@@ -1454,6 +1907,113 @@ def _quiet_remove(path):
         os.remove(path)
     except OSError:
         pass
+
+
+# Response cache. Set this to a directory and every downloaded event CSV is
+# kept, gzipped, instead of being deleted after the upsert.
+#
+# WHY: a schema change is otherwise a RE-DOWNLOAD. On 2026-09-08 the event
+# model went from 52 expanded fields to 401, and the only reason that cost
+# ~1,046 requests is that every prior response had been thrown away. With the
+# cache, widening the SELECT means re-parsing files already on disk.
+#
+# It is also the evidence. The three-gate failure writes NULLs and reports
+# "INGEST OK"; comparing the stored rows against the response that produced
+# them is how you tell whether the feed or the parser was at fault.
+#
+# Cheap: responses arrive gzipped at ~0.16 MB/game, so the whole database is
+# around 1 GB cached. Uncompressed CSV would be ~30 GB.
+EVENT_CACHE_ENV = "DATA_MANAGER_EVENT_CACHE"
+
+
+def _cache_dir():
+    d = os.environ.get(EVENT_CACHE_ENV)
+    if d:
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _archive_events(csv_path, game_ids, cache_dir=None):
+    """Gzip a downloaded event CSV into the cache. Returns the path, or None.
+
+    Named by a hash of the game ids, so the same batch always lands on the
+    same file and a re-run overwrites rather than accumulating duplicates.
+    Failure here is deliberately non-fatal - the cache is an optimisation, and
+    losing it must never fail an ingest that otherwise succeeded.
+    """
+    cache_dir = cache_dir or _cache_dir()
+    if not cache_dir:
+        return None
+    try:
+        key = hashlib.sha1(",".join(sorted(game_ids)).encode()).hexdigest()[:12]
+        out = os.path.join(cache_dir, f"ev_{key}_{len(game_ids)}g.csv.gz")
+        with open(csv_path, "rb") as fh, gzip.open(out, "wb", compresslevel=6) as gz:
+            shutil.copyfileobj(fh, gz)
+        return out
+    except Exception:
+        return None
+
+
+def fixtures_from_games(con):
+    """Rebuild the gameId -> home/away map that upsert_game_events needs.
+
+    `run_campaign` gets this from `discover_fixtures`, which costs a request
+    per season. On a re-parse the `games` table already holds it, so the cache
+    can be replayed with no network at all.
+    """
+    import pandas as _pd
+    rows = con.execute(
+        "SELECT gameId, homeTeamId, awayTeamId, homeTeam, awayTeam FROM games"
+    ).fetchall()
+    return {r[0]: {"homeTeamId": r[1], "awayTeamId": r[2],
+                   "homeTeam": r[3], "awayTeam": r[4]} for r in rows}
+
+
+def reparse_event_cache(cache_dir, token, con=None, fixtures=None,
+                        progress=None, stop=None):
+    """Re-ingest every cached response. No network.
+
+    This is what makes a schema change cheap: widen EXPANDED_EVENT_FIELDS,
+    run _apply_schema, then replay the cache. Columns the old responses do not
+    carry stay NULL - which is correct and visible, not silent, because the
+    cached file is right there to check against.
+
+    Idempotent: upsert_game_events DELETEs by gameId before inserting, so
+    replaying a file that is already loaded is a no-op in effect.
+
+    Returns (files_done, rows, failed).
+    """
+    own = con is None
+    if own:
+        con = get_motherduck_connection(token)
+    try:
+        fixtures = fixtures if fixtures is not None else fixtures_from_games(con)
+        files = sorted(f for f in os.listdir(cache_dir) if f.endswith(".csv.gz"))
+        done = rows = failed = 0
+        for i, name in enumerate(files, 1):
+            if stop is not None and stop():
+                break
+            src = os.path.join(cache_dir, name)
+            tmp = src[:-3]
+            try:
+                with gzip.open(src, "rb") as gz, open(tmp, "wb") as fh:
+                    shutil.copyfileobj(gz, fh)
+                _, n = upsert_game_events(token, tmp, fixtures, con=con)
+                rows += n
+                done += 1
+            except Exception as e:
+                failed += 1
+                if progress:
+                    progress(i, len(files), name, f"{type(e).__name__}: {e}"[:160])
+                continue
+            finally:
+                _quiet_remove(tmp)
+            if progress:
+                progress(i, len(files), name, f"{n:,} events")
+        return done, rows, failed
+    finally:
+        if own:
+            con.close()
 
 
 def download_game_events(session, season_ids, game_ids, output_path):

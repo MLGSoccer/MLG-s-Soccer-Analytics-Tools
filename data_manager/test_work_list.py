@@ -116,14 +116,20 @@ rs = dl.work_list_summary(real)
 tot = sum(rs.values())
 for k in dl.WORK_ORDER:
     print(f"        {k:<12} {rs[k]:>6,}  ({100.0*rs[k]/max(tot,1):.1f}%)")
-# The mirror predates the predicate swap, so EVERY whole game in it is
-# old_feed. If this ever reports `complete` instead, the feed-vintage test
-# has stopped working - which is exactly the bug that let 3,814 production
-# games read as done.
-check("every whole game in the mirror is old_feed, not complete",
-      rs[dl.WORK_COMPLETE] == 0 and rs[dl.WORK_OLD_FEED] > tot * 0.9,
-      f"old_feed={rs[dl.WORK_OLD_FEED]:,} complete={rs[dl.WORK_COMPLETE]:,} "
-      f"of {tot:,}")
+# WORK_OLD_FEED was removed on 2026-09-09, so this assertion INVERTED
+# deliberately. It used to require that every whole game in the stale mirror
+# read as `old_feed` rather than `complete`, guarding the migration that is now
+# finished - production holds zero old-feed games.
+#
+# The cost of removing the state is real and worth stating: the work list can
+# no longer tell a 22-play-type game from a full one, so pointing it at an old
+# database would call those games complete. That is acceptable only because the
+# feed vintage is still reported per game on the Health page
+# (`per_game_feed`), which is where a migration question belongs. If old-feed
+# games ever need re-downloading again, restore the state - do not rely on this.
+check("mirror games now classify as complete (state removed, by design)",
+      rs[dl.WORK_COMPLETE] > tot * 0.9,
+      f"complete={rs[dl.WORK_COMPLETE]:,} of {tot:,}")
 
 print(f"\n{'=' * 62}\n{ok} passed, {fail} failed")
 sys.exit(1 if fail else 0)

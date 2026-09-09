@@ -457,6 +457,7 @@ def load_coverage(token):
             WITH per_game AS (
                 SELECT gameId,
                        count(DISTINCT teamId) AS sides,
+                       count(DISTINCT "teamAbbrevName") AS abbrevs,
                        max(CASE WHEN playType NOT IN ({types_sql})
                                 THEN 1 ELSE 0 END) AS new_feed
                 FROM events GROUP BY gameId
@@ -466,7 +467,15 @@ def load_coverage(token):
                    count(*) FILTER (WHERE p.sides = 2)             AS complete,
                    count(*) FILTER (WHERE p.sides = 1)             AS one_sided,
                    count(*) FILTER (WHERE p.sides IS NULL)         AS no_events,
-                   count(*) FILTER (WHERE p.new_feed = 1)          AS per_game_feed
+                   count(*) FILTER (WHERE p.new_feed = 1)          AS per_game_feed,
+                   -- THE ANCHOR INVARIANT. A two-sided game whose rows carry
+                   -- one team abbreviation was written by a request that named
+                   -- a team, making it the anchor: 21 team-scoped columns on
+                   -- the away rows then hold the home side's values. It was
+                   -- silent the first time - plausible counts, no error - and
+                   -- cost a whole-database re-download. Must be 0.
+                   count(*) FILTER (WHERE p.sides >= 2 AND p.abbrevs < 2)
+                                                                   AS anchored
             FROM games g LEFT JOIN per_game p ON p.gameId = g.gameId
             GROUP BY 1
         """).df()
@@ -501,6 +510,25 @@ if cov is not None and not cov.empty:
             f"reading them is reading half a match. The Campaign page finds "
             f"and fixes these; the freshness table below cannot see them, "
             f"because both teams were downloaded — just never together.")
+
+    # The anchor invariant. This used to be a work-list state offering a
+    # re-download; it is an assertion now, because after the 2026-09-09 rebuild
+    # the answer to it firing is "fix the event statement", not "re-fetch under
+    # a broken one". Keeping the CHECK matters even though the state went: the
+    # bug it catches produced no error and plausible row counts.
+    anchored = int(cov["anchored"].sum())
+    if anchored:
+        st.error(
+            f"**{anchored:,} games were written by an ANCHORED request.** Their "
+            f"two sides share one team abbreviation, which means 21 team-scoped "
+            f"columns on the away rows hold the home side's values — colour, "
+            f"score, formation, assists. Nothing will error on this. Check "
+            f"`build_game_event_statement` for a team predicate before "
+            f"re-downloading anything.")
+    else:
+        st.caption(f"**Anchor check:** 0 of {tot:,} games anchored. Each side "
+                   f"kept its own identity, which only the anchor-free "
+                   f"statement produces.")
 
     st.caption(
         f"**Feed vintage:** {newf:,} of {tot:,} games "

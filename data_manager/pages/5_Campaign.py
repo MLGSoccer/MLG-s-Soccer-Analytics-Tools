@@ -30,17 +30,19 @@ from downloader import (  # noqa: E402
     WORK_COMPLETE,
     WORK_MISSING,
     WORK_NOT_PLAYED,
-    WORK_OLD_FEED,
+    WORK_NO_DATA,
     WORK_ONE_SIDED,
-    WORK_ANCHORED,
     WORK_ORDER,
+    POOL_DISPLAY,
     build_work_list,
     create_session,
     discover_fixtures,
     estimate_requests,
     MAX_GAMES_PER_REQUEST,
     get_motherduck_connection,
+    load_known_empty_games,
     load_secrets,
+    refresh_player_pool,
     run_campaign,
     work_list_summary,
 )
@@ -63,18 +65,15 @@ STATE_HELP = {
     WORK_MISSING: "No events at all. Download.",
     WORK_ONE_SIDED: "Only ONE team's events are stored — half a match. "
                     "Download. This is the case the old tool cannot see.",
-    WORK_OLD_FEED: "Both sides stored, but downloaded under the OLD feed — "
-                   "22 play types, no cards, no substitutions. Re-download.",
-    WORK_ANCHORED: "Both sides stored, but written by an ANCHORED request — "
-                   "21 team columns on the away rows hold the HOME team's "
-                   "values (abbreviation, colour, score, formation, assists). "
-                   "Re-download.",
     WORK_NOT_PLAYED: "Fixture exists, no result yet. Skip.",
+    WORK_NO_DATA: "Settled and eventless — awarded without being played. "
+                  "No events will ever exist, so it is listed by gameId in "
+                  "`known_empty_games`. Skip; re-attempting it is what made it "
+                  "look like a permanent gap.",
     WORK_COMPLETE: "Both sides present. Skip.",
 }
-STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠", WORK_OLD_FEED: "🟡",
-              WORK_ANCHORED: "🟣",
-              WORK_NOT_PLAYED: "⚪", WORK_COMPLETE: "🟢"}
+STATE_ICON = {WORK_MISSING: "🔴", WORK_ONE_SIDED: "🟠",
+              WORK_NOT_PLAYED: "⚪", WORK_NO_DATA: "⚫", WORK_COMPLETE: "🟢"}
 
 st.title("Campaign")
 
@@ -129,6 +128,53 @@ def open_target():
 if "cookies" not in st.session_state:
     st.error("Not authenticated — paste a cURL command on the main page first.")
     st.stop()
+
+# ── Player pools ─────────────────────────────────────────────────────────────
+# These used to live on the main page, beside the per-team downloader nothing
+# uses any more - so the pools could only be refreshed from the page you no
+# longer download games with. They are DERIVED from the games a campaign
+# fetches: add a season, download it, and its players stay invisible to the
+# player-comparison charts until this runs.
+#
+# Placed ABOVE the work list on purpose. Everything below can `st.stop()` -
+# nothing in scope, production unconfirmed, no work list built - and a section
+# after those would be unreachable exactly when you wanted it.
+with st.expander("Player pools — refresh after downloading a new season"):
+    st.caption(
+        "Rebuilt from a 365-day rolling window and mirrored to Supabase, "
+        "which is where the player-comparison charts read membership from. "
+        "A stale pool omits players silently rather than failing.")
+    if not (secrets.get("SUPABASE_URL") and secrets.get("SUPABASE_KEY")):
+        st.warning(
+            "Supabase credentials not in secrets.env — a refresh will save "
+            "locally but the charts read the Supabase copy, so they will not "
+            "see it.")
+    _pool_cols = st.columns(len(POOL_DISPLAY))
+    for _i, (_key, _name) in enumerate(POOL_DISPLAY.items()):
+        with _pool_cols[_i]:
+            _n = len(config.get("player_pools", {})
+                     .get(_key, {}).get("seasons", []))
+            st.markdown(f"**{_name}**")
+            st.caption(f"{_n} season{'s' if _n != 1 else ''}")
+            if st.button("Refresh", key=f"pool_{_key}"):
+                with st.spinner(f"Refreshing {_name}…"):
+                    _ok, _msg = refresh_player_pool(
+                        create_session(st.session_state["cookies"]), _key,
+                        config,
+                        supabase_url=secrets.get("SUPABASE_URL"),
+                        supabase_key=secrets.get("SUPABASE_KEY"))
+                (st.success if _ok else st.error)(f"{_name}: {_msg}")
+    if st.button("Refresh all pools", type="primary", key="pool_all"):
+        _session = create_session(st.session_state["cookies"])
+        _bar = st.progress(0.0)
+        for _i, (_key, _name) in enumerate(POOL_DISPLAY.items(), 1):
+            _ok, _msg = refresh_player_pool(
+                _session, _key, config,
+                supabase_url=secrets.get("SUPABASE_URL"),
+                supabase_key=secrets.get("SUPABASE_KEY"))
+            (st.success if _ok else st.error)(f"{_name}: {_msg}")
+            _bar.progress(_i / len(POOL_DISPLAY))
+        _bar.empty()
 
 # ── 1. Scope ─────────────────────────────────────────────────────────────────
 st.header("1 · Scope")
@@ -235,12 +281,15 @@ force = st.checkbox(
          "widened SELECT. Work season by season — finished games do not "
          "drop off this list, so stopping mid-season means redoing it.")
 
-todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED, WORK_OLD_FEED,
-                           WORK_ANCHORED)
+todo_states = [s for s in (WORK_MISSING, WORK_ONE_SIDED)
                + ((WORK_COMPLETE,) if force else ())
                if summary[s]]
 if not todo_states:
     st.success("Every played fixture is already stored whole. Nothing to do.")
+    if summary.get(WORK_NO_DATA):
+        st.caption(
+            f"{summary[WORK_NO_DATA]} fixture(s) are settled and eventless "
+            f"(`known_empty_games`) and are not counted as work.")
     st.stop()
 
 with st.expander(f"The {sum(summary[s] for s in todo_states):,} games in "
@@ -323,3 +372,8 @@ if st.button(f"Download {n:,} games", type="primary", disabled=not n):
     # letting the page show counts that no longer describe the database.
     st.session_state.pop("campaign_work", None)
     st.caption("Work list cleared — rebuild it above to confirm what landed.")
+    if written:
+        st.info(
+            "**Refresh the player pools** if this run added a season or new "
+            "players — they stay invisible to the player-comparison charts "
+            "until you do. The panel is at the top of this page.")
