@@ -20,7 +20,7 @@ from shared.motherduck import (
     get_teams_by_league, get_players_with_minutes_for_team, get_player_game_log,
     season_label, player_chart_subject,
 )
-from shared.rolling import longest_segment, season_competition
+from shared.rolling import longest_usable_window, season_competition
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Player Rolling xG", page_icon="📊", layout="wide")
@@ -122,12 +122,13 @@ def _player_chart_note(matches, window, player_name):
             f"an attacking player, or widen the season filter."
         )
         return False
-    usable = longest_segment([{"season": m.get("season_name") or m.get("season", "")}
-                              for m in matches])
+    usable = longest_usable_window(
+        [{"season": m.get("season_name") or m.get("season", "")}
+         for m in matches])
     if usable < window:
         st.error(
-            f"A {window}-game rolling average needs {window} matches inside one "
-            f"season. The longest run in this selection is {usable}. Lower the "
+            f"A {window}-game rolling average needs {window} consecutive "
+            f"matches. The longest run in this selection is {usable}. Lower the "
             f"Rolling Window slider to {max(usable, 3)} or below, or widen the "
             f"season filter."
         )

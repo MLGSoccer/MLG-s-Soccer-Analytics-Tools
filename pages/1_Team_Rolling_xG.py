@@ -16,7 +16,7 @@ from mostly_finished_charts.team_rollingxg_chart import (
     create_aspect_chart,
     InsufficientMatches,
 )
-from shared.rolling import longest_segment
+from shared.rolling import longest_usable_window
 from pages.streamlit_utils import custom_title_inputs
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, get_team_rolling_xg_data,
@@ -110,22 +110,22 @@ def _window_note(matches, window):
     The chart now refuses to draw a rolling average from a window that is not
     full rather than quietly averaging however many matches it has, so a
     selection shorter than the window produces nothing. Saying so before the
-    Generate click is cheaper than an error after it. Counts the longest
-    SINGLE-SEASON run, because the window is not allowed to span a season
-    boundary either.
+    Generate click is cheaper than an error after it. Counts the longest run
+    of CONSECUTIVE matches, which spans a season boundary - only a gap in
+    the calendar breaks it.
     """
-    usable = longest_segment(matches)
+    usable = longest_usable_window(matches)
     if usable < window:
         st.error(
-            f"A {window}-game rolling average needs {window} matches inside one "
-            f"season. The longest run in this selection is {usable}. "
+            f"A {window}-game rolling average needs {window} consecutive "
+            f"matches. The longest run in this selection is {usable}. "
             f"Lower the Rolling Window slider to {max(usable, 3)} or below, or "
             f"pick a season with more matches."
         )
         return False
     if usable < window * 2:
         st.info(
-            f"{usable} matches in the longest season here, so the line starts at "
+            f"{usable} consecutive matches here, so the line starts at "
             f"match {window} and covers {usable - window + 1} points."
         )
     return True

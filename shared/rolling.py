@@ -20,10 +20,36 @@ chart inherits them when it migrates:
    against 1.07. Three cold reviews independently read the resulting decay
    curve as a team collapsing.
 
-2. The window never reaches back across a season boundary. It used to:
-   Arsenal's All-seasons chart ended at +0.61 from a window holding 8 matches
-   of 2025/26 and 2 of 2026/27, while those 2 matches drawn alone read +1.68
-   and +1.19. 120 of 458 production teams have at least one such window.
+2. The window DOES reach back across a season boundary. It stops only at a
+   real gap in the calendar. This reverses a rule added on 2026-09-05 that
+   restarted the count at every season.
+
+   That rule was justified by comparing a blended Arsenal window (+0.61,
+   holding 8 matches of 2025/26 and 2 of 2026/27) against those 2 matches
+   drawn alone (+1.68 and +1.19). That is a demonstration of LAG, which is
+   what a trailing window is for; it reads as an error only if the n=2
+   figure is taken as the truth. Point 1 above exists to stop doing exactly
+   that.
+
+   The reset also cost more than it bought:
+
+   - It did not replace a stale estimate with a better one. It replaced it
+     with n=1, drawn at the right edge of the frame, which is where a
+     reader looks first. If old matches genuinely should not count, the
+     answer is a shorter window or a decay weight, not a hard stop that
+     leaves the first W-1 matches of every season uninterpretable.
+   - A season boundary is a calendar convention, not a change in the
+     data-generating process. A November sacking or a January window moves
+     a squad further than the summer does, and neither resets anything.
+   - It was already inconsistent with `find_season_segments`, which splits
+     on the YEAR and not the competition. A window will happily average a
+     Champions League tie with a league game, so the heterogeneity the rule
+     permitted was larger than the one it forbade.
+
+   What DOES still stop a window is a genuine discontinuity: consecutive
+   segments whose campaigns are not adjacent, which means a selection with
+   a hole in it - a missing season, or two campaigns picked years apart.
+   See `campaigns_are_adjacent`.
 """
 import re
 
@@ -58,6 +84,48 @@ def season_competition(season_name):
     return _YEAR_TAIL.sub("", season_name or "").strip()
 
 
+def campaign_index(season_name):
+    """An orderable integer for the campaign a season name belongs to.
+
+    Split-year names index on the year they START in, single-year names on
+    the year itself, so consecutive campaigns always differ by one:
+
+        '2025/26' -> 2025      '2026/27' -> 2026
+        '2026'    -> 2026      '2027'    -> 2027
+
+    Returns None where there is no parseable year, which callers must treat
+    as "cannot tell" rather than as a gap.
+    """
+    year = season_year(season_name)
+    if not year:
+        return None
+    try:
+        return int(year[:4])
+    except ValueError:
+        return None
+
+
+def campaigns_are_adjacent(earlier, later):
+    """Do these two season names sit next to each other on the calendar?
+
+    True where a rolling window may run from one into the other. The gap in
+    index is 1 for two split-year campaigns ('2025/26' -> '2026/27') and for
+    two calendar-year ones ('2026' -> '2027'), and 0 where the two overlap
+    in time because one league runs on a calendar year and the other does
+    not - a player leaving MLS 2026 for the Premier League 2026/27 is
+    continuous, and both forms are in this database.
+
+    UNPARSEABLE names are treated as adjacent. The default here is
+    continuity, and a missing year is not evidence of a gap - inventing one
+    would reintroduce the reset this module just removed, silently, on
+    whichever competitions happen to be named badly.
+    """
+    a, b = campaign_index(earlier), campaign_index(later)
+    if a is None or b is None:
+        return True
+    return 0 <= b - a <= 1
+
+
 def find_season_segments(matches):
     """Split a match list where the season YEAR changes.
 
@@ -87,16 +155,56 @@ def find_season_segments(matches):
     return segments
 
 
+def _first_name(segment):
+    """A season name from the segment, for adjacency. '' if it carries none."""
+    return segment["names"][0] if segment["names"] else ""
+
+
+def _last_name(segment):
+    return segment["names"][-1] if segment["names"] else ""
+
+
 def segment_starts(segments):
-    """The 1-indexed match numbers a rolling window must not reach back past."""
-    return [s["start"] for s in segments]
+    """The 1-indexed match numbers a rolling window must not reach back past.
+
+    A season change is NOT one of them. Only a break in the calendar is - a
+    segment whose campaign does not follow the previous one's, which means a
+    selection with a season missing from the middle of it. Everything else
+    is one continuous run of football and the window crosses it.
+
+    Always includes 1: the start of the data is a barrier because there is
+    nothing behind it, which is the one place the provisional lead-in is
+    honest about having no history to draw on.
+    """
+    starts = [1]
+    for prev, seg in zip(segments, segments[1:]):
+        if not campaigns_are_adjacent(_last_name(prev), _first_name(seg)):
+            starts.append(seg["start"])
+    return starts
+
+
+def linked_runs(segments):
+    """Group segments into runs a window may travel along without stopping.
+
+    Returns a list of (start, end) 1-indexed inclusive match numbers. One
+    run per stretch of adjacent campaigns; a hole in the selection splits it.
+    """
+    if not segments:
+        return []
+    runs = [[segments[0]["start"], segments[0]["end"]]]
+    for prev, seg in zip(segments, segments[1:]):
+        if campaigns_are_adjacent(_last_name(prev), _first_name(seg)):
+            runs[-1][1] = seg["end"]
+        else:
+            runs.append([seg["start"], seg["end"]])
+    return [tuple(r) for r in runs]
 
 
 class InsufficientMatches(ValueError):
     """Raised when no rolling window in the selection is ever full.
 
-    Not a warning: a 'W-game rolling average' over fewer than W matches in any
-    one season has nothing to draw, and the old code drew the raw per-match
+    Not a warning: a 'W-game rolling average' over fewer than W consecutive
+    matches has nothing to draw, and the old code drew the raw per-match
     values instead - a 2-match selection rendered as a '10-GAME ROLLING
     AVERAGE'. Callers should catch this and offer the largest usable window.
 
@@ -109,13 +217,18 @@ class InsufficientMatches(ValueError):
         self.window = window
         self.usable = usable
         super().__init__(
-            f"A {window}-game rolling average needs {window} matches in one "
-            f"season; the longest run here is {usable}."
+            f"A {window}-game rolling average needs {window} consecutive "
+            f"matches; the longest run here is {usable}."
         )
 
 
 def _segment_start(i, starts):
-    """1-indexed start of the segment containing 0-indexed position `i`."""
+    """1-indexed start of the RUN containing 0-indexed position `i`.
+
+    `starts` comes from `segment_starts`, which lists only real breaks in
+    the calendar - so on an unbroken selection this is 1 everywhere and the
+    window is limited by nothing but the data it has.
+    """
     seg_start = 1
     for s in starts:
         if s <= i + 1:
@@ -215,10 +328,20 @@ def partial_rolling_average(values, window=10, starts=None, min_samples=1):
                                  min_samples=min_samples)
 
 
-def longest_segment(matches):
-    """Matches in the longest single-season run - the largest usable window."""
-    segs = find_season_segments(matches)
-    return max((s["end"] - s["start"] + 1 for s in segs), default=0)
+def longest_usable_window(matches):
+    """The largest window this selection can actually fill.
+
+    Renamed from `longest_segment`, and it no longer measures a season. Once
+    a window may cross a season boundary the longest SINGLE season stopped
+    being the limit: six matches in 2025/26 followed by six in 2026/27 is
+    twelve consecutive matches and fills a 10-game window, while the old
+    measure returned 6 and the chart refused to draw a series it could now
+    compute. The rename is deliberate - every caller gates on this, and a
+    silent change of meaning under the old name is exactly the sort of thing
+    that goes unnoticed for months.
+    """
+    runs = linked_runs(find_season_segments(matches))
+    return max((end - start + 1 for start, end in runs), default=0)
 
 
 def format_season_text(segments_or_names, compact=False):

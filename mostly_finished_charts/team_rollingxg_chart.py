@@ -30,7 +30,8 @@ from shared.file_utils import get_file_path, get_output_folder
 # format_season_text from HERE. Re-exported below so that import keeps working
 # and the player chart inherits the corrected caption untouched.
 from shared.rolling import (
-    find_season_segments, segment_starts, rolling_average, longest_segment,
+    find_season_segments, segment_starts, rolling_average,
+    longest_usable_window,
     partial_rolling_average, format_season_text, draw_season_boundaries,
     fill_signed, InsufficientMatches,
 )
@@ -425,7 +426,7 @@ def _series(matches, window):
     goals_against = [m['goals_against'] for m in matches]
     xg_diff = [f - a for f, a in zip(xg_for, xg_against)]
 
-    usable = longest_segment(matches)
+    usable = longest_usable_window(matches)
     if usable < window:
         raise InsufficientMatches(window, usable)
 
@@ -454,20 +455,29 @@ MIN_LEAD_IN_SAMPLES = 3
 
 
 def _first_undrawn_match(segments, minimum):
-    """Start of the earliest season too short to carry ANY line.
+    """Start of the earliest stretch too short to carry ANY line.
 
-    Callers pass `MIN_LEAD_IN_SAMPLES`, not the window: since the provisional
-    lead-in covers a season the full window cannot fill, the only stretch left
-    with nothing drawn in it is one shorter than the lead-in's own minimum.
+    Callers pass `MIN_LEAD_IN_SAMPLES`, not the window: the provisional
+    lead-in draws from the first match of a run, so the only stretch left
+    with nothing in it is one too short to render as a line at all.
     Shading anything longer would contradict the line running through it.
+
+    A SEASON CHANGE NO LONGER QUALIFIES. Since the window crosses one, a
+    two-match season in the middle of a selection has the full line running
+    through it and there is nothing to shade. Only a segment that begins a
+    new run - after a real gap in the calendar, where the window genuinely
+    does restart - can still be empty. Leaving this on the old rule would
+    have shaded a region the line now occupies.
 
     Returned to `draw_season_boundaries` so the rolling panels can shade that
     stretch. The cumulative panel passes nothing, because it genuinely does
     accumulate across the boundary - the same divider glyph means different
     things on the two kinds of panel, and only the shading distinguishes them.
     """
+    barriers = set(segment_starts(segments))
     for seg in segments[1:]:
-        if (seg["end"] - seg["start"] + 1) < minimum:
+        if (seg["start"] in barriers
+                and (seg["end"] - seg["start"] + 1) < minimum):
             return seg["start"]
     return None
 
@@ -1252,10 +1262,10 @@ def run(config):
 
     # The chart refuses a window it cannot fill, so say so here rather than
     # letting InsufficientMatches surface as a stack trace in the launcher.
-    usable = longest_segment(matches)
+    usable = longest_usable_window(matches)
     if usable < window:
-        print(f"\n[!] A {window}-game rolling average needs {window} matches "
-              f"inside one season; the longest run here is {usable}.")
+        print(f"\n[!] A {window}-game rolling average needs {window} "
+              f"consecutive matches; the longest run here is {usable}.")
         print(f"    Re-run with window={max(usable, 3)} or fewer, or use a "
               f"file with more matches.")
         return

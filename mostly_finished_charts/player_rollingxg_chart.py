@@ -29,7 +29,8 @@ from mostly_finished_charts.team_rollingxg_chart import (
     _wrap_title, PARTIAL_STYLE, MIN_LEAD_IN_SAMPLES,
 )
 from shared.rolling import (
-    find_season_segments, segment_starts, longest_segment, rolling_ratio,
+    find_season_segments, segment_starts, longest_usable_window,
+    rolling_ratio,
     partial_rolling_ratio, draw_season_boundaries, fill_signed,
     InsufficientMatches,
 )
@@ -531,7 +532,7 @@ def _series(matches, window):
     if sum(shots) == 0:
         raise NoShots(len(matches))
 
-    usable = longest_segment([{'season': _season_of(m)} for m in matches])
+    usable = longest_usable_window([{'season': _season_of(m)} for m in matches])
     if usable < window:
         raise InsufficientMatches(window, usable)
 
