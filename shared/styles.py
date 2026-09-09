@@ -137,6 +137,122 @@ def add_cbs_footer(fig, data_source='Opta/Stats Perform'):
                 color=TEXT_MUTED, ha='right')
 
 
+def draw_event_block(
+    fig, events, minute_of,
+    *,
+    head_y, top, bottom, row_step_max,
+    head_size, row_size,
+    min_x, name_x, score_x, rule_x0,
+    color_of=None, rc_color='#E53935',
+    head_left='MATCH EVENTS', head_right='SCORE',
+    mark_of=None,
+):
+    """The match timeline: one row per goal/card, in chronological order.
+
+    This is what the portrait aspects do with the callouts a 16:9 puts ON the
+    plot - nine 16pt labels cannot fit 9 inches of width, and a list is what
+    the label band was always trying to be. Built for Match Momentum, and
+    shared so the xG Race's 9:16 lists the same match the same way: two
+    charts of one game appearing in the same short must not disagree about
+    how a match reads.
+
+    Rows are DISTRIBUTED across the band rather than stepped from its top at
+    a fixed pitch - a 1-1 and a 5-4 both have to fill the same space, and a
+    fixed step leaves a hole under a short list. Same rule as the shot
+    chart's stat block. But the pitch is CAPPED and the list top-aligned:
+    pure distribution works on the shot chart because that block always holds
+    about five rows, while a match has as few as two events, and a 1-1 spread
+    over the whole band put two lines of text in ~1000px of empty navy - a
+    legitimate scoreline reading as a failed render. Capped, the spare space
+    falls at the BOTTOM, where it is breathing room.
+
+    Each row: an accent bar in the event's team colour, the broadcast minute,
+    the player, and the running score (or RED CARD). The accent bar is what
+    says WHICH side, so it takes the chrome lift - a raw navy bar vanishes.
+
+    Args:
+        events: chronological dicts carrying 'type' ('goal'/'rc'), 'label',
+            'score', optional 'og', and a colour reachable via `color_of`.
+        minute_of: callable(ev) -> the broadcast minute string, without the
+            apostrophe. Passed rather than read off the event because the
+            two callers hold period differently.
+        color_of: callable(ev) -> the event's team colour. Defaults to
+            ev['color'].
+        mark_of: callable(ev) -> the glyph to draw in place of the row's plain
+            accent bar, so the row shows the SAME mark the plot above uses.
+            A cold viewer reading a 9:16 named the hollow circle and the red
+            rectangle on the plot as marks "with nothing on the page defining
+            either" - the list explains the EVENTS, and without this it never
+            explains the MARKS. Return None to keep the bar for that row.
+    """
+    if not events:
+        return
+    from shared.colors import ensure_line_contrast
+    if color_of is None:
+        def color_of(ev):
+            return ev.get('color')
+
+    fig.text(rule_x0, head_y, head_left, ha='left', va='center',
+             fontsize=head_size, fontweight='bold', color=TEXT_MUTED)
+    fig.text(score_x, head_y, head_right, ha='right', va='center',
+             fontsize=head_size, fontweight='bold', color=TEXT_MUTED)
+    fig.patches.append(Rectangle(
+        (rule_x0, head_y - 0.011), score_x - rule_x0, 0.0008,
+        transform=fig.transFigure, facecolor='#31435A', edgecolor='none',
+        zorder=3))
+
+    step = min((top - bottom) / max(len(events), 1), row_step_max)
+    for i, ev in enumerate(events):
+        y = top - step * (i + 0.5)
+        is_rc = ev['type'] == 'rc'
+        accent = ensure_line_contrast(
+            rc_color if is_rc else color_of(ev), BG_COLOR)
+        glyph = mark_of(ev) if mark_of is not None else None
+        if glyph:
+            # Left-anchored on the rule and set smaller than the row: a filled
+            # bullet's advance width at row size is wider than the accent bar
+            # it replaces, and it ran into the minute column.
+            #
+            # ALWAYS the team's colour, including on a red-card row. Where the
+            # leading mark is a bar, red says "card" and nothing is lost; where
+            # it is a GLYPH, the shape already says card, so a red glyph
+            # overloads the one channel every other row uses for the team - and
+            # at this size red is indistinguishable from a red club. Measured:
+            # a cold analyst read the carded side off exactly this tick and got
+            # the right answer only because that club happened to play in red.
+            fig.text(rule_x0, y, glyph, ha='left', va='center',
+                     fontsize=row_size * 0.85,
+                     color=ensure_line_contrast(color_of(ev), BG_COLOR),
+                     zorder=4)
+        else:
+            fig.patches.append(Rectangle(
+                (rule_x0, y - 0.010), 0.005, 0.020, transform=fig.transFigure,
+                facecolor=accent, edgecolor='none', zorder=4))
+        fig.text(min_x, y, f"{minute_of(ev)}'", ha='left', va='center',
+                 fontsize=row_size, color=TEXT_SECONDARY, zorder=4)
+        fig.text(name_x, y, (ev.get('label') or '').upper(), ha='left',
+                 va='center', fontsize=row_size,
+                 fontweight='bold' if not is_rc else 'normal',
+                 fontstyle='italic' if ev.get('og') else 'normal',
+                 color=TEXT_PRIMARY if not is_rc else TEXT_SECONDARY, zorder=4)
+        right = 'RED CARD' if is_rc else ev.get('score', '')
+        fig.text(score_x, y, right, ha='right', va='center', fontsize=row_size,
+                 fontweight='bold',
+                 color=rc_color if is_rc else TEXT_PRIMARY, zorder=4)
+
+    # Close the table. The header rule spans the full width and PROMISES a
+    # table; with two events and a capped row pitch, the rows stopped and
+    # nothing said so - two lines under an open-ended header is the visual
+    # signature of rows that failed to load. A closing rule bounds the list,
+    # so the space beneath it is plainly outside the table rather than
+    # missing from it.
+    last_y = top - step * (len(events) - 0.5)
+    fig.patches.append(Rectangle(
+        (rule_x0, last_y - step * 0.5), score_x - rule_x0, 0.0008,
+        transform=fig.transFigure, facecolor='#31435A', edgecolor='none',
+        zorder=3))
+
+
 def _has_bg_contrast(color, min_distance=100):
     """True if `color` reads clearly on BG_COLOR. Lazy import to avoid a
     cycle: shared.colors imports nothing from this module, but keep the

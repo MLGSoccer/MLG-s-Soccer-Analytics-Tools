@@ -25,7 +25,7 @@ from shared.styles import (
     BG_COLOR, SPINE_COLOR,
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     add_cbs_footer, render_two_team_score_header, resolve_figsize,
-    fit_fontsize,
+    fit_fontsize, draw_event_block,
 )
 from shared.colors import check_color_similarity, ensure_line_contrast
 # The xG race is this chart's chronological sibling: same axis, same event
@@ -37,7 +37,7 @@ from mostly_finished_charts.xg_race_chart import (
     _event_period, _place_goal_labels, _separate_using_secondary,
     format_broadcast_minute,
 )
-from pages.streamlit_utils import custom_title_inputs
+from pages.streamlit_utils import custom_title_inputs, own_goals_sidebar
 
 st.set_page_config(page_title="Match Momentum", page_icon="", layout="wide")
 
@@ -399,70 +399,22 @@ _MOMENTUM_LAYOUTS = {
 
 
 def _draw_event_block(fig, layout, events, minute_of):
-    """The match timeline: one row per goal/card, in chronological order.
+    """Adapter: this chart's layout dict onto the shared timeline block.
 
-    Rows are DISTRIBUTED across the band rather than stepped from its top at
-    a fixed pitch - a 1-1 and a 5-4 both have to fill the same space, and a
-    fixed step leaves a hole under a short list. Same rule as the shot
-    chart's stat block.
-
-    Each row: accent bar in the event's team colour, the broadcast minute,
-    the player, and the running score (or RED CARD). The accent bar is what
-    says WHICH side, so it takes the chrome lift - a raw navy bar vanishes.
+    The block itself moved to shared/styles.py when the xG Race's 9:16 needed
+    the same list - two charts of one match, appearing in the same short,
+    must not disagree about how that match reads. Every design decision in it
+    (distributed-but-capped row pitch, the closing rule) is documented there.
     """
-    if not events:
-        return
-    x0 = layout["rule_x0"]
-    head_y = layout["block_head_y"]
-    fig.text(x0, head_y, "MATCH EVENTS", ha="left", va="center",
-             fontsize=layout["head_size"], fontweight="bold", color=TEXT_MUTED)
-    fig.text(layout["score_x"], head_y, "SCORE", ha="right", va="center",
-             fontsize=layout["head_size"], fontweight="bold", color=TEXT_MUTED)
-    fig.patches.append(mpatches.Rectangle(
-        (x0, head_y - 0.011), layout["score_x"] - x0, 0.0008,
-        transform=fig.transFigure, facecolor="#31435A", edgecolor="none",
-        zorder=3))
-
-    # Distribute, but CAP the pitch and top-align. Pure distribution is the
-    # shot chart's rule and it works there because that block always holds
-    # about five rows; a match has as few as two events, and a 1-1 spread
-    # over the whole band put two lines of text in ~1000px of empty navy -
-    # a legitimate scoreline reading as a failed render. Capped, the spare
-    # space falls at the BOTTOM, where it is breathing room.
-    band = layout["block_top"] - layout["block_bot"]
-    step = min(band / max(len(events), 1), layout["row_step_max"])
-    size = layout["row_size"]
-    for i, ev in enumerate(events):
-        y = layout["block_top"] - step * (i + 0.5)
-        is_rc = ev["type"] == "rc"
-        accent = ensure_line_contrast(
-            _RC_COLOR if is_rc else ev["color"], BG_COLOR)
-        fig.patches.append(mpatches.Rectangle(
-            (x0, y - 0.010), 0.005, 0.020, transform=fig.transFigure,
-            facecolor=accent, edgecolor="none", zorder=4))
-        fig.text(layout["min_x"], y, f"{minute_of(ev)}'", ha="left",
-                 va="center", fontsize=size, color=TEXT_SECONDARY, zorder=4)
-        fig.text(layout["name_x"], y, (ev.get("label") or "").upper(),
-                 ha="left", va="center", fontsize=size,
-                 fontweight="bold" if not is_rc else "normal",
-                 fontstyle="italic" if ev.get("og") else "normal",
-                 color=TEXT_PRIMARY if not is_rc else TEXT_SECONDARY, zorder=4)
-        right = "RED CARD" if is_rc else ev.get("score", "")
-        fig.text(layout["score_x"], y, right, ha="right", va="center",
-                 fontsize=size, fontweight="bold",
-                 color=_RC_COLOR if is_rc else TEXT_PRIMARY, zorder=4)
-
-    # Close the table. The header rule spans the full width and PROMISES a
-    # table; with two events and a capped row pitch, the rows stopped and
-    # nothing said so - two lines under an open-ended header is the visual
-    # signature of rows that failed to load. A closing rule bounds the list,
-    # so the space beneath it is plainly outside the table rather than
-    # missing from it.
-    last_y = layout["block_top"] - step * (len(events) - 0.5)
-    fig.patches.append(mpatches.Rectangle(
-        (x0, last_y - step * 0.5), layout["score_x"] - x0, 0.0008,
-        transform=fig.transFigure, facecolor="#31435A", edgecolor="none",
-        zorder=3))
+    draw_event_block(
+        fig, events, minute_of,
+        head_y=layout["block_head_y"], top=layout["block_top"],
+        bottom=layout["block_bot"], row_step_max=layout["row_step_max"],
+        head_size=layout["head_size"], row_size=layout["row_size"],
+        min_x=layout["min_x"], name_x=layout["name_x"],
+        score_x=layout["score_x"], rule_x0=layout["rule_x0"],
+        rc_color=_RC_COLOR,
+    )
 
 
 def _draw_momentum_chart(momentum, match_info, goal_scorers,
@@ -928,58 +880,11 @@ st.sidebar.caption(
 window = st.sidebar.slider("Rolling window (minutes)", 3, 10, 5, step=1)
 
 
-def _own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix,
-                       game_id=None):
-    """Render own goals sidebar and return list of {minute, team} dicts.
-
-    `game_id` resolves an own goal's `teamId` to a side. The CSV path has no
-    game id, but it also passes an empty `auto_ogs`, so nothing needs it.
-    """
-    st.sidebar.header("Own Goals")
-    num_own_goals = st.sidebar.number_input(
-        "Number of own goals", min_value=0, max_value=5,
-        value=len(auto_ogs), key=f"num_og_{key_prefix}"
-    )
-    own_goals = []
-    for i in range(num_own_goals):
-        st.sidebar.markdown(f"**Own Goal {i+1}**")
-        og_col1, og_col2 = st.sidebar.columns(2)
-        if i < len(auto_ogs):
-            default_minute = auto_ogs[i]["minute"]
-            # "Scored by" means the own-goal scorer, i.e. the CONCEDING side -
-            # which is what both sources name.
-            _side = own_goal_conceding_side(
-                game_id, auto_ogs[i].get("teamId"),
-                auto_ogs[i].get("credited_team"), home_team, away_team)
-            default_scorer_idx = 1 if _side == "away" else 0
-        else:
-            default_minute = 45
-            default_scorer_idx = 0
-        with og_col1:
-            og_minute = st.number_input(
-                "Minute", min_value=1, max_value=120,
-                value=default_minute, key=f"og_min_{key_prefix}_{i}"
-            )
-        with og_col2:
-            scoring_team = st.selectbox(
-                "Scored by", options=[home_team, away_team],
-                index=default_scorer_idx, key=f"og_team_{key_prefix}_{i}"
-            )
-        credited_team = away_team if scoring_team == home_team else home_team
-        # Carry the data's period and player through untouched edits. Losing
-        # them here forced the chart back onto minute-based period inference
-        # and a bare "OG" label - the exact pair of defects fixed on the
-        # xG race page. An edited minute drops the period (it may no longer
-        # be true) but keeps the player.
-        og_period = og_player = None
-        if i < len(auto_ogs):
-            og_player = auto_ogs[i].get("player")
-            if og_minute == default_minute:
-                og_period = auto_ogs[i].get("period")
-        own_goals.append({"minute": og_minute, "team": credited_team,
-                          "period": og_period, "player": og_player})
-        st.sidebar.caption(f"Goal credited to {credited_team}")
-    return own_goals
+# This page's own copy moved to pages/streamlit_utils.py when the xG Race
+# needed the same seam for its harness - two near-identical copies of a
+# subtlety (carrying period and player through an untouched edit) is exactly
+# how the first one drifted.
+_own_goals_sidebar = own_goals_sidebar
 
 
 def _render_and_store(events_df, match_info, goal_scorers, own_goals, red_cards,

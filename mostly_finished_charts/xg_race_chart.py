@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
+import matplotlib.patheffects as mpe
 from matplotlib.patches import Rectangle
 from matplotlib.transforms import blended_transform_factory
 import numpy as np
@@ -16,6 +17,7 @@ from shared.colors import (
 from shared.styles import (
     BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
+    resolve_figsize, fit_fontsize, draw_event_block,
 )
 
 # Try to import web scraping libraries
@@ -1040,7 +1042,8 @@ def _measured_width(ax, lines, fontsize=13, fontweight='bold', pad_px=10):
     return (widest + pad_px) / per_unit
 
 
-def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
+def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12,
+                       fontsize=13):
     """Assign each goal an (x_side, y_level) so labels don't collide.
 
     Mutates each goal dict in place, adding:
@@ -1081,7 +1084,13 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
                 line1 = f"RED CARD ({m}')"
                 line2 = ''
         if ax is not None:
-            measured = _measured_width(ax, (line1, line2))
+            # At the SIZE THE RENDERER WILL DRAW. The default 13 is the 16:9's
+            # label size, and it was silently applied to a 20pt portrait label
+            # too - a 35% under-estimate, which is the same class of error the
+            # character-count estimator made and for the same reason. Caught by
+            # the 3-event fixture: "J. Hinshelwood (1')" and "Y. Minteh (86')"
+            # were both placed on level 0 and overprinted each other.
+            measured = _measured_width(ax, (line1, line2), fontsize=fontsize)
             if measured:
                 return measured
         # Fallback only: no axes to measure against (older callers, tests).
@@ -1207,7 +1216,7 @@ def _place_goal_labels(goals, chart_max, ax=None, near_edge=6, label_width=12):
 
 
 def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count,
-                   abbrev=None):
+                   abbrev=None, marker_size=7, xg_size=14, shots_size=11):
     """Draw the endpoint marker plus paired xG + shot-count labels.
 
     If label_y != xg_val, a small leader line connects the marker on the
@@ -1226,22 +1235,374 @@ def _draw_endpoint(ax, last_min, xg_val, label_y, color, shots_count,
     Prefixing costs nothing and puts the identity where the eye already is.
     Falls back to no prefix when the source has no abbreviation.
     """
-    ax.plot(last_min, xg_val, marker='o', markersize=7,
-            markerfacecolor=color, markeredgecolor=BG_COLOR,
-            markeredgewidth=1.5, zorder=5)
+    # The line's terminus. Dropped on the narrow frames (marker_size 0): at
+    # phone scale it is a dot of the team's colour sitting a few pixels from
+    # the last GOAL's dot, which is also a dot of the team's colour, and two
+    # cold readers hit it - one counted a goal that did not exist, the other
+    # called it "a stray, no idea". A line that visibly stops inside the plot
+    # already reads as a line that ended.
+    if marker_size:
+        ax.plot(last_min, xg_val, marker='o', markersize=marker_size,
+                markerfacecolor=color, markeredgecolor=BG_COLOR,
+                markeredgewidth=1.5, zorder=5)
     if label_y != xg_val:
         ax.plot([last_min, last_min + 1.0], [xg_val, label_y],
                 color=color, linewidth=0.8, alpha=0.55, zorder=4)
     ax.text(last_min + 1.5, label_y,
             f'{abbrev} {xg_val:.2f}' if abbrev else f'{xg_val:.2f}',
-            color=color, fontsize=14, fontweight='bold',
+            color=color, fontsize=xg_size, fontweight='bold',
             va='bottom', ha='left')
     ax.text(last_min + 1.5, label_y, f'{shots_count} shots',
-            color=color, fontsize=11, alpha=0.9,
+            color=color, fontsize=shots_size, alpha=0.9,
             va='top', ha='left')
 
 
-def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goals=None):
+# ── Aspect layouts ───────────────────────────────────────────────────────────
+#
+# A race is a TIME SERIES: minutes run left to right and cumulative xG runs up.
+# Neither axis can be rotated without fighting a convention every reader has,
+# so the portrait aspects do not stretch the plot - they give it a band at a
+# workable shape and spend the rest of the frame on what the 16:9 puts ON it.
+#
+# That split is settled prior art twice over. The DP xG Race family ships all
+# three ratios on exactly this rule (16:9 places callouts on the plot, 9:16
+# moves them to a list below, 9:8 carries lines, markers and totals only), and
+# Match Momentum - this chart's chronological sibling, same axis and the same
+# event annotations - reached the same answer independently.
+#
+# WHAT SURVIVES INTO A NARROW FRAME, and why:
+#   endpoint totals   ALWAYS. "STR 1.51" is the number the whole chart builds
+#                     to, and the prefix is the only thing tying a line to a
+#                     team by something other than colour. Dropping it or
+#                     moving it off the line end would undo the 16:9's
+#                     finding #2 - see _draw_endpoint.
+#   goal markers      ALWAYS. Where a goal fell against the xG curve is the
+#                     chart's second subject.
+#   event labels      16:9 only. Nine 16pt callouts do not fit 9 inches of
+#                     width; 9:16 lists them below the plot, 9:8 drops them
+#                     because the host is naming the scorers aloud.
+#
+# TYPE FLOOR: both portrait aspects are 9in wide delivered on a phone, so
+# nothing readable sits below 16pt - the same floor the shot chart, momentum
+# and the player charts carry.
+#
+# The 16:9 entries below are the values this chart already shipped. They are
+# transcribed, not retuned: cell 6 builds variants, and the 16:9's own
+# critique was signed off 2026-09-03.
+
+_XG_RACE_LAYOUT_DEFAULT = {
+    'aspect':          'default',
+    'axes_rect':       [0.07, 0.13, 0.88, 0.58],
+    'kicker_size':     11,   'title_size':   22,   'fit_title': False,
+    'y_kicker':        0.973, 'y_title':     0.942, 'y_bar': 0.912,
+    'subtitle_y':      0.885, 'subtitle_size': 11,
+    'labels_on_plot':  True,
+    'label_y_levels':  GOAL_LABEL_Y_LEVELS,
+    'label_leaders':   False,
+    'label_one_per_level': False,
+    'anchor_dots':     True,
+    'event_block':     False,
+    'key_y':           None,
+    'line_width':      2.9,
+    'goal_marker':     11,   'anchor_marker': 8,   'endpoint_marker': 7,
+    'ring_width':      2.0,
+    'event_label_size': 13,
+    'end_xg_size':     14,   'end_shots_size': 11,
+    'ht_size':         11,   'ht_below_axis': False,
+    'state_emptiness': False,
+    'card_h':          0.028, 'card_w': 0.7,       'card_derived': False,
+    'tick_size':       10,   'axis_label_size': 11,
+    'axis_words':      True,
+    'event_line_width': 1.0,
+    'anchor_row_dy':   0.0,
+    'x_pad_min':       5,
+}
+
+# 9:16 fullscreen - the plot takes a 1.5:1 band and the callouts become the
+# match timeline underneath, which is what the stacked label band was always
+# trying to be. Same block the momentum chart draws, imported rather than
+# copied: two charts of one match in one short must not disagree about how
+# that match reads.
+_XG_RACE_LAYOUT_9X16 = {
+    'aspect':          '9x16',
+    # Right edge at 0.775. The 0.225 gutter is not margin - it is where the
+    # endpoint labels live, and they are drawn at data x = last_min + 1.5 with
+    # no clipping, so a frame that does not reserve it does not clip them, it
+    # WIDENS on save (bbox_inches='tight') and quietly stops being 9:16.
+    'axes_rect':       [0.115, 0.600, 0.660, 0.265],
+    'kicker_size':     16,   'title_size':   30,   'fit_title': True,
+    'y_kicker':        0.975, 'y_title':     0.945, 'y_bar': 0.918,
+    'subtitle_y':      0.900, 'subtitle_size': 16,
+    'labels_on_plot':  False,
+    'label_y_levels':  GOAL_LABEL_Y_LEVELS,
+    'label_leaders':   False,
+    'label_one_per_level': False,
+    'anchor_dots':     True,
+    'event_block':     True,
+    'key_y':           None,
+    'line_width':      3.4,
+    'goal_marker':     12,   'anchor_marker': 9,   'endpoint_marker': 0,
+    # A 1.8pt ring stroke is 1.1 delivered px on a phone, so an own
+    # goal read as a slightly dimmer dot rather than a different kind
+    # of mark. Thicker stroke, and the hole survives.
+    'ring_width':      3.0,
+    'event_label_size': None,
+    'end_xg_size':     18,   'end_shots_size': 16,
+    'ht_size':         16,   'ht_below_axis': True,
+    'state_emptiness': True,
+    'card_h':          0.060, 'card_w': None,      'card_derived': True,
+    'tick_size':       16,   'axis_label_size': 16,
+    'axis_words':      'y',
+    # The leader that ties a goal's dot in the top row to its marker on the
+    # line. Measured on the tile at 1.0pt: 2px in the file against a
+    # half-time line - furniture - at 3px, so the chart drew its DATA link
+    # thinner than its chrome, and at phone scale (divide by 3.3) that link
+    # is under one CSS pixel. A cold viewer could not tell whether the two
+    # dots were one event drawn twice or two different things.
+    'event_line_width': 1.8,
+    'anchor_row_dy':   0.055,
+    'x_pad_min':       4,
+    # Event timeline block - the momentum chart's geometry, so the two charts
+    # list a match identically.
+    'block_head_y':    0.535, 'block_top': 0.500, 'block_bot': 0.075,
+    'row_step_max':    0.048,
+    'head_size':       16,   'row_size':  19,
+    'min_x':           0.105, 'name_x':   0.225, 'score_x': 0.915,
+    'rule_x0':         0.070,
+}
+
+# 9:8 tile - the chart shares the frame with the host, who names the scorers.
+# The plot keeps its markers and drops its text; a marker key replaces the
+# labels, because without them the markers carry the whole vocabulary.
+_XG_RACE_LAYOUT_9X8 = {
+    'aspect':          '9x8',
+    # 0.620 tall, not 0.640: the subtitle this frame gained needs the band
+    # above the plot, where a red card's team label also lives.
+    'axes_rect':       [0.115, 0.170, 0.655, 0.620],
+    'kicker_size':     16,   'title_size':   21,   'fit_title': True,
+    # The kicker sits a little higher and the title a little lower than the
+    # 9:16's: "ALAVES" with its acute came within 1.1 delivered px of the
+    # kicker, and Spanish, French and Portuguese club names carry diacritics
+    # constantly. The header measures a cap height, not an accent.
+    'y_kicker':        0.980, 'y_title':     0.933, 'y_bar': 0.898,
+    # The tile DOES carry competition and date. shared/styles.py's note that
+    # a tile needs no subtitle assumed the host supplies the context, but a
+    # host names the players, not the competition - and two cold viewers, one
+    # per round, reported the league and date as missing from this frame and
+    # present on the vertical. The header has the room.
+    'subtitle_y':      0.868, 'subtitle_size': 16,
+    'labels_on_plot':  False,
+    'label_y_levels':  GOAL_LABEL_Y_LEVELS,
+    'label_leaders':   False,
+    'label_one_per_level': False,
+    'anchor_dots':     True,
+    'event_block':     False,
+    'key_y':           0.045,
+    'line_width':      3.4,
+    'goal_marker':     12,   'anchor_marker': 9,   'endpoint_marker': 0,
+    # A 1.8pt ring stroke is 1.1 delivered px on a phone, so an own
+    # goal read as a slightly dimmer dot rather than a different kind
+    # of mark. Thicker stroke, and the hole survives.
+    'ring_width':      3.0,
+    'event_label_size': None,
+    'end_xg_size':     18,   'end_shots_size': 16,
+    'ht_size':         16,   'ht_below_axis': True,
+    # ...printed in the KEY's slot instead - see _draw_marker_key.
+    'state_emptiness': False,
+    'card_h':          0.060, 'card_w': None,      'card_derived': True,
+    'tick_size':       16,   'axis_label_size': 16,
+    # The tile keeps CUMULATIVE xG. Dropping it was the momentum chart's call
+    # and momentum can afford it - its y-axis is a normalised balance named by
+    # the two team labels inside the plot. Here the y values are a real
+    # quantity, and a cold viewer called the missing word the single thing the
+    # tile most needed. It costs no width: the rotated label sits inside the
+    # margin the tick numbers already require.
+    'axis_words':      'y',
+    'event_line_width': 1.8,
+    'anchor_row_dy':   0.055,
+    'x_pad_min':       4,
+}
+
+# 9:16, quiet match - the callouts go back ON the plot and the plot takes the
+# frame.
+#
+# The event list exists because ten 16pt callouts do not fit 9 inches of width.
+# Two of them fit easily. Sizing the list's band to ten rows and then putting
+# two in it is what made a 1-1 render as a table with 39% of the frame empty
+# underneath - and that is the MAJORITY case, not an edge: 3,303 of 7,083
+# matches (46.6%) finish with two goals or fewer, 69.1% with three or fewer.
+# Two cold readers called that frame a failed render, independently.
+#
+# So the rule is content-driven rather than a fixed reserve: below the
+# threshold the frame is the 16:9's design at portrait scale, above it the
+# list. What is left over lands ABOVE the plot as headroom under the title,
+# which is the shape of emptiness this project has already ruled on and
+# accepted - see the 16:9's own annotation-zone decision, 2026-09-02.
+#
+# HALF TIME stays under the axis. It is the plot's crowding that drove it
+# there, and a sparse plot is still crossed by whatever leaders it does have.
+SPARSE_EVENT_MAX = 3
+
+def _sparse_axes_rect(layout, n_events):
+    """Size the plot to the callout band this match actually needs.
+
+    A fixed band is what made the dense layout fail on a quiet match, and
+    reserving three stacking levels for a two-goal game repeats the mistake
+    one storey up: a 2-goal and a 3-goal match produced the IDENTICAL 719px
+    hole between the header and the plot, which is the tell that a reserve is
+    fixed rather than content-driven. A cold designer read that hole as a
+    failed render - "as if a logo lockup or a stat strip was supposed to be
+    there" - in three of four tall frames.
+
+    So the TOP of the band is pinned just under the subtitle and the plot
+    grows down to meet it. Capped, because past a point the plot stops being
+    a time series and becomes a portrait one.
+    """
+    levels = layout['label_y_levels']
+    top_anchor = levels[max(1, min(n_events, len(levels))) - 1]
+    bottom = 0.130          # ticks + the half-time caption live below this
+    height = min((0.845 - bottom) / top_anchor, 0.60)
+    return [layout['axes_rect'][0], bottom, layout['axes_rect'][2], height]
+
+
+_XG_RACE_LAYOUT_9X16_SPARSE = dict(
+    _XG_RACE_LAYOUT_9X16,
+    axes_rect=[0.115, 0.130, 0.660, 0.565],
+    labels_on_plot=True,
+    event_block=False,
+    event_label_size=18,
+    # Wider than the 16:9's (1.04, 1.13, 1.22): a level is a fraction of PLOT
+    # height, and two lines of 20pt type need more of a 7.5in plot than two
+    # lines of 13pt need of a 5.2in one.
+    label_y_levels=(1.035, 1.150, 1.265),
+    # A leader from the plot's ceiling up to each callout. The 16:9 does
+    # without one because its label sits just above a short plot; here a
+    # level-2 label floats 340px clear of the rail, and the momentum chart
+    # already established what that costs - nine stacked labels with nothing
+    # tying them to a dot were called "a colour-guessing game" by a cold
+    # designer.
+    label_leaders=True,
+    # One callout per stacking level, earliest at the TOP. With three levels
+    # and at most three events there is never a reason to share one, and the
+    # collision solver's own order is wrong twice over: it fills from the
+    # bottom, so top-to-bottom reads 2-0 then 1-0 - descending score - and a
+    # later goal's leader has to climb PAST the earlier goal's callout,
+    # crossing its text. Earliest-highest makes reading order chronological
+    # (x is time, so earlier is also further left) and leaves every leader
+    # rising into clear air.
+    label_one_per_level=True,
+    # No marker rail. Every goal on the other frames is drawn TWICE - a dot on
+    # a rail at the plot's ceiling and a marker on the curve - and all three
+    # cold readers, across both rounds, hit it: one counted a goal that did not
+    # exist, one read a fused pair as a single event, one said "I think they're
+    # the same goals drawn twice, I am not sure". The rail earns its place
+    # where it is the ONLY timeline: the tile has no callouts, and the dense
+    # 9:16 lists its events below the plot. Here each callout sits directly
+    # above its own goal with a leader running down to it, so the rail is a
+    # waypoint in the middle of a line - and two goals four minutes apart put
+    # two identical dots 4.4 delivered px apart for no gain.
+    anchor_dots=False,
+    # The stagger is for a rail with no labels on it. Here every dot has a
+    # callout hanging off it, which is what the 16:9 relies on.
+    anchor_row_dy=0.0,
+)
+
+_XG_RACE_LAYOUTS = {
+    'default': _XG_RACE_LAYOUT_DEFAULT,
+    '16x9':    _XG_RACE_LAYOUT_DEFAULT,
+    '9x16':    _XG_RACE_LAYOUT_9X16,
+    '9x8':     _XG_RACE_LAYOUT_9X8,
+}
+
+
+def _count_chart_events(goal_scorers, own_goals, red_cards):
+    """How many rows the event list would hold - the same filter the renderer
+    applies, so the layout switch and the drawing cannot disagree."""
+    return (len(goal_scorers or []) + len(own_goals or [])
+            + sum(1 for rc in (red_cards or [])
+                  if rc.get('card_type') in ('red', 'second_yellow')))
+
+
+def _stagger_anchor_rows(events, ax, marker_pt, dpi, rows=2, pad=1.35):
+    """Give each event an anchor ROW so the marker rail stops fusing.
+
+    Every goal's dot sits on one horizontal rail above the plot, at its own
+    minute - so two goals close in time draw two dots at the same height, and
+    they touch. Measured over 4,456 matches carrying two or more goals: 8.2%
+    have a pair within 2.2 minutes, which at these marker sizes is contact,
+    and 0.7% within 1.2 minutes, which is overlap. The 16:9 gets away with it
+    because a LABEL hangs off each dot and says which is which; the narrow
+    frames have no labels, and all three cold readers hit it - one counted a
+    goal that was not there, one read a white dot and a red dot fused into a
+    single two-tone mark as ONE goal, which is a goal attributed to the wrong
+    team.
+
+    The x is never moved - that would be a lie about when the goal happened.
+    The colliding dot goes UP a row, and its leader follows it, so the minute
+    stays true and only the height changes.
+    """
+    per_unit = _px_per_x_unit(ax)
+    if not per_unit:
+        for ev in events:
+            ev['anchor_row'] = 0
+        return
+    sep = (marker_pt * dpi / 72) * pad / per_unit   # in x-axis data units
+    last = [None] * rows
+    for ev in sorted(events, key=lambda e: e.get('chrono_x', e['minute'])):
+        x = ev.get('chrono_x', ev['minute'])
+        for r in range(rows):
+            if last[r] is None or (x - last[r]) >= sep:
+                ev['anchor_row'] = r
+                last[r] = x
+                break
+        else:
+            # More events in one cluster than there are rows. Put it back on
+            # the bottom row rather than inventing a third: a third row runs
+            # into the subtitle, and this is 0.7% of matches.
+            ev['anchor_row'] = 0
+            last[0] = x
+
+
+def _draw_marker_key(fig, layout, events, rc_color):
+    """Marker vocabulary for the tile, which has no event labels.
+
+    Without it the markers are unexplained - dots and a red rectangle floating
+    over two lines. Named only for what is actually ON this chart: a key that
+    lists an own goal on a match with none is furniture. Drawn item by item so
+    the card's swatch can be RED, since a card's whole message is its colour.
+    """
+    if not events:
+        # The key is built from what the match contained, so a goalless match
+        # has no key at all - and then nothing on the tile separates "nothing
+        # happened" from "the marks failed to draw". Say it, in the key's own
+        # slot. Same line the 9:16 prints in its callout band.
+        fig.text(0.5, layout['key_y'], 'NO GOALS OR CARDS', ha='center',
+                 va='center', fontsize=16, fontweight='bold', color=TEXT_MUTED)
+        return
+    bits = [('●  GOAL', TEXT_MUTED)]
+    if any(e.get('og') for e in events):
+        bits.append(('○  OWN GOAL', TEXT_MUTED))
+    if any(e['type'] == 'rc' for e in events):
+        bits.append(('▮', rc_color))
+        bits.append(('RED CARD', TEXT_MUTED))
+    fig.canvas.draw()
+    inv = fig.transFigure.inverted()
+    widths = []
+    for txt, _c in bits:
+        probe = fig.text(0, -1, txt, fontsize=16)
+        widths.append(probe.get_window_extent(
+            renderer=fig.canvas.get_renderer()).transformed(inv).width)
+        probe.remove()
+    gap = 0.018
+    x = 0.5 - (sum(widths) + gap * (len(bits) - 1)) / 2
+    for (txt, colour), w in zip(bits, widths):
+        fig.text(x, layout['key_y'], txt, ha='left', va='center',
+                 fontsize=16, color=colour)
+        x += w + gap
+
+
+def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None,
+                    own_goals=None, aspect='default'):
     """Create the xG race chart.
 
     Design: mockup port from mockups/xg_race_redesign_mockup.py.
@@ -1252,12 +1613,25 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
       - Endpoint xG + shot count at each line's end
       - HALF TIME marker
       - No redundant bottom stats row
+
+    `aspect` is one of 'default' (16:9), '9x16' (fullscreen phone overlay) or
+    '9x8' (SBS tile). See _XG_RACE_LAYOUTS for what each frame keeps and why.
     """
+    layout = _XG_RACE_LAYOUTS.get(aspect, _XG_RACE_LAYOUT_DEFAULT)
     goal_scorers = goal_scorers or []
     red_cards = red_cards or []
     # team_info carries own_goals (benefiting-team format) from get_team_info;
     # prefer that over any passed-in list so callers that have both stay consistent.
     own_goals = team_info.get('own_goals', own_goals or [])
+
+    # A quiet match gets the 16:9's design at portrait scale instead of a list
+    # sized for a ten-goal thriller. Decided here, before the figure exists,
+    # because the switch changes the figure's own geometry.
+    _n_events = _count_chart_events(goal_scorers, own_goals, red_cards)
+    if aspect == '9x16' and _n_events <= SPARSE_EVENT_MAX:
+        layout = dict(_XG_RACE_LAYOUT_9X16_SPARSE,
+                      axes_rect=_sparse_axes_rect(_XG_RACE_LAYOUT_9X16_SPARSE,
+                                                  _n_events))
 
     # ── Resolve team identity + colors ──────────────────────────────────────
     home = team_info['team1']['name']
@@ -1329,9 +1703,9 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
             away_score += 1
 
     # ── Figure + axes ───────────────────────────────────────────────────────
-    fig = plt.figure(figsize=BROADCAST_FIGSIZE)
+    fig = plt.figure(figsize=resolve_figsize(layout['aspect']))
     fig.patch.set_facecolor(BG_COLOR)
-    ax = fig.add_axes([0.07, 0.13, 0.88, 0.58])
+    ax = fig.add_axes(layout['axes_rect'])
     ax.set_facecolor(BG_COLOR)
 
     ax.grid(axis='y', color=SPINE_COLOR, alpha=0.25, linewidth=0.6, zorder=0)
@@ -1341,7 +1715,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     for side in ('left', 'bottom'):
         ax.spines[side].set_color(SPINE_COLOR)
         ax.spines[side].set_linewidth(0.8)
-    ax.tick_params(colors=TEXT_SECONDARY, labelsize=10)
+    ax.tick_params(colors=TEXT_SECONDARY, labelsize=layout['tick_size'])
 
     # HT line (plain dashed; red cards use dash-dot for visual distinction)
     ht_minute = team_info.get('first_half_end_minute', 45) or 45
@@ -1352,34 +1726,72 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     # rejected: stoppage time is a phenomenon soccer viewers already
     # understand, and the half-time marker is enough on its own. Do not
     # reintroduce it.
-    ax.axvline(ht_minute, color=SPINE_COLOR, linestyle='--', linewidth=0.8,
-               alpha=0.5, zorder=1)
+    # Visible enough to be the thing its own label points at. At 0.8/0.5 this
+    # line measures 1.67:1 against the background while "HALF TIME" measures
+    # 6.91:1 - a caption four times more visible than its referent, so the eye
+    # attaches it to the nearest line it CAN see, and on a narrow frame that
+    # is whichever goal happened near the whistle. The momentum chart measured
+    # the same pair and settled on the same weights. Dashed and grey still
+    # separates it from the team-coloured dotted goal lines.
+    ax.axvline(ht_minute, color=SPINE_COLOR, linestyle='--', linewidth=1.6,
+               alpha=0.85, zorder=1)
 
     # Step lines
-    ax.step(home_x, home_y, where='post', color=home_color, linewidth=2.9,
+    ax.step(home_x, home_y, where='post', color=home_color,
+            linewidth=layout['line_width'],
             solid_capstyle='round', zorder=3, label=home)
-    ax.step(away_x, away_y, where='post', color=away_color, linewidth=2.9,
+    ax.step(away_x, away_y, where='post', color=away_color,
+            linewidth=layout['line_width'],
             solid_capstyle='round', zorder=3, label=away)
 
     # ── Endpoint totals: xG + shot count, offset if the two teams' final
     # xG values are close enough to collide vertically ──────────────────────
+    max_xg = max(home_xg, away_xg, 0.5) * 1.05
     sep_threshold = max(home_xg, away_xg, 0.5) * 0.07
+    # ...but a gap expressed as a fraction of the xG total is a gap sized in
+    # DATA units to hold something measured in PIXELS, and the two only agree
+    # on the frame it was tuned against. 7% of the total is 35px on the 16:9's
+    # 522px-tall plot and 28px on a 9:16 band - while the type it has to clear
+    # grew from 25pt to 34pt. Measured on Real Sociedad 3-3 Alaves, where
+    # "12 shots" ran straight through "RSO 0.97".
+    #
+    # Each label is two lines centred on label_y - the xG above it, the shot
+    # count below - so the two anchors need their whole stacked height between
+    # them (1.2 line-height per line) plus air, or the blocks touch even
+    # though the anchors do not.
+    _need_px = ((layout['end_xg_size'] + layout['end_shots_size'])
+                * fig.dpi / 72 * 1.44)
+    _axes_h_px = layout['axes_rect'][3] * fig.get_size_inches()[1] * fig.dpi
+    sep_threshold = max(sep_threshold, _need_px * max_xg / _axes_h_px)
     if abs(home_xg - away_xg) < sep_threshold:
-        delta = sep_threshold
+        # Split around the two values, but the UPPER label may only rise as
+        # far as its own text still fits under the plot ceiling - the rest of
+        # the gap comes out of the lower one. Splitting symmetrically pushed
+        # the leader line of the winning team clean out of the axes on three
+        # of eight variant frames, which is a label that has left the chart to
+        # avoid a collision. The upper number also has the better claim on
+        # sitting at its true height: it is the one the reader is looking for.
+        _txt_up = (layout['end_xg_size'] * fig.dpi / 72 * 1.1
+                   * max_xg / _axes_h_px)
+        hi, lo = max(home_xg, away_xg), min(home_xg, away_xg)
+        rise = min(sep_threshold / 2, max(0.0, max_xg - _txt_up - hi))
+        hi_y = hi + rise
+        lo_y = max(0.0, hi_y - sep_threshold)
         if home_xg >= away_xg:
-            home_label_y = home_xg + delta / 2
-            away_label_y = away_xg - delta / 2
+            home_label_y, away_label_y = hi_y, lo_y
         else:
-            home_label_y = home_xg - delta / 2
-            away_label_y = away_xg + delta / 2
+            home_label_y, away_label_y = lo_y, hi_y
     else:
         home_label_y = home_xg
         away_label_y = away_xg
 
+    _end_kw = dict(marker_size=layout['endpoint_marker'],
+                   xg_size=layout['end_xg_size'],
+                   shots_size=layout['end_shots_size'])
     _draw_endpoint(ax, last_min, home_xg, home_label_y, home_color,
-                   len(home_shots), abbrev=home_abbrev)
+                   len(home_shots), abbrev=home_abbrev, **_end_kw)
     _draw_endpoint(ax, last_min, away_xg, away_label_y, away_color,
-                   len(away_shots), abbrev=away_abbrev)
+                   len(away_shots), abbrev=away_abbrev, **_end_kw)
 
     # ── Goal / own-goal / red-card labels above the plot ────────────────
     # All match events share the events row at chart top and the same
@@ -1457,9 +1869,13 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
             ev['side'] = 'home' if affected_home else 'away'
 
     # Axes ranges. 1.05 y-multiplier = just enough sliver above the winning
-    # line for the endpoint marker; no empty sky above.
-    max_xg = max(home_xg, away_xg, 0.5) * 1.05
-    ax.set_xlim(0, last_min + 5)  # +5 for endpoint label breathing room
+    # line for the endpoint marker; no empty sky above. max_xg itself is
+    # computed further up, where the endpoint separation needs it.
+    # Pad for endpoint label breathing room. The portrait frames reserve their
+    # room in the AXES RECT instead (a narrower plot, a wider gutter), because
+    # a pad big enough to hold "STR 1.51" on a 9in frame would be ~13% of the
+    # match.
+    ax.set_xlim(0, last_min + layout['x_pad_min'])
     ax.set_ylim(0, max_xg)
     # X-axis ticks show BROADCAST minute, but positioned at the
     # CHRONOLOGICAL x where that broadcast minute actually occurs. So a "60"
@@ -1473,7 +1889,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     tick_positions, tick_labels = [], []
     for b in broadcast_ticks:
         pos = b if b <= 45 else b + p2_offset
-        if pos <= last_min + 5:
+        if pos <= last_min + layout['x_pad_min']:
             tick_positions.append(pos)
             tick_labels.append(str(b))
     ax.set_xticks(tick_positions)
@@ -1484,15 +1900,27 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     # `ax` is passed so widths are MEASURED from the rendered text rather than
     # estimated from character count. Placement must run after the x-limits are
     # final, since the pixel->data-unit conversion depends on them.
-    _place_goal_labels(_all_events, chart_max=float(last_min), ax=ax)
+    # Only where the labels are drawn: on the portrait frames the events are
+    # listed below the plot or left to the host, so there is nothing to place.
+    if layout['labels_on_plot']:
+        _place_goal_labels(_all_events, chart_max=float(last_min), ax=ax,
+                           fontsize=layout['event_label_size'])
+        if (layout['label_one_per_level']
+                and len(_all_events) <= len(layout['label_y_levels'])):
+            for _i, _ev in enumerate(_all_events):
+                _ev['y_level'] = len(_all_events) - 1 - _i
+    else:
+        _stagger_anchor_rows(_all_events, ax, layout['goal_marker'], fig.dpi)
     _label_transform = blended_transform_factory(ax.transData, ax.transAxes)
+    _ROW_DY = layout['anchor_row_dy']
 
     _RC_COLOR = '#E53935'
 
     for ev in _all_events:
         side_color = home_color if ev['side'] == 'home' else away_color
-        flip_left = ev['x_side'] == 'left'
-        label_y = GOAL_LABEL_Y_LEVELS[ev['y_level']]
+        ev['color'] = side_color
+        flip_left = ev.get('x_side') == 'left'
+        label_y = layout['label_y_levels'][ev.get('y_level', 0)]
         label_ha = 'right' if flip_left else 'left'
         ev_period = _ev_period(ev)
 
@@ -1514,33 +1942,92 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
 
             # Team-colored dotted vertical from top of plot DOWN TO marker on step
             ax.plot([marker_m, marker_m], [y_at, max_xg],
-                    color=side_color, linewidth=1.0, linestyle=':',
-                    alpha=0.8, zorder=1, solid_capstyle='round')
+                    color=side_color, linewidth=layout['event_line_width'],
+                    linestyle=':', alpha=0.8, zorder=1,
+                    solid_capstyle='round')
 
             # Marker on the step line
+            # clip_on=False. A marker is centred ON its value, so a marker at
+            # a value ON an axis has half its area outside the axes box and
+            # matplotlib cuts that half off. Two cold readers found the same
+            # bug from opposite edges: an own goal at minute 2 with no xG
+            # behind it drew as a HALF ring sitting on the x-axis, and a goal
+            # 35 seconds into a match drew as a half dot against the y-axis
+            # that one reader read as "small and plain - if that difference
+            # means something it's a bug". It did not mean anything; it was
+            # the clip.
             if ev['og']:
-                ax.plot(marker_m, y_at, marker='o', markersize=11,
+                ax.plot(marker_m, y_at, marker='o',
+                        markersize=layout['goal_marker'],
                         markerfacecolor=BG_COLOR, markeredgecolor=side_color,
-                        markeredgewidth=2.0, zorder=6)
+                        markeredgewidth=layout['ring_width'], zorder=6,
+                        clip_on=False)
             else:
-                ax.plot(marker_m, y_at, marker='o', markersize=11,
+                ax.plot(marker_m, y_at, marker='o',
+                        markersize=layout['goal_marker'],
                         markerfacecolor=side_color, markeredgecolor='white',
-                        markeredgewidth=1.5, zorder=6)
+                        markeredgewidth=1.5, zorder=6, clip_on=False)
 
-            # Anchor dot at top of plot for the label
-            ax.plot(marker_m, 1.005, 'o', transform=_label_transform,
-                    color=side_color, markersize=8, markeredgecolor='white',
-                    markeredgewidth=1.0, clip_on=False, zorder=5)
+            # Anchor dot at top of plot for the label.
+            #
+            # An own goal's anchor is a RING, matching its marker on the line.
+            # Filled, it was identical to a goal's - which the 16:9 gets away
+            # with because the label beneath it reads "(OG)", and the frames
+            # without labels do not: on the tile the anchor row is the whole
+            # vocabulary, and the key underneath promises a hollow "OWN GOAL"
+            # mark that the row never showed. Drawn 1.3x larger because a ring
+            # is identified by its HOLE, and the hole is what a shrink to
+            # phone size takes first.
+            _anchor_y = 1.005 + _ROW_DY * ev.get('anchor_row', 0)
+            # Suppressed where the curve itself reaches the ceiling: the rail
+            # dot and the goal's own marker then stack a few pixels apart, two
+            # identical discs reading as one smear or as two events.
+            _crowded = (_anchor_y - y_at / max_xg) < (
+                layout['goal_marker'] * fig.dpi / 72
+                / max(ax.get_window_extent().height, 1) * 1.6)
+            _show_anchor = layout['anchor_dots'] and not _crowded
+            if _show_anchor and _anchor_y > 1.005:
+                # The leader follows the dot up, so a lifted marker still
+                # points at its own minute rather than floating free.
+                ax.plot([marker_m, marker_m], [1.0, _anchor_y],
+                        transform=_label_transform, color=side_color,
+                        linewidth=layout['event_line_width'], linestyle=':',
+                        alpha=0.8, clip_on=False, zorder=1)
+            if not _show_anchor:
+                pass
+            elif ev['og']:
+                # Filled with the ground, not hollow: the leader runs up
+                # THROUGH the ring, and a transparent centre left one dash of
+                # it sitting inside the circle like a speck of dirt. Matches
+                # the on-line own-goal marker, which was already BG-filled.
+                ax.plot(marker_m, _anchor_y, 'o', transform=_label_transform,
+                        markerfacecolor=BG_COLOR, markeredgecolor=side_color,
+                        markersize=layout['anchor_marker'] * 1.3,
+                        markeredgewidth=layout['ring_width'],
+                        clip_on=False, zorder=5)
+            else:
+                ax.plot(marker_m, _anchor_y, 'o', transform=_label_transform,
+                        color=side_color, markersize=layout['anchor_marker'],
+                        markeredgecolor='white',
+                        markeredgewidth=1.0, clip_on=False, zorder=5)
 
-            label_x = marker_m - 0.6 if flip_left else marker_m + 0.6
-            text = (f"{ev['label']} "
-                    f"({format_broadcast_minute(ev['minute'], ev_period)}')"
-                    f"\n{ev['score']}")
-            ax.text(label_x, label_y, text,
-                    transform=_label_transform, color=side_color,
-                    fontsize=13, fontweight='bold', va='bottom', ha=label_ha,
-                    fontstyle='italic' if ev['og'] else 'normal',
-                    clip_on=False)
+            if layout['labels_on_plot']:
+                if layout['label_leaders']:
+                    ax.plot([marker_m, marker_m], [1.0, label_y],
+                            transform=_label_transform, linestyle=':',
+                            color=side_color,
+                            linewidth=layout['event_line_width'], alpha=0.45,
+                            clip_on=False, zorder=2)
+                label_x = marker_m - 0.6 if flip_left else marker_m + 0.6
+                text = (f"{ev['label']} "
+                        f"({format_broadcast_minute(ev['minute'], ev_period)}')"
+                        f"\n{ev['score']}")
+                ax.text(label_x, label_y, text,
+                        transform=_label_transform, color=side_color,
+                        fontsize=layout['event_label_size'], fontweight='bold',
+                        va='bottom', ha=label_ha,
+                        fontstyle='italic' if ev['og'] else 'normal',
+                        clip_on=False, zorder=7)
 
         else:  # 'rc'
             # Red card x-position is the chronological match-time for the
@@ -1548,45 +2035,205 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
             # second-half event); the label still shows broadcast minute.
             m = _shot_chrono_x(ev['minute'], ev_period, ht_minute)
             broadcast_m = ev['minute']
-            # Universal-red dash-dot line spanning the chart
-            ax.axvline(m, color=_RC_COLOR, linewidth=1.0,
-                       linestyle='-.', alpha=0.75, zorder=2)
+            # The card is red on every chart because a red card is red - so
+            # where the label is gone, nothing on the plot says WHOSE it was.
+            # On the tile that is the only place a card could be attributed at
+            # all: no callout, no event list. So the STEM carries the team and
+            # the glyph carries the offence, exactly as the momentum chart
+            # settled it. On the 16:9 the callout beside the card is already
+            # drawn in the team's colour, so the stem stays universal red
+            # there and keeps separating a card line from a goal line by more
+            # than a dash pattern.
+            _stem = _RC_COLOR if layout['labels_on_plot'] else side_color
+            ax.axvline(m, color=_stem, linewidth=1.0 if layout['labels_on_plot'] else 1.6,
+                       linestyle='-.', alpha=0.75 if layout['labels_on_plot'] else 0.85,
+                       zorder=2)
 
             # Card-shaped marker at chart top edge — distinct from circles
-            card_w_min = 0.7
-            card_h_axes = 0.028
+            card_h_axes = layout['card_h']
+            if layout['card_derived']:
+                # Height is in AXES fraction and width in MINUTES, so a fixed
+                # pair that reads as a card on one frame is a squashed sliver
+                # on another. Derive the width from the axes' own pixel aspect
+                # to hold a constant 1:1.4 portrait shape - the momentum
+                # chart's fix, which the narrow frames need far more than the
+                # 16:9 does.
+                _abox = ax.get_window_extent()
+                _xspan = ax.get_xlim()[1] - ax.get_xlim()[0]
+                card_w_min = ((card_h_axes * _abox.height / 1.4)
+                              / max(_abox.width, 1) * _xspan)
+                card_y = (1.005 + _ROW_DY * ev.get('anchor_row', 0)
+                          - card_h_axes / 2)
+            else:
+                card_w_min = layout['card_w']
+                card_y = 1.0
+            # The EDGE carries the team on frames with no callout beside the
+            # card. The fill cannot: a red card is red, and #E53935 sits 18
+            # RGB units from a red club's own line colour - indistinguishable,
+            # while being the largest, most saturated mark on the rail. Three
+            # cold readers across two rounds read the carded side off that
+            # fill, and the key teaches them to: it draws GOAL in neutral grey
+            # and RED CARD in exactly this red. Where the team plays in red
+            # the edge vanishes into the fill, and the instinctive read is
+            # right anyway. The 16:9 keeps its white edge - its callout is
+            # already drawn in the team's colour a few pixels away.
+            _card_edge = ('white' if layout['labels_on_plot']
+                          else ensure_line_contrast(side_color, BG_COLOR))
             card = mpatches.Rectangle(
-                (m - card_w_min / 2, 1.0),
+                (m - card_w_min / 2, card_y),
                 card_w_min, card_h_axes,
-                facecolor=_RC_COLOR, edgecolor='white', linewidth=1.5,
+                facecolor=_RC_COLOR, edgecolor=_card_edge, linewidth=2.5,
                 transform=_label_transform, clip_on=False, zorder=6,
             )
             ax.add_patch(card)
 
-            label_x = m - 0.6 if flip_left else m + 0.6
-            player = ev.get('label', '')
-            bm = format_broadcast_minute(broadcast_m, ev_period)
-            text = (f"{player} ({bm}')\nRED CARD"
-                    if player else f"RED CARD ({bm}')")
-            ax.text(label_x, label_y, text,
-                    transform=_label_transform, color=side_color,
-                    fontsize=13, fontweight='bold', va='bottom', ha=label_ha,
-                    clip_on=False)
+            if not layout['labels_on_plot']:
+                # Three letters, because colour cannot settle this one.
+                #
+                # A red card is RED on every chart, so the glyph's hue is a
+                # category. Every other mark on that rail encodes the team by
+                # hue, which pulls a reader hard toward "the red team" - and
+                # two independent cold readers did exactly that. Colouring the
+                # stem by team was not enough on its own: it gives the reader
+                # two channels pointing at different sides and no rule for
+                # which wins, and both readers flipped their answer.
+                #
+                # It is not a callout - no player, no minute, and it appears
+                # only on the ~20% of matches with a sending-off. It is the
+                # one thing on the frame that says whose.
+                _ab = home_abbrev if ev['side'] == 'home' else away_abbrev
+                if _ab:
+                    ax.text(m, card_y + card_h_axes + 0.012, _ab,
+                            transform=_label_transform, color=side_color,
+                            fontsize=layout['ht_size'], fontweight='bold',
+                            ha='center', va='bottom', clip_on=False, zorder=6)
+
+            if layout['labels_on_plot']:
+                if layout['label_leaders']:
+                    ax.plot([m, m], [1.0, label_y], transform=_label_transform,
+                            linestyle=':', color=_RC_COLOR,
+                            linewidth=layout['event_line_width'], alpha=0.45,
+                            clip_on=False, zorder=2)
+                label_x = m - 0.6 if flip_left else m + 0.6
+                player = ev.get('label', '')
+                bm = format_broadcast_minute(broadcast_m, ev_period)
+                text = (f"{player} ({bm}')\nRED CARD"
+                        if player else f"RED CARD ({bm}')")
+                ax.text(label_x, label_y, text,
+                        transform=_label_transform, color=side_color,
+                        fontsize=layout['event_label_size'], fontweight='bold',
+                        va='bottom', ha=label_ha, clip_on=False, zorder=7)
 
     # HT label at the top of the HT axvline
-    ax.text(ht_minute, max_xg * 0.97, 'HALF TIME', color=TEXT_SECONDARY,
-            fontsize=11, fontweight='bold', ha='center', va='top',
-            alpha=0.85, bbox=dict(facecolor=BG_COLOR, edgecolor='none', pad=2))
+    # A STROKE around the glyphs, not a filled box behind them. Both stop the
+    # lines crossing the label from striking the text through, but a box also
+    # ERASES whatever else is behind it - and what is behind it here is the
+    # dotted leader of whichever goal fell near the whistle. Measured on Real
+    # Madrid 4-2 Athletic and Wolves 1-1 Fulham: the box cut a rectangular gap
+    # out of a goal's leader line, leaving it reading as two unrelated marks.
+    # A stroke hugs the letterforms, so it costs a few pixels around glyphs
+    # instead of a rectangle of chart.
+    # OUTSIDE the plot on the narrow frames, under the axis, with the rule's
+    # own dashes carried down to meet it.
+    #
+    # Inside, there is no clear band at either end. At the top, every goal's
+    # leader runs from the ceiling down to its marker - measured on Real
+    # Madrid 4-2 Athletic, FOUR vertical strokes crossed this label and a cold
+    # designer called the word "a grey blur" even with the stroke behind it.
+    # The bottom is no better: 2,042 of 7,081 matches (28.8%) have a team
+    # below a tenth of the chart's y-max at half time, so a solid 3.4pt team
+    # line lies exactly where the label would go - and cutting a data line is
+    # worse than cutting a leader.
+    #
+    # Under the axis nothing crosses it at all, and the band is free precisely
+    # because these frames drop the word MINUTE. The 16:9 keeps its in-plot
+    # placement: it has the width to sit clear, and its critique is signed off.
+    if not layout['ht_below_axis']:
+        ax.text(ht_minute, max_xg * 0.97, 'HALF TIME', color=TEXT_SECONDARY,
+                fontsize=layout['ht_size'], fontweight='bold', ha='center',
+                va='top', alpha=0.85, zorder=7,
+                path_effects=[mpe.withStroke(linewidth=3.5,
+                                             foreground=BG_COLOR)])
+    else:
+        _ht_tr = blended_transform_factory(ax.transData, ax.transAxes)
+        # The drop is expressed in FIGURE height and converted, not fixed in
+        # axes fractions: a flat -0.115 is 0.054 of the frame under a 0.470
+        # plot and 0.074 under a 0.640 one, so the tile pushed the label twice
+        # as far from its own axis as the vertical did and parked it on top of
+        # the marker key.
+        _ht_dy = 0.038 / layout['axes_rect'][3]
+        # The stub starts BELOW the tick numerals. Run from the axis itself
+        # and it passes straight through whichever tick sits nearest the
+        # whistle - measured on Brighton v Wolves, through the "5" of "45".
+        ax.plot([ht_minute, ht_minute], [-_ht_dy * 0.52, -_ht_dy * 0.88],
+                transform=_ht_tr, color=SPINE_COLOR, linestyle='--',
+                linewidth=1.6, alpha=0.85, clip_on=False, zorder=3)
+        # Hung off the rule to its RIGHT, not centred under it. These frames
+        # drop the word MINUTE, so a centred caption in the axis-title slot
+        # was read as the axis's own label - "the axis LOOKS labelled while
+        # nothing says the numbers are minutes". Half time lands near the
+        # middle of a match, which is exactly where an axis title sits.
+        # Hanging it off its own dashed rule makes it a mark on a POSITION.
+        # NOT bold. On the frame that carries an event list this caption
+        # landed on the same baseline as "MATCH EVENTS" and "SCORE", in the
+        # same grey, same weight and same size - and the table's own rule ran
+        # beneath all three, underlining them. A cold designer read the chart's
+        # axis annotation as the third column of a table header, and called it
+        # the worst structural defect in the set. Weight is what separates an
+        # annotation from a heading; the dashes above it do the rest.
+        ax.text(ht_minute + 1.2, -_ht_dy, 'HALF TIME', transform=_ht_tr,
+                color=TEXT_SECONDARY, fontsize=layout['ht_size'],
+                ha='left', va='top', alpha=0.85, clip_on=False, zorder=7)
 
-    # Axis labels -- kicker carries chart-type ID; these describe axes
-    ax.set_xlabel('MINUTE', color=TEXT_SECONDARY, fontsize=11,
-                  fontweight='bold', labelpad=8)
-    ax.set_ylabel('CUMULATIVE xG', color=TEXT_SECONDARY, fontsize=11,
-                  fontweight='bold', labelpad=10)
+    # Axis labels -- kicker carries chart-type ID; these describe axes.
+    #
+    # MINUTE drops on the portrait frames: 0/15/30/45/60/75/90 under a chart
+    # headed "xG RACE" is self-evidently a match clock, and at the 16pt floor
+    # the word costs a band. CUMULATIVE xG does NOT drop on the 9:16 - the y
+    # values are a real quantity and nothing else on the frame names them.
+    # (The tile drops it too, where the host is speaking the numbers and the
+    # endpoint labels already read "STR 1.51".)
+    if layout['axis_words'] is True:
+        ax.set_xlabel('MINUTE', color=TEXT_SECONDARY,
+                      fontsize=layout['axis_label_size'],
+                      fontweight='bold', labelpad=8)
+    if layout['axis_words']:
+        ax.set_ylabel('CUMULATIVE xG', color=TEXT_SECONDARY,
+                      fontsize=layout['axis_label_size'],
+                      fontweight='bold', labelpad=10)
 
     # ── Header: kicker + score title + accent bar + subtitle ────────────────
     custom_title = team_info.get('custom_title')
     custom_subtitle = team_info.get('custom_subtitle')
+
+    _header_kw = {}
+    if layout['fit_title']:
+        # A 9in frame is a different proposition from a 16in one: "Real
+        # Sociedad 2-1 Deportivo Alaves" overruns it at any title size worth
+        # using, and matplotlib draws it and lets the ends fall off. Measure
+        # before committing. Not applied to the 16:9, whose title has never
+        # overrun and whose critique is signed off.
+        _title_text = custom_title or (f'{home.upper()} {home_score}-'
+                                       f'{away_score} {away.upper()}')
+        _header_kw = dict(
+            fontsize_kicker=layout['kicker_size'],
+            # 0.90, not the helper's 0.94 default. At 0.94 a long pair of
+            # club names shrinks to the limit AND still lands 11 delivered px
+            # from both edges, while its shorter siblings hold 60 - so the
+            # frame with the least room to spare is the one that gives up its
+            # margin. Measured on Wolverhampton Wanderers 1-1 Fulham.
+            # floor 18, not 16. The title AUTO-FITS to club-name length while
+            # the callouts are fixed, so on "Brighton & Hove Albion 3-0
+            # Wolverhampton Wanderers" the title shrank to 17pt under 18pt
+            # callouts and a cold designer's eye landed on "L. Dunk (5') 2-0"
+            # first - a line that restates the score already in the title. At
+            # floor 18 the worst case is a tie, never an inversion.
+            fontsize_title=fit_fontsize(fig, _title_text,
+                                        layout['title_size'], floor=18,
+                                        max_frac=0.92),
+            y_kicker=layout['y_kicker'], y_title=layout['y_title'],
+            y_bar=layout['y_bar'],
+        )
 
     render_two_team_score_header(
         fig,
@@ -1594,6 +2241,7 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
         away_name=away, away_score=away_score, away_color=away_color,
         kicker='x G   R A C E',
         custom_title=custom_title,
+        **_header_kw,
     )
 
     # Subtitle: competition + date (user override if provided)
@@ -1601,9 +2249,50 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None, own_goa
     match_date = team_info.get('date', '')
     subtitle_parts = [p for p in (competition.upper() if competition else '', match_date) if p]
     subtitle_text = custom_subtitle or ' | '.join(subtitle_parts)
-    if subtitle_text:
-        fig.text(0.5, 0.885, subtitle_text, ha='center',
-                 color=TEXT_SECONDARY, fontsize=11)
+    if subtitle_text and layout['subtitle_y'] is not None:
+        fig.text(0.5, layout['subtitle_y'], subtitle_text, ha='center',
+                 color=TEXT_SECONDARY, fontsize=layout['subtitle_size'])
+
+    # A goalless match STATES that it was goalless.
+    #
+    # The callout band is empty by construction and there is nothing to put in
+    # it - and the emptiness is real information, which is why the plot is not
+    # rescaled to swallow it (the 16:9's own ruling on this band, 2026-09-02).
+    # But an empty band and a band that failed to draw look identical. Saying
+    # it is the DP xG Race's settled answer to the same frame, and it costs one
+    # line. Only where the callouts live ON the plot: the list frames print
+    # their own header, which already says a list was drawn.
+    if layout['state_emptiness'] and not _all_events:
+        # Level 0 - which IS the top of the band now that the band is
+        # sized to the callouts a match actually has. Pinned to the top
+        # level instead, it collided with the subtitle.
+        ax.text(0.5, layout['label_y_levels'][0], 'NO GOALS OR CARDS',
+                transform=ax.transAxes, color=TEXT_MUTED,
+                fontsize=layout['event_label_size'], fontweight='bold',
+                ha='center', va='bottom', clip_on=False)
+
+    # ── Portrait: the callouts become a match timeline below the plot ────────
+    if layout['event_block']:
+        draw_event_block(
+            fig, _all_events,
+            lambda ev: format_broadcast_minute(ev['minute'], _ev_period(ev)),
+            head_y=layout['block_head_y'], top=layout['block_top'],
+            bottom=layout['block_bot'], row_step_max=layout['row_step_max'],
+            head_size=layout['head_size'], row_size=layout['row_size'],
+            min_x=layout['min_x'], name_x=layout['name_x'],
+            score_x=layout['score_x'], rule_x0=layout['rule_x0'],
+            rc_color=_RC_COLOR,
+            # The row leads with the SAME glyph the plot draws, so the list is
+            # also the key. The 9:16 has no separate key - the tile needs one
+            # because it has no list, and a chart with both would be saying
+            # the same thing twice.
+            mark_of=lambda ev: ('▮' if ev['type'] == 'rc'
+                                else '○' if ev.get('og') else '●'),
+        )
+
+    # ── Tile: a marker key, because the tile has no labels ───────────────────
+    if layout['key_y'] is not None:
+        _draw_marker_key(fig, layout, _all_events, _RC_COLOR)
 
     add_cbs_footer(fig)
     return fig

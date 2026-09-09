@@ -19,7 +19,7 @@ from shared.motherduck import (
     get_own_goals_for_game, get_goal_scorers_for_game, get_red_cards_for_game,
     own_goal_conceding_side,
 )
-from pages.streamlit_utils import custom_title_inputs
+from pages.streamlit_utils import custom_title_inputs, own_goals_sidebar
 import matplotlib.pyplot as plt
 
 st.set_page_config(page_title="xG Race Chart", page_icon="🏁", layout="wide")
@@ -40,7 +40,7 @@ def _parse_xg_race_cached(file_content):
 
 def _generate_chart(shots, match_info, team_colors, competition, own_goals_hashable,
                     custom_title=None, custom_subtitle=None,
-                    goal_scorers=None, red_cards=None):
+                    goal_scorers=None, red_cards=None, aspect="default"):
     """Generate xG race chart and return (img_bytes, filename, caption)."""
     config = {
         'competition': competition if competition else None,
@@ -57,17 +57,25 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
 
     fig = create_xg_chart(shots, team_info,
                           goal_scorers=goal_scorers, red_cards=red_cards,
-                          own_goals=config['own_goals'])
+                          own_goals=config['own_goals'], aspect=aspect)
     if fig is None:
         return None, None, None
 
     team1 = team_info['team1']['name'].replace(' ', '_').replace('/', '-')
     team2 = team_info['team2']['name'].replace(' ', '_').replace('/', '-')
-    filename = f"xg_race_{team1}_vs_{team2}.png"
+    suffix = "" if aspect == "default" else f"_{aspect}"
+    filename = f"xg_race_{team1}_vs_{team2}{suffix}.png"
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, filename)
-        fig.savefig(output_path, dpi=300, bbox_inches='tight',
+        # The overlay aspects save UNCROPPED. bbox_inches='tight' trims to the
+        # outermost artist, so a 9:8 tile came out at 1.091 rather than 1.125 -
+        # 3% off, and drifting further with every header tweak, because the
+        # crop depends on what happens to be drawn. These are composited into a
+        # video at a declared shape; the shape has to be the one declared. The
+        # 16:9 keeps the crop it has always had.
+        fig.savefig(output_path, dpi=300,
+                    bbox_inches='tight' if aspect == 'default' else None,
                     facecolor=BG_COLOR, edgecolor='none')
         plt.close(fig)
         with open(output_path, "rb") as f:
@@ -79,6 +87,20 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
 
 st.title("xG Race Chart")
 st.markdown("Visualize how xG accumulates throughout a single match.")
+
+aspect_choice = st.sidebar.radio(
+    "Aspect ratio",
+    options=["Standard (16:9)", "Tile (9:8)", "Vertical (9:16)"],
+    index=0,
+    help="In-video overlay aspects for PodcastShorts. "
+         "9:8 = SBS tile (the chart shares the frame with the host, who "
+         "names the scorers, so the plot keeps its markers and drops the "
+         "text callouts). 9:16 = fullscreen overlay; the callouts become a "
+         "match timeline listed below the plot.",
+)
+aspect_param = ("9x8" if aspect_choice.startswith("Tile")
+                else "9x16" if aspect_choice.startswith("Vertical")
+                else "default")
 
 # ── Data source toggle ────────────────────────────────────────────────────────
 data_source = st.radio(
@@ -186,54 +208,14 @@ if data_source == "Database":
             except Exception:
                 auto_ogs = []
 
-            st.sidebar.header("Own Goals")
-
-            num_own_goals = st.sidebar.number_input(
-                "Number of own goals", min_value=0, max_value=5,
-                value=len(auto_ogs), key=f"num_og_{selected_game['game_id']}"
-            )
-            own_goals = []
-            for i in range(num_own_goals):
-                st.sidebar.markdown(f"**Own Goal {i+1}**")
-                og_col1, og_col2 = st.sidebar.columns(2)
-                if i < len(auto_ogs):
-                    default_minute = auto_ogs[i]['minute']
-                    default_period = auto_ogs[i].get('period')
-                    default_player = auto_ogs[i].get('player')
-                    # "Scored by" means the own-goal scorer, i.e. the CONCEDING
-                    # side - which is what both sources name.
-                    _side = own_goal_conceding_side(
-                        selected_game['game_id'], auto_ogs[i].get('teamId'),
-                        auto_ogs[i].get('credited_team'), home_team, away_team)
-                    default_scorer_idx = 1 if _side == 'away' else 0
-                else:
-                    default_minute = 45
-                    default_period = None
-                    default_player = None
-                    default_scorer_idx = 0
-                with og_col1:
-                    minute = st.number_input(
-                        "Minute", min_value=1, max_value=120,
-                        value=default_minute, key=f"og_minute_{selected_game['game_id']}_{i}"
-                    )
-                with og_col2:
-                    scoring_team = st.selectbox(
-                        "Scored by", options=[home_team, away_team],
-                        index=default_scorer_idx, key=f"og_team_{selected_game['game_id']}_{i}"
-                    )
-                credited_team = away_team if scoring_team == home_team else home_team
-                # Carry the PERIOD, not just the minute. Without it the chart
-                # infers a period from the minute, splitting at 50 - so a
-                # second-half own goal on minute 50 was read as first-half
-                # stoppage, drawn BEFORE half time and labelled 45+6'. The
-                # running score went wrong with it. Only trust the stored
-                # period while the minute is the one it came with: if the user
-                # has edited the minute, let the chart infer.
-                og_period = default_period if minute == default_minute else None
-                own_goals.append({'minute': minute, 'team': credited_team,
-                                  'period': og_period,
-                                  'player': default_player})
-                st.sidebar.caption(f"Goal credited to {credited_team}")
+            # Shared with Match Momentum - see pages/streamlit_utils.py. The
+            # prefix keeps the two pages' widgets in separate namespaces; both
+            # used a bare game id for the COUNT widget, so editing an own goal
+            # on one page moved it on the other.
+            own_goals = own_goals_sidebar(
+                home_team, away_team, auto_ogs,
+                key_prefix=f"xgrace_{selected_game['game_id']}",
+                game_id=selected_game['game_id'])
 
             if st.button("Generate Chart", type="primary"):
                 st.session_state["xg_race_chart"] = None
@@ -246,6 +228,7 @@ if data_source == "Database":
                         shots, match_info, team_colors, competition, own_goals_hashable,
                         custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
                         goal_scorers=goal_scorers, red_cards=red_cards,
+                        aspect=aspect_param,
                     )
                     if img_bytes is None:
                         st.error("Chart generation failed. Please check team names.")
@@ -339,6 +322,7 @@ else:
                             shots, match_info, team_colors, competition, own_goals_hashable,
                             custom_title=custom_title_xg, custom_subtitle=custom_subtitle_xg,
                             goal_scorers=goal_scorers,
+                            aspect=aspect_param,
                         )
                         if img_bytes is None:
                             st.error("Chart generation failed. Please check team names.")

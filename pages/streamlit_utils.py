@@ -123,3 +123,67 @@ def show_color_status(team_names, csv_colors=None):
             f"**Color not found for:** {', '.join(missing)}\n\n"
             "Default gray will be used."
         )
+
+
+def own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix, game_id=None):
+    """Render the own-goals sidebar and return [{minute, team, period, player}].
+
+    `team` is the BENEFITING side, which is what the chart builders expect,
+    while both data sources name the CONCEDING one - so the conversion happens
+    here, once, rather than in each page.
+
+    Lifted out of the xG Race page after Match Momentum grew a second copy of
+    it. The two had already drifted: the momentum copy was the one that
+    carried `period` and `player` through an untouched edit, and losing either
+    forces the chart back onto minute-based period inference and a bare "OG"
+    label - a pair of defects this project has now fixed twice. One home for
+    it, so a third page cannot inherit the old version.
+
+    `game_id` resolves an own goal's `teamId` to a side. The CSV path has no
+    game id, but it also passes an empty `auto_ogs`, so nothing needs it.
+    """
+    from shared.motherduck import own_goal_conceding_side
+
+    st.sidebar.header("Own Goals")
+    num_own_goals = st.sidebar.number_input(
+        "Number of own goals", min_value=0, max_value=5,
+        value=len(auto_ogs), key=f"num_og_{key_prefix}"
+    )
+    own_goals = []
+    for i in range(num_own_goals):
+        st.sidebar.markdown(f"**Own Goal {i+1}**")
+        og_col1, og_col2 = st.sidebar.columns(2)
+        if i < len(auto_ogs):
+            default_minute = auto_ogs[i]["minute"]
+            # "Scored by" means the own-goal scorer, i.e. the CONCEDING side -
+            # which is what both sources name.
+            _side = own_goal_conceding_side(
+                game_id, auto_ogs[i].get("teamId"),
+                auto_ogs[i].get("credited_team"), home_team, away_team)
+            default_scorer_idx = 1 if _side == "away" else 0
+        else:
+            default_minute = 45
+            default_scorer_idx = 0
+        with og_col1:
+            og_minute = st.number_input(
+                "Minute", min_value=1, max_value=120,
+                value=default_minute, key=f"og_min_{key_prefix}_{i}"
+            )
+        with og_col2:
+            scoring_team = st.selectbox(
+                "Scored by", options=[home_team, away_team],
+                index=default_scorer_idx, key=f"og_team_{key_prefix}_{i}"
+            )
+        credited_team = away_team if scoring_team == home_team else home_team
+        # Carry the data's period and player through an untouched edit. An
+        # edited minute drops the period - it may no longer be true - but
+        # keeps the player.
+        og_period = og_player = None
+        if i < len(auto_ogs):
+            og_player = auto_ogs[i].get("player")
+            if og_minute == default_minute:
+                og_period = auto_ogs[i].get("period")
+        own_goals.append({"minute": og_minute, "team": credited_team,
+                          "period": og_period, "player": og_player})
+        st.sidebar.caption(f"Goal credited to {credited_team}")
+    return own_goals
