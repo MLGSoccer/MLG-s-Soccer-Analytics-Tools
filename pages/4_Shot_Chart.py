@@ -27,8 +27,9 @@ from mostly_finished_charts.shot_chart import (
 )
 from shared.styles import BG_COLOR
 from shared.motherduck import (
-    get_teams_by_league, get_games_for_team, season_label,
+    get_teams_by_league, get_games_for_team, season_label, season_competition,
     build_shot_chart_single, build_shot_chart_multi, build_shots_for_player,
+    get_appearances_for_game,
     get_player_game_count, get_player_total_minutes, get_player_all_minutes,
 )
 from pages.streamlit_utils import custom_title_inputs
@@ -148,8 +149,17 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                                    team1_name, team2_name, team1_player, team2_player,
                                    competition, exclude_penalties, highlight_mode,
                                    custom_title=None, custom_subtitle=None,
-                                   aspect='default'):
-    """Generate single-match shot charts and return image bytes dict."""
+                                   aspect='default', appearances=None):
+    """Generate single-match shot charts and return image bytes dict.
+
+    `team1_player` / `team2_player` are PLAYER IDS (or "All Players") when
+    `appearances` is supplied, and player NAMES when it is not - the CSV
+    upload path has no appearance data and keeps the old behaviour.
+
+    Selecting by id is what lets a player with no shots be charted at all:
+    the picker is no longer built from the shots frame, so there is nothing
+    tying the option list to players who already appear in it.
+    """
     from shared.colors import TEAM_COLORS, fuzzy_match_team
 
     def resolve_color(team_name, team_colors_dict):
@@ -193,17 +203,36 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
     team2_own_goals = t2_breakdown.own_goals
 
     shooter_col = 'shooter' if 'shooter' in shots_df.columns else 'Player'
-    player1_name = None
-    chart_team1_shots = team1_shots
-    if team1_player != "All Players":
-        chart_team1_shots = team1_shots[team1_shots[shooter_col] == team1_player]
-        player1_name = team1_player
 
-    player2_name = None
-    chart_team2_shots = team2_shots
-    if team2_player != "All Players":
-        chart_team2_shots = team2_shots[team2_shots[shooter_col] == team2_player]
-        player2_name = team2_player
+    def _select(team_shots, selected, team_name):
+        """-> (filtered shots, display name, minutes) for one team's slot.
+
+        Each team's roster is looked up under ITS OWN name, so a player can
+        only ever be charted against the side he actually played for. The old
+        list came from that team's shots and so could not go wrong; an
+        appearance list can, and did in probing - a Grêmio player selected
+        into the home slot produced "Wallace (Vitoria) Shot Chart".
+        """
+        if selected == "All Players":
+            return team_shots, None, None
+        roster = {a['player_id']: a for a in (appearances or {}).get(team_name, [])}
+        app = roster.get(selected)
+        if app is None:
+            # CSV path, or an id that is not on this team's sheet: fall back
+            # to matching by name, which is what shipped before.
+            return (team_shots[team_shots[shooter_col] == selected],
+                    selected, None)
+        # By ID, never by name - see get_appearances_for_game.
+        if 'shooterId' in team_shots.columns:
+            picked = team_shots[team_shots['shooterId'] == selected]
+        else:
+            picked = team_shots[team_shots[shooter_col] == app['player']]
+        return picked, app['player'], app['minutes']
+
+    chart_team1_shots, player1_name, player1_minutes = _select(
+        team1_shots, team1_player, team1_name)
+    chart_team2_shots, player2_name, player2_minutes = _select(
+        team2_shots, team2_player, team2_name)
 
     charts = {}
     aspect_suffix = f"_{aspect}" if aspect != 'default' else ''
@@ -218,7 +247,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 flip_coords=team1_flip, competition=competition,
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode,
-                player_name=player1_name,
+                player_name=player1_name, player_minutes=player1_minutes,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
                 aspect=aspect,
             )
@@ -238,7 +267,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
                 flip_coords=team2_flip, competition=competition,
                 exclude_penalties=exclude_penalties,
                 highlight_mode=highlight_mode,
-                player_name=player2_name,
+                player_name=player2_name, player_minutes=player2_minutes,
                 is_home=False,
                 custom_title=custom_title, custom_subtitle=custom_subtitle,
                 aspect=aspect,
@@ -421,9 +450,17 @@ if data_source == "Database":
                 (g for g in filtered_games if g['label'] == selected_game_label), None
             )
 
+            # The COMPETITION, not the full season label. season_name fuses
+            # competition and years ("UEFA Champions League 2025/26"), and the
+            # chart already puts the years in the title - so the subtitle
+            # repeated them, and before season_span_label was fixed it repeated
+            # the competition too, giving two identical consecutive lines.
             competition = st.text_input(
                 "Competition Name",
-                value=selected_game['season_name'] if selected_game and selected_game.get('season_name') else selected_league or "",
+                value=(season_competition([selected_game['season_id']])
+                       if selected_game and selected_game.get('season_id')
+                       else (selected_game or {}).get('season_name')
+                       or selected_league or ""),
                 help="Auto-filled from season — edit if needed"
             )
 
@@ -479,22 +516,42 @@ if data_source == "Database":
                     if _adjusted:
                         st.info("Team colors were automatically adjusted for visibility.")
 
-                    # Player filters
-                    team1_players = sorted(
-                        shots_df[shots_df['Team'] == team1_name]['shooter'].dropna().unique()
-                    )
-                    team2_players = sorted(
-                        shots_df[shots_df['Team'] == team2_name]['shooter'].dropna().unique()
-                    )
-                    if team1_players or team2_players:
+                    # Player filters. Sourced from who APPEARED, not from
+                    # who shot: 54.1% of appearances in production involve no
+                    # shot, and "he played 90 minutes and never had a go" is
+                    # a chart worth making.
+                    appearances = get_appearances_for_game(selected_game['game_id'])
+                    team1_apps = appearances.get(team1_name, [])
+                    team2_apps = appearances.get(team2_name, [])
+                    _roster = {a['player_id']: a
+                               for a in team1_apps + team2_apps}
+
+                    def _player_option(pid):
+                        if pid == "All Players":
+                            return "All Players"
+                        a = _roster.get(pid)
+                        if not a:
+                            return pid
+                        n = a['shots']
+                        bits = [f"{a['minutes']}'",
+                                "no shots" if n == 0
+                                else f"{n} shot{'' if n == 1 else 's'}"]
+                        if a['goals']:
+                            bits.append(
+                                f"{a['goals']} goal{'' if a['goals'] == 1 else 's'}")
+                        return f"{a['player']}  —  {'  ·  '.join(bits)}"
+
+                    if team1_apps or team2_apps:
                         st.sidebar.header("Player Filter")
                         team1_player = st.sidebar.selectbox(
-                            f"{team1_name}", ["All Players"] + list(team1_players),
-                            key="db_single_p1"
+                            f"{team1_name}",
+                            ["All Players"] + [a['player_id'] for a in team1_apps],
+                            format_func=_player_option, key="db_single_p1"
                         )
                         team2_player = st.sidebar.selectbox(
-                            f"{team2_name}", ["All Players"] + list(team2_players),
-                            key="db_single_p2"
+                            f"{team2_name}",
+                            ["All Players"] + [a['player_id'] for a in team2_apps],
+                            format_func=_player_option, key="db_single_p2"
                         )
                     else:
                         team1_player = team2_player = "All Players"
@@ -508,7 +565,7 @@ if data_source == "Database":
                                 competition, exclude_penalties, highlight_mode,
                                 custom_title=custom_title_db_single,
                                 custom_subtitle=custom_subtitle_db_single,
-                                aspect=aspect_param,
+                                aspect=aspect_param, appearances=appearances,
                             )
                             st.session_state["shot_charts"] = charts
 
@@ -547,9 +604,10 @@ if data_source == "Database":
 
             with comp_col:
                 comp_default = (
-                    selected_season_filter if selected_season_filter != "All competitions"
+                    season_competition([selected_season_id])
+                    if selected_season_id
                     else selected_league or ""
-                )
+                ) or selected_league or ""
                 competition = st.text_input(
                     "Competition Name",
                     value=comp_default,

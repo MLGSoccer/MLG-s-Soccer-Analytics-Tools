@@ -173,7 +173,7 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                            own_goals_for=0, own_goals_against=0,
                            flip_coords=False, competition='',
                            exclude_penalties=False, highlight_mode='All',
-                           player_name=None, is_home=True,
+                           player_name=None, player_minutes=None, is_home=True,
                            custom_title=None, custom_subtitle=None,
                            aspect='default'):
     """Create a single team's shot chart using mplsoccer VerticalPitch.
@@ -245,6 +245,13 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     total_xg = shots_df['xG'].sum()
     goals = len(shots_df[shots_df['playType'].isin(GOAL_TYPES)])
     highlight_stats = compute_highlight_stats(shots_df, highlight_mode)
+
+    # A player chart with nothing on the pitch - reachable since the picker
+    # started offering everyone who appeared rather than everyone who shot.
+    # The frame already states the fact (title, "N' PLAYED", and a stats row
+    # reading 0 / 0.00 / 0); what it must not do is keep the chrome that
+    # points at marks which are not there.
+    _nothing_drawn = bool(player_name) and total_shots == 0
 
     # Primary title: identifies whose chart this is (team or player)
     shot_map_label = "NON-PENALTY SHOT MAP" if exclude_penalties else "SHOT MAP"
@@ -323,6 +330,12 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
         subtitle_parts = [] if line2 is not None else [match_str]
         if line2 is not None:
             subtitle_parts.append(shot_map_label)
+        # Minutes qualify every number on a player's chart, and they are the
+        # difference between a story and a non-story once a player with no
+        # shots can be charted at all: 0 shots in 90 minutes is a fact about
+        # the player, 0 in 12 is a fact about the substitution.
+        if player_name and player_minutes:
+            subtitle_parts.append(f"{player_minutes}' PLAYED")
         if highlight_mode != 'All':
             subtitle_parts.append(f"{highlight_mode.upper()} SHOTS HIGHLIGHTED")
         if competition:
@@ -338,7 +351,9 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     # Legend: shape-only (Goal = star, Shot = circle; size encodes xG
     # qualitatively). Skipped entirely when layout['legend_y'] is None
     # (e.g. 9:8 tile mode where the shape convention is understood).
-    if layout['legend_y'] is not None:
+    # A Goal/Shot key with no goal and no shot to key sends the reader
+    # hunting an empty pitch for marks that do not exist.
+    if layout['legend_y'] is not None and not _nothing_drawn:
         legend_handles = [
             Line2D([0], [0], marker='*', color='none', markerfacecolor=team_color,
                    markeredgecolor='white', markeredgewidth=1, markersize=14, label='Goal'),
@@ -430,7 +445,10 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
                      ha='center', va='bottom',
                      fontsize=layout['highlight_size'],
                      color=TEXT_SECONDARY, style='italic')
-        else:
+        elif not _nothing_drawn:
+            # Worse than merely redundant: the only round mark left on an
+            # empty half pitch is the PENALTY SPOT, so "Circle size = xG"
+            # invites reading it as a shot worth no xG.
             fig.text(0.5, layout['caption_y'], _marker_key(pinned),
                      ha='center', va='bottom',
                      fontsize=layout['caption_size'],
