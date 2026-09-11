@@ -129,11 +129,18 @@ def style_axis_full_grid(ax):
     ax.set_axisbelow(True)
 
 
-def add_cbs_footer(fig, data_source='Opta/Stats Perform'):
-    """Add CBS Sports branding footer to figure."""
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
+def add_cbs_footer(fig, data_source='Opta/Stats Perform', x0=0.02, x1=0.98):
+    """Add CBS Sports branding footer to figure.
+
+    `x0`/`x1` default to the historic hard-coded margins, so every existing
+    caller renders unchanged. Pass them when the chart's content block sits on
+    a different margin: on the pass map the footer was landing 27px left of the
+    pitch and 4px right of the stat column, which reads as a wobble rather than
+    a decision.
+    """
+    fig.text(x0, 0.01, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
     if data_source:
-        fig.text(0.98, 0.01, f'DATA: {data_source.upper()}', fontsize=9,
+        fig.text(x1, 0.01, f'DATA: {data_source.upper()}', fontsize=9,
                 color=TEXT_MUTED, ha='right')
 
 

@@ -3,6 +3,7 @@ MotherDuck utilities for the CBS Sports Soccer Chart Builder.
 Provides connection management and data access functions for chart pages.
 """
 import os
+import re
 import json
 import difflib
 import duckdb
@@ -357,7 +358,7 @@ def build_shot_chart_single(game_id):
         SELECT e.EventXDecimal, e.EventYDecimal, e.xG, e.playType,
                e.teamFullName, e.newestTeamColor, e.Date,
                e.homeTeam, e.awayTeam, e.ShotPlayStyle, e.shooter,
-               e.gameClock,
+               e.primaryPlayerId, e.gameClock,
                g.homeFinalScore, g.awayFinalScore,
                e.teamId, g.homeTeamId, g.awayTeamId
         FROM events e
@@ -374,7 +375,7 @@ def build_shot_chart_single(game_id):
     meta = None
 
     for (ex, ey, xg, play_type, team_full, color, date, home, away,
-         shot_style, shooter, game_clock, h_score, a_score,
+         shot_style, shooter, shooter_id, game_clock, h_score, a_score,
          team_id, home_team_id, away_team_id) in rows:
         # The `Team` column and `meta` below are compared downstream
         # (`shots_df[shots_df['Team'] == team1_name]`), but they come from two
@@ -411,6 +412,12 @@ def build_shot_chart_single(game_id):
             'Team': team_display,
             'ShotPlayStyle': shot_style,
             'shooter': shooter,
+            # The ID, because a name is not an identity. Measured: 3 games in
+            # production put two players with the SAME name on the SAME team,
+            # where filtering a player's shots by name silently merges two
+            # people into one chart. (59 more share a name across opposing
+            # teams, which the per-team picker already separates.)
+            'shooterId': shooter_id,
             # gameClock is seconds elapsed; the per-shot block wants a minute.
             'minute': (float(game_clock) / 60) if game_clock is not None else None,
         })
@@ -419,7 +426,154 @@ def build_shot_chart_single(game_id):
 
 
 @st.cache_data(ttl=3600)
+def get_appearances_for_game(game_id):
+    """Every player who took the field, per team, with minutes and shots.
 
+    Returns {team_display: [appearance, ...]} ordered by minutes descending,
+    where an appearance is:
+
+        {'player_id', 'player', 'minutes', 'shots', 'goals', 'red_cards'}
+
+    The shot chart's player picker was built from the SHOTS frame
+    (`shots_df['shooter'].unique()`), so a player could only be offered once
+    he had already taken a shot - and 54.1% of appearances in production
+    (94,418 of 174,429) involve no shot at all. The majority case was
+    unreachable, including the interesting one: a centre forward who played
+    90 minutes and never got an attempt away.
+
+    `player_game_minutes` is the source and it covers every game: 0 of 5,628
+    have no appearance rows, averaging 31 players each. Rows with 0 minutes
+    are excluded - 9 exist in the whole database and an unused substitute did
+    not "fail to shoot".
+
+    Shots are counted by joining on playerId, never on the name. The two
+    tables agree on names 100% of the time today (80,012 of 80,012), so a
+    name join would appear to work; it would also silently merge the 3 games
+    where one team fielded two players with the same name.
+
+    Team keys come from `team_label(team_id, ...)`, the same resolution
+    `build_shot_chart_single` uses for its `Team` column, so the two agree by
+    construction rather than by coincidence - the page matches one against
+    the other.
+    """
+    con = get_connection()
+    rows = con.execute("""
+        SELECT m.teamId, m.teamFullName, m.playerId, m.player, m.minutes,
+               m.redCards,
+               COUNT(e.eventGuid) AS shots,
+               COUNT(e.eventGuid) FILTER (
+                   WHERE e.playType IN ('Goal', 'PenaltyGoal')) AS goals
+        FROM player_game_minutes m
+        LEFT JOIN events e
+               ON e.gameId = m.gameId
+              AND e.primaryPlayerId = m.playerId
+              AND e.playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved',
+                                 'Miss', 'Post')
+        WHERE m.gameId = ?
+          AND m.minutes > 0
+        GROUP BY m.teamId, m.teamFullName, m.playerId, m.player, m.minutes,
+                 m.redCards
+        ORDER BY m.minutes DESC, m.player
+    """, [game_id]).fetchall()
+
+    out = {}
+    for team_id, team_full, player_id, player, minutes, reds, shots, goals in rows:
+        team_display = team_label(team_id, team_full)
+        if not team_display:
+            continue
+        out.setdefault(team_display, []).append({
+            'player_id': player_id,
+            'player': player,
+            'minutes': int(minutes or 0),
+            'shots': int(shots or 0),
+            'goals': int(goals or 0),
+            'red_cards': int(reds or 0),
+        })
+    return out
+
+
+@st.cache_data(ttl=3600)
+def get_player_full_names(player_ids_tuple):
+    """{playerId: playerFullName} for the handful of players on a chart.
+
+    The event feed carries "I. Konaté", which is an initial and a surname, not
+    a name - and it is genuinely ambiguous: this database holds S., P., A., K.
+    AND I. Konaté. A headline naming a player has to name him.
+
+    `player_game_minutes.playerFullName` is the only source of the long form,
+    and the join is on playerId, never on the display string - see
+    feedback_player_id_join. Keyed to the SELECTED ids rather than everyone in
+    the scope, so it stays a few-row lookup against a metered warehouse.
+    """
+    ids = tuple(dict.fromkeys(i for i in (player_ids_tuple or ()) if i))
+    if not ids:
+        return {}
+    con = get_connection()
+    ph = ','.join(['?'] * len(ids))
+    rows = con.execute(f"""
+        SELECT playerId, any_value(playerFullName)
+        FROM player_game_minutes
+        WHERE playerId IN ({ph}) AND playerFullName IS NOT NULL
+        GROUP BY playerId
+    """, list(ids)).fetchall()
+    return {pid: name for pid, name in rows if name}
+
+
+_SEASON_YEARS_RE = re.compile(r"\s(\d{4}(?:\s*/\s*\d{2,4})?)\s*$")
+
+
+def split_season_label(label, league=None):
+    """Split a config season label into (competition, years).
+
+    The config fuses the two - "Premier League 2025/26" - and callers want
+    them apart: the competition is printed once by the chart header and the
+    years qualify it.
+
+    Prefix removal alone is NOT enough, and the gap was visible in production.
+    The config labels European competitions "UEFA Champions League 2025/26"
+    while the league bucket is "Champions League", so the label does not start
+    with the bucket and nothing was stripped - the whole competition name then
+    leaked into what the caller had been told were years only. Rendered beside
+    a competition taken from the team's domestic league, an Aston Villa
+    European tie read "PREMIER LEAGUE - UEFA CHAMPIONS LEAGUE 2025/26".
+    Measured: 6 of 34 season buckets were affected, every UEFA competition
+    among them.
+
+    So: take the KNOWN prefix when it matches, and otherwise split on a
+    trailing year token. The regex is anchored, requires a leading space, and
+    only fires when something remains in front of it, so "World Cup 2026"
+    splits but a bare "2026" is left alone.
+    """
+    label = (label or '').strip()
+    if not label:
+        return '', ''
+    if league and label.startswith(league):
+        rest = label[len(league):].strip()
+        if rest:
+            return league, rest
+    m = _SEASON_YEARS_RE.search(label)
+    if m and label[:m.start()].strip():
+        return label[:m.start()].strip(), m.group(1).replace(' ', '')
+    return (league or label), ('' if league else label)
+
+
+def season_competition(season_ids):
+    """The competition these seasons belong to, or '' if they disagree.
+
+    The team's league bucket is the WRONG source for this - it says where the
+    club plays domestically, not what this match was. Read it off the season
+    the user actually picked.
+    """
+    cfg = _load_config()
+    names = cfg.get('seasons', {})
+    leagues = cfg.get('season_leagues', {})
+    comps = {split_season_label(names.get(s), leagues.get(s))[0]
+             for s in dict.fromkeys(season_ids) if s}
+    comps.discard('')
+    return comps.pop() if len(comps) == 1 else ''
+
+
+@st.cache_data(ttl=3600)
 def season_span_label(season_ids):
     """Label the season(s) a set of shots actually spans.
 
@@ -448,16 +602,7 @@ def season_span_label(season_ids):
     leagues = cfg.get('season_leagues', {})
 
     def _years(sid):
-        label = names.get(sid)
-        if not label:
-            return ''
-        league = leagues.get(sid)
-        # The config label fuses competition and years ("Premier League
-        # 2025/26"). Removing a KNOWN prefix is safe; parsing years out of an
-        # arbitrary string would not be.
-        if league and label.startswith(league):
-            return label[len(league):].strip() or label
-        return label
+        return split_season_label(names.get(sid), leagues.get(sid))[1]
 
     spans = sorted({y for y in (_years(s) for s in ids) if y})
     if not spans:
@@ -1941,3 +2086,152 @@ def get_momentum_events(game_id):
     }
 
     return df[['minute','period','team_side','event_type']].reset_index(drop=True), match_info
+
+
+# -- Pass map ------------------------------------------------------------------
+
+# Columns every database must have for the chart to draw at all.
+_PASS_CORE = [
+    'gameId', 'seasonId', 'teamId', 'gameEventIndex', 'playType', 'success',
+    'passer', 'passerId', 'receiver', 'receiverId',
+    'EventXDecimal', 'EventYDecimal', 'PassEndXDecimal', 'PassEndYDecimal',
+    'teamFullName', 'newestTeamColor', 'Date', 'homeTeam', 'awayTeam',
+    'opponent', 'opponentId', 'Period', 'gameClock',
+]
+
+# Columns that arrived with the 464-column widening (2026-09-09). Production has
+# every one; a stale mirror has none. Each is gated individually rather than as
+# a block, so a partially-migrated database serves the filters it can and drops
+# only the rest - `_events_has` checks instead of catching, so a genuine SQL
+# error still surfaces.
+_PASS_OPTIONAL = [
+    'PassType', 'IsCross', 'CornerType', 'xA', 'ChanceCreated', 'IsAssist',
+    'PressureReceived', 'LinesBroken', 'LastLineBroken', 'PlayerPosition',
+    'Starter', 'MatchState', 'Formation', 'OppFormation',
+    'SequenceShotCount', 'SequenceScoredGoal', 'PossessionScoredGoal',
+    'SequenceReachedBox', 'SequenceDirectSpeed', 'sequenceEventNum',
+    'teamCurrentScore', 'opponentCurrentScore',
+    'q1', 'q3', 'q4', 'q5', 'q155', 'q156', 'q157', 'q168', 'q195', 'q196',
+    'q218', 'shot_q214',
+]
+
+# Renames applied on the way out, so the chart code never spells "Decimal".
+_PASS_RENAME = {
+    'EventXDecimal': 'EventX', 'EventYDecimal': 'EventY',
+    'PassEndXDecimal': 'PassEndX', 'PassEndYDecimal': 'PassEndY',
+}
+
+
+@st.cache_data(ttl=3600)
+def build_pass_map(game_ids_tuple, team_id, against=False):
+    """Every pass a team attempted in the selected games, one row per pass.
+
+    Returns (passes_df, info, team_color). This is the POPULATION - the
+    denominator every caption reconciles against. Selection filters run in
+    pandas afterwards (shared/pass_filters.py); nothing here narrows what the
+    reader chose to look at.
+
+    The population is `Pass` plus `OffsidePass`, and deliberately NOT
+    `BlockedPass`. A blocked pass is recorded twice: the passer's own row, an
+    ordinary incomplete `Pass` carrying both endpoints, and the DEFENDER's
+    `BlockedPass`, which belongs to the other team and has no endpoint at all
+    (verified: 0 of 82,806 carry PassEndXDecimal, 99.99% of the matched ones
+    sit one index after an opponent's failed pass). Blocked passes therefore
+    count toward the denominator automatically, drawn as normal incomplete
+    lines - unioning the play type in would double-count them and credit the
+    defending side's block to the attacking team.
+
+    No flip logic. Coordinates are already attack-normalised with no half-time
+    flip, which is what makes multi-game aggregation work. Do NOT copy the shot
+    chart's mean-x mirror heuristic: it is a CSV-era artifact that never fires
+    on DB shots (mean shot x is 85.5) and would fire on 76.8% of pass maps,
+    because mean pass origin is 46.8 - just under its threshold.
+    """
+    import pandas as pd
+    if not game_ids_tuple:
+        return pd.DataFrame(), {}, '#888888'
+
+    con = get_connection()
+    cols = list(_PASS_CORE) + [c for c in _PASS_OPTIONAL if _events_has(con, c)]
+    select = ', '.join(f'e."{c}"' for c in cols)
+    placeholders = ','.join('?' for _ in game_ids_tuple)
+    team_clause = "e.teamId != ?" if against else "e.teamId = ?"
+
+    # `games` is joined for the team IDS, not for convenience. The events table
+    # carries `opponent` as the feed's ABBREVIATION - "BRE", never "Brentford" -
+    # and the registry cannot resolve an abbreviation, so a fixture line built
+    # from it reads as a code. The full names and the ids that resolve them are
+    # on `games`, and the same join answers home/away, which is not derivable
+    # from events at all.
+    df = con.execute(f"""
+        SELECT {select},
+               g.homeTeamId, g.awayTeamId,
+               g.homeFinalScore, g.awayFinalScore
+        FROM events e
+        JOIN games g ON g.gameId = e.gameId
+        WHERE e.gameId IN ({placeholders})
+          AND {team_clause}
+          AND e.playType IN ('Pass', 'OffsidePass')
+        ORDER BY e.Date, e.gameId, e.gameEventIndex
+    """, list(game_ids_tuple) + [team_id]).df()
+
+    if df.empty:
+        return pd.DataFrame(), {}, '#888888'
+    df = df.rename(columns=_PASS_RENAME)
+
+    df['is_home'] = df['teamId'] == df['homeTeamId']
+    _opp_id = df['awayTeamId'].where(df['is_home'], df['homeTeamId'])
+    _opp_nm = df['awayTeam'].where(df['is_home'], df['homeTeam'])
+    _seen = {}
+    df['opponent_name'] = [
+        _seen.setdefault((i, n), team_label(i, n) or n)
+        for i, n in zip(_opp_id, _opp_nm)]
+    df['team_score'] = df['homeFinalScore'].where(df['is_home'], df['awayFinalScore'])
+    df['opp_score'] = df['awayFinalScore'].where(df['is_home'], df['homeFinalScore'])
+
+    # Which incomplete passes were actually blocked. Pulled as a separate small
+    # set and matched in pandas rather than joined in SQL: the window is fuzzy
+    # (a block lands within a few events, not always the next one) and a range
+    # join would duplicate a pass that two defenders both got a touch on.
+    blocks = con.execute(f"""
+        SELECT gameId, gameEventIndex, teamId FROM events
+        WHERE gameId IN ({placeholders}) AND playType = 'BlockedPass'
+    """, list(game_ids_tuple)).fetchall()
+    block_keys = {(g, i - k) for g, i, _t in blocks for k in (1, 2, 3)}
+    df['was_blocked'] = [
+        (g, i) in block_keys and not s
+        for g, i, s in zip(df['gameId'], df['gameEventIndex'],
+                           df['success'].fillna(False))
+    ]
+
+    # Identity comes from the SUBJECT team, never from the result set. In
+    # against mode the rows carry the opponents' names and colours, so deriving
+    # from them would label the chart with whichever opponent passed most.
+    own = con.execute(
+        "SELECT teamFullName, newestTeamColor FROM events "
+        "WHERE teamId = ? AND teamFullName IS NOT NULL "
+        "ORDER BY newestTeamColor IS NULL LIMIT 1", [team_id]).fetchone()
+    team_name = team_label(team_id, own[0] or '') if own else ''
+    team_color = (own[1] if own and own[1] else None) or '#888888'
+
+    dates = df['Date'].dropna().sort_values()
+    date_range = ''
+    if len(dates):
+        try:
+            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
+            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            date_range = last if dates.iloc[0] == dates.iloc[-1] else f"{first} - {last}"
+        except Exception:
+            pass
+
+    info = {
+        'team_name': team_name,
+        'against': against,
+        'date_range': date_range,
+        'total_matches': df['gameId'].nunique(),
+        'season_span': season_span_label(df['seasonId'].dropna()),
+        'passers': (df[['passerId', 'passer']].dropna()
+                    .drop_duplicates().sort_values('passer')
+                    .to_records(index=False).tolist()),
+    }
+    return df, info, team_color
