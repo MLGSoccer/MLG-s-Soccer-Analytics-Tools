@@ -25,6 +25,7 @@ pg = st.navigation({
     "": [
         st.Page("pages/3_xG_Race.py", title="xG Race"),
         st.Page("pages/4_Shot_Chart.py", title="Shot Chart"),
+        st.Page("pages/13_Pass_Map.py", title="Pass Map"),
         st.Page("pages/12_Match_Momentum.py", title="Match Momentum"),
         st.Page("pages/6_Player_Comparison.py", title="Player Comparison"),
     ],
