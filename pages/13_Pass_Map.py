@@ -206,6 +206,19 @@ filter_text = pf.filter_phrase(phrases, match_all,
                                skip=('receiver',) if receivers else ())
 
 st.sidebar.header("Chart")
+aspect_choice = st.sidebar.radio(
+    "Aspect ratio",
+    options=["Standard (16:9)", "Vertical (9:16)", "Tile (9:8)"],
+    index=0,
+    help="16:9 is the editorial chart. 9:16 rotates the pitch to attack up "
+         "the frame and moves the summary into bands beneath it - a rotated "
+         "pitch is the only way 500-odd passes stay individually traceable in "
+         "a portrait frame. 9:8 keeps the pitch horizontal and carries the "
+         "same furniture at tile size, minus the leading-passers table, which "
+         "does not fit.",
+)
+aspect = {"Vertical (9:16)": "9x16", "Tile (9:8)": "9x8"}.get(
+    aspect_choice, "default")
 # The SEASON's competition, not the team's league bucket. Aston Villa's league
 # bucket is the Premier League, so a Champions League tie was labelled with
 # both - the bucket says where a club plays domestically, not what this match
@@ -226,11 +239,20 @@ fig = create_pass_map(shown, info, team_color, n_population=len(population),
                       caption_text=caption, filter_text=filter_text,
                       players=players, receivers=receivers,
                       player_labels=player_labels, competition=competition,
-                      custom_title=title, custom_subtitle=subtitle)
-st.pyplot(fig, use_container_width=True)
+                      custom_title=title, custom_subtitle=subtitle,
+                      aspect=aspect)
+# The portrait cuts are 9in wide against the 16:9's 16in, so letting Streamlit
+# stretch them to the column width blows them up past any size they will ever
+# be delivered at. The saved PNG is unaffected either way.
+st.pyplot(fig, use_container_width=(aspect == 'default'))
 
-path = os.path.join(tempfile.gettempdir(), "pass_map.png")
+suffix = '' if aspect == 'default' else f"_{aspect}"
+name = f"pass_map{suffix}.png"
+# Per aspect, so switching the radio cannot leave the previous aspect's render
+# sitting in %TEMP% under the name of the current one - that file is the only
+# honest record of what the page drew when the browser serves a stale view.
+path = os.path.join(tempfile.gettempdir(), name)
 fig.savefig(path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
 with open(path, 'rb') as fh:
-    st.download_button("Download PNG (300 dpi)", fh, "pass_map.png", "image/png")
+    st.download_button("Download PNG (300 dpi)", fh, name, "image/png")
 plt.close(fig)

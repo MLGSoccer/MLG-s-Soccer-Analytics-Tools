@@ -34,7 +34,7 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle, FancyBboxPatch
-from mplsoccer import Pitch
+from mplsoccer import Pitch, VerticalPitch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -69,6 +69,18 @@ PITCH_LINE = '#66809E'
 # truncating silently.
 PLAYER_SLOTS = ('#2F97CC', '#BC7F12', '#CE4C82')
 MAX_PLAYERS = len(PLAYER_SLOTS)
+
+# What a vertically-drawn Opta pitch locks its drawn height to its drawn width
+# at, MEASURED rather than derived. The obvious 105/68 = 1.5441 is 3% out,
+# because mplsoccer applies the pitch aspect first and then adds the padding in
+# DISPLAY units: (100 * 105/68 + 2*pad) / (100 + 2*pad) at pad=4 is 1.5038. The
+# portrait layout solves the pitch box from this, so a wrong constant would
+# leave the panel floating inside its axes and every measured rail 3% off.
+_VPITCH_HW = 1.50381
+# The same measurement for the horizontal draw: (100 * 68/105 + 2*pad) /
+# (100 + 2*pad) at pad=4. The 16:9 never needed it - its pitch box is solved
+# by hand - but the 9:8 tile derives its box the same way portrait does.
+_HPITCH_HW = 0.66498
 
 
 # ── The density function ─────────────────────────────────────────────────────
@@ -115,6 +127,15 @@ HEAD_LEN = 2.4
 # ONE swatch vocabulary. The bottom-left key was 36x2.5px and the leading-
 # passer chip 25x4.2px - same page, same job ("this colour/style means X"),
 # 1.7x the weight and 0.7x the length, in opposite corners.
+#
+# THE LENGTH IS A FIGURE FRACTION AND THAT IS A TRAP AT 9 INCHES. 0.020 is
+# 32px on the 16in frame and 18px on a 9in one, while the dash period is fixed
+# in POINTS at 3.4 on / 1.9 off = 7.4px - so the 16:9 key shows two marks and
+# a gap, and the portrait key shows one unbroken stroke at 78% ink. Measured,
+# after a cold viewer zoomed to 3x to check and reported the two keys as
+# identical: they were. A key that claims a distinction it does not draw is
+# the same failure as the quiver that silently dropped its linestyle. Layouts
+# set `swatch_w` in fractions of THEIR OWN width to land on a constant ~32px.
 SWATCH_W, SWATCH_LW = 0.020, 3.0
 
 
@@ -158,12 +179,18 @@ def resolve_colors(team_color, players=None):
 
 
 def draw_passes(ax, df, color_for, alpha=None, width=None, arrows=None,
-                identity=False):
+                identity=False, vertical=False):
     """Draw one line per pass.
 
     Completion is LINE STYLE - solid against dashed - because colour is spent
     on identity. Incomplete sits underneath: at low n the completed passes are
     what the reader traces, and at high n the order stops being visible at all.
+
+    `vertical` swaps which Opta axis feeds which display axis, for the rotated
+    portrait pitch. It has to be done HERE rather than left to mplsoccer:
+    VerticalPitch only transforms the coordinates passed through its own
+    plotting methods, and everything this chart draws is a raw LineCollection
+    or quiver added straight to the axes, so nothing would be rotated at all.
     """
     if df.empty:
         return
@@ -182,10 +209,15 @@ def draw_passes(ax, df, color_for, alpha=None, width=None, arrows=None,
         if not mask.any():
             continue
         sub = df[mask]
-        x0 = sub['EventX'].to_numpy(float)
-        y0 = sub['EventY'].to_numpy(float)
-        x1 = sub['PassEndX'].to_numpy(float)
-        y1 = sub['PassEndY'].to_numpy(float)
+        # Display axes, not Opta axes. Rotated, the pitch's LENGTH runs up the
+        # screen, so display-x reads from EventY and display-y from EventX.
+        cx0, cy0, cx1, cy1 = (('EventY', 'EventX', 'PassEndY', 'PassEndX')
+                              if vertical else
+                              ('EventX', 'EventY', 'PassEndX', 'PassEndY'))
+        x0 = sub[cx0].to_numpy(float)
+        y0 = sub[cy0].to_numpy(float)
+        x1 = sub[cx1].to_numpy(float)
+        y1 = sub[cy1].to_numpy(float)
         c = colors[mask]
 
         if arrows:
@@ -223,8 +255,12 @@ def draw_passes(ax, df, color_for, alpha=None, width=None, arrows=None,
                 linestyles=style, zorder=z, capstyle='round'))
 
 
-def make_pitch(ax, pad=4.0):
-    """A horizontal full pitch in Opta coordinates on the dark panel.
+def make_pitch(ax, pad=4.0, vertical=False):
+    """A full pitch in Opta coordinates on the dark panel.
+
+    `vertical` rotates it to attack UP the frame, for the portrait aspect. The
+    panel patch is unchanged: both orientations span 0..100 on both axes in
+    Opta coordinates, and only the aspect lock differs.
 
     pitch_type='opta' is the same grid the shot chart draws, so both charts put
     the penalty box in the same place by construction. The panel is padded
@@ -238,9 +274,10 @@ def make_pitch(ax, pad=4.0):
         (-pad, -pad), 100 + 2 * pad, 100 + 2 * pad,
         boxstyle='round,pad=0,rounding_size=2.0',
         facecolor=PANEL_COLOR, edgecolor='none', zorder=0))
-    Pitch(pitch_type='opta', pitch_color='none', line_color=PITCH_LINE,
-          linewidth=1.15, goal_type='box',
-          pad_top=pad, pad_bottom=pad, pad_left=pad, pad_right=pad).draw(ax=ax)
+    (VerticalPitch if vertical else Pitch)(
+        pitch_type='opta', pitch_color='none', line_color=PITCH_LINE,
+        linewidth=1.15, goal_type='box',
+        pad_top=pad, pad_bottom=pad, pad_left=pad, pad_right=pad).draw(ax=ax)
     # ABOVE the passes, always. At 21,950 lines the markings measured 1.69:1
     # against the haze - the pitch vanished under its own chart, and with it
     # the only scale reference the reader has. Furniture is never data's to
@@ -367,13 +404,18 @@ _LAYOUTS = {
         'figsize': (16, 9),
         'kicker_y': 0.969, 'kicker_size': 11.5,
         'title_y': 0.919, 'title_size': 30, 'title_frac': 0.72,
+        'title_floor': 17,
         # The team-colour rule under the title is the house header furniture -
         # the shot chart and the xG race both carry one, width-matched to the
         # title. The pass map was the only chart without it, and a header of
         # four centred lines with no rule and no anchor is most of what read as
         # unfinished.
-        'bar_h': 0.0075, 'bar_gap': 0.0074,
+        'bar_h': 0.0075, 'bar_gap': 0.0050,
         'scope_y': 0.860, 'scope_size': 13,
+        # 0.94 is effectively a no-op at 16in wide - the longest scope line in
+        # the family sets 1,330px of a 1,472px measure - and it is here as a
+        # floor under the same silent overflow that bites at 9in.
+        'scope_frac': 0.94, 'scope_floor': 11,
         # The DECK: what subset is drawn. It is the only line that differs
         # between two pass maps of the same team, so it is the line the chart
         # cannot be read without - and a cold viewer skipped it outright,
@@ -410,9 +452,133 @@ _LAYOUTS = {
         # on it and 17.6px past its right edge, and the four bottom-strip rows
         # sat at four different baselines against four different left edges.
         'strip_y': 0.068, 'strip_y2': 0.042, 'legend_size': 10.5,
+        'arrow_w': 0.034, 'arrow_gap': 0.020,
         'leaders_max': 6, 'row_step': 0.036, 'stat_step': 0.036,
         'gap_max': 0.038,
     },
+    # 9:16 - a 900x1600 frame. Every size here clears the 16pt phone floor
+    # (delivery="phone" on the lint), which is why nothing is a scaled-down
+    # copy of the 16:9 numbers: a 9in-wide frame is a different instrument
+    # from a 16in one, not the same one photographed from further away.
+    '9x16': {
+        'figsize': (9, 16),
+        'orient': 'stacked',
+        'margin': 0.06,
+        # `flow` makes scope_y and deck_y DROPS below the element above rather
+        # than absolute positions, because the portrait header's height is not
+        # a constant: one to three title lines, one to three scope lines, and
+        # one or two filter lines.
+        'flow': True,
+        # EVERY size below clears the 16pt phone floor, and that is not a style
+        # choice. The first pass set the labels at 13-14.5pt and the lint
+        # returned 112 findings, almost all of them TOO SMALL. The one thing
+        # raising a size could not buy was the stat strip - see cell_track.
+        'kicker_y': 0.9750, 'kicker_size': 16,
+        'title_y': 0.9440, 'title_size': 38, 'title_frac': 0.84,
+        'title_floor': 19, 'title_lines': 3, 'title_prefer': 30,
+        'title_lead_em': 1.30,
+        'bar_h': 0.0042, 'bar_gap': 0.0043,
+        'scope_y': 0.0185, 'scope_size': 16, 'scope_lead': 0.0185,
+        'scope_frac': 0.88, 'scope_floor': 16, 'scope_track': 0,
+        'deck_y': 0.0150, 'deck_size': 16.5, 'deck_min': 16,
+        'deck_frac': 0.86, 'deck_lead': 0.0170, 'deck_lines': 2,
+        'pitch_gap': 0.0095,
+        'pitch_vertical': True, 'pitch_max_w': 0.88,
+        # The band's own gaps. Its positions are budgeted from the canvas edge
+        # UP (see _body_portrait), so these are the SPACES, not the places.
+        # The two gaps either side of the legend measured 4.0 and 2.2 CSS px
+        # at delivered size - the TIGHTEST on the page, at the one boundary
+        # that has to read clearly: picture ends, apparatus begins. Everything
+        # else in the foot spaces at 7-13. They are the widest now, not the
+        # narrowest.
+        # strip_lead has to clear the ARROW's height, not the text's: the
+        # vertical cue is a 34px object sitting in a 16px line box, so the row
+        # below it is measured from the arrow tail. At 0.0245 with a 48px
+        # arrow the corner note cleared it by 6px, the tightest gap anywhere
+        # on the page, immediately after I had loosened the two next to it.
+        'strip_top_gap': 0.0200, 'strip_lead': 0.0290,
+        'strip_note_gap': 0.0235, 'legend_size': 16,
+        # The direction cue points UP here, so the arrow's length is a
+        # y-fraction and only its head occupies horizontal slot.
+        'arrow_w': 0.022, 'arrow_gap': 0.016, 'arrow_rise': 0.021,
+        'arrow_scale': 18, 'swatch_w': 0.036,
+        'hero_gap': 0.022, 'hero_lead': 0.0205, 'hero_rule': 0.0185,
+        'big_size': 40, 'label_size': 16, 'value_size': 16,
+        'cover_size': 16, 'cell_inset': 0.015,
+        # THE RULE AT THE PHONE ASPECTS: tracking survives only on labels that
+        # OWN THEIR LINE - the kicker, PASSES SHOWN, LEADING PASSERS, CMP, the
+        # coverage line. Where several items compete for one measure - the
+        # scope line, the strip, these cells - the measure wins and they set
+        # solid. It is a measurement, not a preference: at the 16pt floor the
+        # four widest cell labels set 845px of a 792px rail tracked and 655px
+        # untracked, so tracking alone is the difference between four cells and
+        # three. Tracking is there to give 10-13pt caps air, which is what they
+        # need at 16:9 and not what they need at 16pt on a 9in frame. (The
+        # sibling shot chart tracks nothing anywhere; this is the pass map's
+        # own device.)
+        'strip_track': 0, 'strip_flow': True, 'cell_vs_title': 0.80,
+        'cells': 4, 'cell_track': 0, 'cell_gap': 0.0260, 'cell_lead': 0.0230,
+        'cell_value_size': 26, 'cell_rule': 0.0195, 'note_gap': 0.0225,
+        'head_gap': 0.0225, 'head_size': 16, 'row_size': 16,
+        'leaders_max': 4, 'row_step': 0.0250,
+        # Clears the CBS mark AND breaks its rhythm. At 0.036 the last table
+        # row, the coverage line and the footer stepped 40 / 40 / 40px, so the
+        # footer read as one more row of the table rather than as the foot of
+        # the page.
+        'panel_bottom': 0.0510, 'footer_y': 0.0175,
+        'big_vs_title': 1.00,
+    },
+    # 9:8 - a 900x800 tile. The geometry is genuinely different from the shot
+    # chart's tile and none of its decisions carry over: that one draws a HALF
+    # pitch, whose natural 0.77 aspect fills a nearly square frame almost
+    # exactly, so it could afford to drop its subtitle, legend and context line
+    # and still fill the tile. A pass map needs the WHOLE pitch, which locks at
+    # 0.665 tall-to-wide in a frame that is 0.889 - so the pitch cannot fill
+    # this frame however much furniture is stripped, and stripping it buys
+    # nothing but a less legible tile. It keeps its title, scope, filter line,
+    # completion key and direction cue, and stands on its own.
+    #
+    # STACKED rather than a 16:9-style side column, and that was measured: a
+    # 210px column gives a 582x387 pitch against 562x374 stacked - 7% more -
+    # and leaves 132px of dead space UNDER the column, enclosed by the pitch,
+    # the stats and the footer. That is the exact shape three separate cold
+    # readers called "a failed render" on the 16:9. Stacked, the same leftover
+    # becomes symmetric side margin, which reads as margin.
+    '9x8': {
+        'figsize': (9, 8),
+        'orient': 'stacked',
+        'margin': 0.045,
+        'flow': True,
+        'kicker_y': 0.9625, 'kicker_size': 16,
+        'title_y': 0.9100, 'title_size': 30, 'title_frac': 0.86,
+        'title_floor': 19, 'title_lines': 3, 'title_prefer': 22,
+        'title_multi_max': 23, 'title_lead_em': 1.30,
+        'bar_h': 0.0075, 'bar_gap': 0.0080,
+        'scope_y': 0.0300, 'scope_size': 16, 'scope_lead': 0.0330,
+        'scope_frac': 0.90, 'scope_floor': 16, 'scope_track': 0,
+        'deck_y': 0.0250, 'deck_size': 16, 'deck_min': 16,
+        'deck_frac': 0.88, 'deck_lead': 0.0300, 'deck_lines': 2,
+        'pitch_gap': 0.0140,
+        'pitch_vertical': False, 'pitch_max_w': 0.91,
+        'strip_top_gap': 0.0320, 'strip_lead': 0.0440,
+        'strip_note_gap': 0.0300, 'legend_size': 16, 'strip_track': 0,
+        'arrow_w': 0.040, 'arrow_gap': 0.018, 'arrow_rise': 0.0,
+        'arrow_scale': 16, 'swatch_w': 0.036, 'strip_flow': True,
+        'cell_vs_title': 0.80,
+        # hero_lead 0 puts the whole hero on ONE baseline - see _body_stacked.
+        'hero_gap': 0.020, 'hero_lead': 0.0, 'hero_rule': 0.0240,
+        'big_size': 34, 'label_size': 16, 'value_size': 16,
+        'cover_size': 16, 'cell_inset': 0.015,
+        'cells': 4, 'cell_track': 0, 'cell_gap': 0.0340, 'cell_lead': 0.0430,
+        'cell_value_size': 26, 'cell_rule': 0.0320, 'note_gap': 0.0330,
+        'head_gap': 0.0, 'head_size': 16, 'row_size': 16,
+        # NO ranking block: a tile this size cannot hold one, and the 16:9 and
+        # 9:16 both carry it for anyone who wants it.
+        'leaders_max': 0, 'row_step': 0.0,
+        'panel_bottom': 0.0520, 'footer_y': 0.0260,
+        'big_vs_title': 1.00,
+    },
+
 }
 
 
@@ -643,7 +809,8 @@ def _scope_line(shown, info, competition, players=None):
     """
     matches = int(info.get('total_matches') or 0)
     season = info.get('season_span') or ''
-    tail = [b for b in (competition.upper() if competition else '', season) if b]
+    tail = [(k, b) for k, b in (('competition', competition.upper() if competition else ''),
+                                ('season', season)) if b]
     lead = ''
     if matches == 1 and not shown.empty:
         r = shown.iloc[0]
@@ -655,82 +822,200 @@ def _scope_line(shown, info, competition, players=None):
         except (KeyError, TypeError, ValueError):
             pass
         if info.get('date_range'):
-            tail = [info['date_range']] + tail
+            tail = [('date', info['date_range'])] + tail
     elif matches:
         lead = f"{matches} MATCHES"
-    return lead, '  ·  '.join(tail)
+    # KINDED, not joined. At 16:9 they all go on one line and the kinds are
+    # never consulted; a 9in frame has to be able to drop one, and dropping
+    # "the last fragment" is not a rule anyone can check.
+    return lead, tail
 
 
-def create_pass_map(shown, info, team_color, *, n_population=None,
-                    caption_text='', filter_text=None, players=None,
-                    receivers=None, player_labels=None, competition='',
-                    custom_title=None, custom_subtitle=None, aspect='default'):
-    """Render the pass map.
+def _fit_runs(fig, y, runs, nominal, frac, floor, spaced=0):
+    """Draw a coloured run-line at the largest size that fits `frac` of the
+    frame.
 
-    `shown` is the FILTERED frame - the numerator, already annotated by
-    shared.pass_filters.annotate_passes. `n_population` and the header text
-    come from the same module, so the statement beside the marks is generated
-    by the object that did the cutting rather than written twice.
-
-    `filter_text` is pass_filters.filter_phrase() - the qualifier list alone.
-    `caption_text` is the older full sentence and is still accepted so the
-    Streamlit page can keep using one string for its own warnings; the header
-    prefers `filter_text` because the counts belong in the panel.
+    The title has had this guard since the header rebuild; the SCOPE line never
+    did, and at 16in wide nothing ever caught it out. At 9in it overran both
+    edges of the very first portrait render - "v BRENTFORD (H) 1-1 · MAY 24,
+    2026 · PREMIER LEAGUE · 2025/26" set 1,050px in a 900px frame and the ends
+    simply fell off the canvas, exactly the silent failure fit_fontsize exists
+    to stop. Measure the TRACKED string, because tracking is most of the width.
     """
-    L = _LAYOUTS.get(aspect, _LAYOUTS['default'])
-    n_shown = len(shown)
-    # The HEADLINE is ordered by volume so it matches the table beneath it -
-    # the two disagreed, and a reader matching them positionally got the wrong
-    # player and had to fall back to matching on colour.
-    #
-    # COLOURS ARE NOT REORDERED WITH IT. Handing the slots out in volume order
-    # was the obvious next step and it is wrong: colour has to follow the
-    # PLAYER, never his rank, or adding a filter that changes who passed most
-    # repaints all three and every earlier render of the same trio disagrees
-    # with this one. Pick order is arbitrary but it is STABLE, which is the
-    # property that matters. So the title sorts and the palette does not.
-    title_players = list(players or [])
-    if title_players and len(title_players) > 1 and not shown.empty:
-        counts = shown['passer'].value_counts()
-        title_players = sorted(title_players,
-                               key=lambda p: -int(counts.get(p, 0)))
-    n_pop = n_population if n_population is not None else n_shown
+    flat = ''.join(track(t, spaced) if spaced else t for t, _ in runs)
+    size = fit_fontsize(fig, flat, nominal, max_frac=frac, floor=floor,
+                        bold=False)
+    return _runs(fig, y, runs, size, spaced=spaced)
 
-    fig = plt.figure(figsize=L['figsize'])
-    fig.patch.set_facecolor(BG_COLOR)
 
-    color_for, legend_entries = resolve_colors(team_color, players)
-    swatch_colour = {n: c for n, c in legend_entries}
-    accent = ensure_line_contrast(team_color or '#888888', BG_COLOR)
+def _title_lines(runs, k):
+    """Break the headline into `k` lines, one or more NAMES per line.
 
-    # -- header
-    #
-    # FILTERS ARE NOT ALL WORTH THE SAME. The chart is a pass map; the argument
-    # around it lives in the editorial or the podcast that carries it. So the
-    # header ranks its filters by editorial weight rather than listing them:
-    # WHO passed and WHO received is the subject and goes in the title, and
-    # where on the grass the ball started or finished is a qualifier and goes
-    # in a quiet line under the scope (user, 2026-09-11). Stacking every
-    # selected filter into a bold two-line deck gave a corner-of-the-pitch
-    # cut the same voice as the player it was about.
-    kicker = 'PASSES ALLOWED' if info.get('against') else 'PASS MAP'
+    Breaks fall between names, never inside one, and the separator that would
+    have sat at a break is dropped - the line break has already done its job,
+    and each name carries its own colour. The ARROW is the exception and moves
+    to the head of the next line: it is the device that stopped a cold reader
+    inverting "received by", so it has to stay visible wherever the break lands.
+    """
+    items, cur = [], []
+    for text, colour in runs:
+        if text.strip() in ('·', '→'):
+            if cur:
+                items.append(cur)
+            cur = [(text, colour)] if text.strip() == '→' else []
+        else:
+            cur.append((text, colour))
+    if cur:
+        items.append(cur)
+    if k <= 1 or len(items) <= 1:
+        return [list(runs)]
+    # ALL or NOTHING. Breaking three names as 2 + 1 shows the separator once
+    # and swallows it at the break, so the third name loses the "and" that the
+    # first two have and the trio renders as a pair plus a stray - a designer
+    # measured it and a viewer, separately, read the same chart as "passes
+    # BETWEEN these players". Either every name keeps its separator or none of
+    # them needs one, and a uniform stack is unambiguously a list.
+    k = len(items)
+    per = [len(items) // k + (1 if i < len(items) % k else 0) for i in range(k)]
+    out, i = [], 0
+    for n in per:
+        group = items[i:i + n]
+        line = []
+        # A bare vertical stack of three names reads as a LEADERBOARD - two
+        # cold viewers, independently: one expected to see who won, the other
+        # read it as passes between them. Both wrong; it is one pool of passes
+        # coloured by who played them. The leading "+" does what the arrow
+        # does in the pair title - a symbol between the things it relates,
+        # which cannot be skipped - and it says combined in one character.
+        #
+        # The first line gets the connector too, painted in the GROUND colour.
+        # Each line is centred on its own total width, so a "+" on lines 2-3
+        # and nothing on line 1 pushed the lower names 41px right of the top
+        # one and staggered the two connectors 36px apart. An invisible
+        # spacer of identical width makes every line centre on the same rail,
+        # so the names align and the connectors stack.
+        line.append(('+  ', TEXT_MUTED if out else BG_COLOR))
+        for j, item in enumerate(group):
+            if j and not item[0][0].strip() == '→':
+                line.append(('  ·  ', TEXT_MUTED))
+            line.extend(item)
+        out.append(line)
+        i += n
+    return out
+
+
+def _pack_runs(fig, items, size, frac, spaced=1):
+    """Fill lines with dot-separated items, breaking only BETWEEN items.
+
+    Portrait needs this because the scope line's content is unbounded: measured
+    at the 16pt phone floor, "NORTH CAROLINA COURAGE WOMEN · v BRIGHTON & HOVE
+    ALBION WOMEN (A) 4-3" sets 1,282px in a 792px measure, and "MAY 24, 2026 ·
+    UEFA CHAMPIONS LEAGUE · 2025/26" sets 834px. Neither can be shrunk to fit
+    without going under the floor, so the line count has to give instead. Every
+    single item fits on a line of its own, so this always terminates.
+    """
+    avail = frac * fig.get_size_inches()[0] * fig.dpi
+    r = fig.canvas.get_renderer()
+
+    def width(txt):
+        t = fig.text(0.5, 0.5, track(txt, spaced) if spaced else txt,
+                     fontsize=size)
+        fig.canvas.draw()
+        w = t.get_window_extent(r).width
+        t.remove()
+        return w
+
+    sep_w = width('  ·  ')
+    lines, cur, cur_w = [], [], 0.0
+    for text, colour in items:
+        w = width(text)
+        if cur and cur_w + sep_w + w > avail:
+            lines.append(cur)
+            cur, cur_w = [], 0.0
+        if cur:
+            cur.append(('  ·  ', TEXT_MUTED))
+            cur_w += sep_w
+        cur.append((text, colour))
+        cur_w += w
+    if cur:
+        lines.append(cur)
+    return lines
+
+
+def _header(fig, L, *, kicker, title_runs, accent, swatch_colour,
+            scope_lines, scope_text, deck_text):
+    """Kicker, title, team rule, scope line, demoted filter line.
+
+    Shared by every aspect, and that is the point: the header is the one part
+    of this chart whose SHAPE does not change between frames, only its size.
+    The body below it genuinely reflows - at 16:9 the summary is a right-hand
+    column, in portrait it is a band under the pitch - so the bodies are
+    separate functions and the header is not.
+    """
     _text(fig, 0.5, L['kicker_y'], kicker, L['kicker_size'], TEXT_MUTED,
           'bold', ha='center', spaced=2)
 
-    team = (info.get('team_name') or '').upper()
-    title_runs = _title_runs(title_players, receivers, swatch_colour, team,
-                             player_labels)
-    if custom_title:
-        title_runs = [(custom_title, TEXT_PRIMARY)]
     # fit_fontsize on the JOINED string. "WOLVERHAMPTON WANDERERS" is 2.1x the
     # width of "LIVERPOOL", and three surnames plus an arrow is longer still -
     # matplotlib would draw either straight off the frame without a word of
     # complaint, the same silent failure that put the old caption 5px from the
-    # canvas edge.
-    flat = ''.join(t for t, _ in title_runs)
-    size = fit_fontsize(fig, flat, L['title_size'],
-                        max_frac=L['title_frac'], floor=17)
-    arts = _runs(fig, L['title_y'], title_runs, size, weight='bold')
+    # canvas edge. A 9in-wide portrait frame needs this far more than a 16in
+    # one does.
+    #
+    # AND SHRINKING ALONE IS NOT ENOUGH THERE. fit_fontsize returns its floor
+    # when even the floor does not fit, which is the honest thing for it to do
+    # and is still an overflow: "DOMINIK SZOBOSZLAI · VIRGIL VAN DIJK ·
+    # IBRAHIMA KONATÉ" wants 17pt in a 9in frame and was drawn at the 19pt
+    # floor, clipped at BOTH ends, losing a letter off each outer name. Past a
+    # point the answer is fewer characters per line, not smaller ones - so the
+    # headline breaks between names, and only shrinks within a line.
+    # A ONE-RUN headline has no name boundary to break on - that is every
+    # custom title the page lets a user type, and the page does let them. At
+    # 16in wide nothing they typed ever overran; at 9in "WOLVERHAMPTON
+    # WANDERERS v BRIGHTON AND HOVE ALBION" went off both edges at the 19pt
+    # floor, silently, exactly like the three-name case did. Word-wrap it.
+    if len(title_runs) == 1:
+        text, colour = title_runs[0]
+        wl, size = _wrap(fig, text, L['title_size'], L['title_frac'],
+                         int(L.get('title_lines', 1)), L['title_floor'])
+        best = ([[(ln, colour)] for ln in wl], size)
+    else:
+        best = None
+    # An arrow headline is never broken. The arrow earned its place by sitting
+    # BETWEEN the two names where it cannot be skipped - that is the whole
+    # reason it replaced "RECEIVED BY". Broken across lines it leads line two
+    # instead, and a cold viewer read "VIRGIL VAN DIJK / -> IBRAHIMA KONATE"
+    # as a SUBSTITUTION card, confidently, on a chart about passes. My own
+    # all-or-nothing break rule caused that, one round after it fixed the trio.
+    has_arrow = any(t.strip() == '→' for t, _ in title_runs)
+    for k in ((1,) if has_arrow else (1, int(L.get('title_lines', 1))))             if best is None else ():
+        lines = _title_lines(title_runs, k)
+        # floor=1 so this reports the size the line actually NEEDS rather than
+        # clamping; the clamp comes after a line count has been chosen.
+        size = min(fit_fontsize(fig, ''.join(t for t, _ in ln), L['title_size'],
+                                max_frac=L['title_frac'], floor=1)
+                   for ln in lines)
+        best = (lines, size)
+        if size >= L.get('title_prefer', 0):
+            break
+    lines, size = best
+    if len(lines) > 1 and L.get('title_multi_max'):
+        # A stacked headline is a LIST, and a list does not need every line at
+        # display size. On the 9:8 tile three names at 30pt cost 93px of an
+        # 800px frame, and because the pitch there takes what the header
+        # leaves, that is 140px of pitch WIDTH once the aspect lock has had
+        # its say. The portrait frame has the height to spend and does not
+        # set this.
+        size = min(size, L['title_multi_max'])
+    size = max(size, L['title_floor'])
+    # Leading is derived from the CHOSEN size, not fixed. A constant lead is
+    # only ever right for one size, and the size here is whatever the longest
+    # name allowed - so a fixed 0.0255 that suited 26pt stacked three 38pt
+    # names straight through each other.
+    lead = size * L.get('title_lead_em', 1.25) / (72.0 * L['figsize'][1])
+    arts = []
+    for i, line in enumerate(lines):
+        arts += _runs(fig, L['title_y'] - i * lead, line, size, weight='bold')
     fig.canvas.draw()
     r0 = fig.canvas.get_renderer()
     inv0 = fig.transFigure.inverted()
@@ -752,77 +1037,112 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # on a squint test. The width match is the one device that holds across
     # every render, so the weight comes out instead of the measure.
     bar_h = L['bar_h'] * (0.5 if swatch_colour else 1.0)
+    # The gap is to the rule's TOP, not to its bottom. bar_gap and bar_h are
+    # near-identical numbers, so positioning the rule's BOTTOM at ybot-bar_gap
+    # put its top edge back at ybot - and ybot is the DESCENDER LINE. Measured
+    # at all three aspects: "LIVERPOOL" clears by 9-15px and "VIRGIL VAN DIJK"
+    # touches at 0px, because the J is the only thing that ever reaches the
+    # bottom of the box. Three critique rounds missed it on the 16:9 for
+    # exactly that reason - the club names they were run on have no
+    # descenders. An underline belongs below the descender line, which also
+    # makes the no-descender case look airier, and that is correct.
+    bar_y = ybot - L['bar_gap'] - bar_h
     fig.patches.append(Rectangle(
-        (0.5 - (x1 - x0) / 2.0, ybot - L['bar_gap']), x1 - x0, bar_h,
+        (0.5 - (x1 - x0) / 2.0, bar_y), x1 - x0, bar_h,
         transform=fig.transFigure, facecolor=bar_colour, edgecolor='none',
         zorder=10))
 
-    if custom_subtitle:
-        _text(fig, 0.5, L['scope_y'], custom_subtitle, L['scope_size'],
-              TEXT_SECONDARY, ha='center', spaced=1)
+    # FLOW, in portrait only. At 16:9 the header is always four single lines
+    # and fixed y's are honest; in portrait the title takes one to three lines
+    # and the scope two, so a fixed grid either collides with the block above
+    # or leaves a hole under it. Under `flow`, scope_y and deck_y are read as
+    # DROPS below the element above rather than as absolute positions - which
+    # leaves the default layout's numbers meaning exactly what they always did.
+    flow = bool(L.get('flow'))
+    y = (bar_y - L['scope_y']) if flow else L['scope_y']
+    bottom = bar_y
+
+    def _low(art):
+        return (art.get_window_extent(fig.canvas.get_renderer())
+                .transformed(fig.transFigure.inverted()).y0)
+
+    if scope_text:
+        # Same guard, same reason: this is the page's custom-subtitle box and
+        # it went straight to the canvas at whatever length was typed.
+        sl, pt = _wrap(fig, scope_text, L['scope_size'], L['scope_frac'],
+                       2, L['scope_floor'], bold=False)
+        for i, line in enumerate(sl):
+            a = _text(fig, 0.5, y - i * L.get('scope_lead', 0.022), line, pt,
+                      TEXT_SECONDARY, ha='center', spaced=1)
+        fig.canvas.draw()
+        bottom = _low(a)
     else:
-        lead, tail = _scope_line(shown, info, competition, players)
-        runs = []
-        # The club drops to the scope line whenever players own the title -
-        # it is still the thing that makes the names mean something, but it is
-        # no longer the subject of the chart.
-        if title_runs and title_runs[0][0] != team and team:
-            runs.append((team, TEXT_SECONDARY))
-        if lead:
-            runs.append((('  ·  ' if runs else '') + lead, TEXT_PRIMARY))
-        if tail:
-            runs.append((('  ·  ' if runs else '') + tail, TEXT_MUTED))
-        if runs:
-            _runs(fig, L['scope_y'], runs, L['scope_size'], spaced=1)
+        # One line at 16:9, two in portrait, and the split is STRUCTURAL rather
+        # than a wrap: the lead says how much football this is, the tail is the
+        # admin that qualifies it. A measure-driven wrap would cut that
+        # distinction wherever the characters happened to run out.
+        for i, line in enumerate(scope_lines or []):
+            if line:
+                arts = _fit_runs(fig, y - i * L.get('scope_lead', 0.0), line,
+                                 L['scope_size'], L['scope_frac'],
+                                 L['scope_floor'], spaced=L.get('scope_track', 1))
+                fig.canvas.draw()
+                bottom = min(_low(a) for a in arts)
 
     # The remaining filters, demoted. One line, muted, never stacked: if it
     # does not fit it shrinks to the floor and then elides, because a qualifier
     # that has run to two bold lines has stopped being a qualifier.
-    deck = filter_text if filter_text is not None else caption_text
-    if deck:
+    if deck_text:
+        deck = deck_text
         deck = deck[:1].upper() + deck[1:] if deck[:1].islower() else deck
         # Measured at 834px on a five-clause filter, it was the widest line in
         # the header - 3.2x the rule, 1.5x the context line - which made the
         # lowest-ranked element the dominant horizontal. Narrower measure, and
         # a second line is allowed now that it is quiet enough to take one.
-        lines, pt = _wrap(fig, deck, L['deck_size'], L['deck_frac'],
-                          L['deck_lines'], L['deck_min'])
-        top = L['deck_y'] + L['deck_lead'] * (len(lines) - 1) / 2.0
-        for i, line in enumerate(lines):
-            _text(fig, 0.5, top - i * L['deck_lead'], line, pt, TEXT_MUTED,
-                  ha='center')
+        dl, pt = _wrap(fig, deck, L['deck_size'], L['deck_frac'],
+                       L['deck_lines'], L['deck_min'])
+        top = ((bottom - L['deck_y']) if flow
+               else L['deck_y'] + L['deck_lead'] * (len(dl) - 1) / 2.0)
+        for i, line in enumerate(dl):
+            a = _text(fig, 0.5, top - i * L['deck_lead'], line, pt, TEXT_MUTED,
+                      ha='center')
+        fig.canvas.draw()
+        bottom = _low(a)
+    return bottom, size
 
-    # -- pitch
-    ax = fig.add_axes(L['pitch_ax'])
-    make_pitch(ax)
-    draw_passes(ax, shown, color_for, identity=bool(legend_entries))
 
-    # -- the strip under the pitch: ONE baseline, aligned to the PANEL.
-    #
-    # The pitch is aspect-locked inside its axes, so the drawn panel is 36px
-    # narrower than the axes box it lives in. Aligning furniture to the axes -
-    # which is what `pitch_ax[0] + pitch_ax[2]` does - therefore hangs it 17.6px
-    # past the visible edge. Measure the panel and align to that.
-    fig.canvas.draw()
-    r = fig.canvas.get_renderer()
-    inv = fig.transFigure.inverted()
-    # THE AXES BOX, not the panel patch. mplsoccer aspect-locks the pitch and
-    # compresses the x padding to fit, so the data range is really -2.59..102.59
-    # against the -4..104 the patch was built on - and get_window_extent happily
-    # extrapolates the transform, returning x 59.9..993.8 for a rectangle that
-    # is PAINTED at 72.1..981.6 because it is clipped to the axes. Verified by
-    # scanning pixels: the panel fill starts at x=72 and ends at x=981.
-    # Aligning furniture to the patch extent put it 12px off the visible edge.
-    pan = ax.get_window_extent().transformed(inv)
+def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
+    """The band under the pitch: completion key, attacking direction, corners.
+
+    `x0`/`x1` are the rail it hangs off. At 16:9 that is the PITCH PANEL, which
+    is where the marks it describes are; in portrait the pitch is only ~65% of
+    the frame wide and the rail is the page's own margin, because a legend
+    inset under a centred pitch reads as floating rather than as aligned.
+
+    `up` rotates the direction cue. A rotated pitch needs that cue MORE than a
+    horizontal one, not less: left-to-right is the default assumption for a
+    football graphic and bottom-to-top is not, and a cold viewer nearly missed
+    this label at 16:9 where convention was helping them.
+    """
     sy, sy2 = L['strip_y'], L['strip_y2']
+    # TRACKING IS SPENT WHERE A LABEL HAS THE LINE TO ITSELF. This row holds
+    # three things on one rail, and at the 16pt phone floor the tracked forms
+    # set 830px of a 792px measure - the completion key, the direction cue and
+    # the corner note cannot all track and all fit. Same call as the stat
+    # cells, and the same reason; every label that owns its own line still
+    # tracks. (The sibling shot chart tracks nothing anywhere - this is the
+    # pass map's own device, introduced at 16:9 where these labels are 10.5pt
+    # and it is doing real work.)
+    sp = L.get('strip_track', 1)
+    inv = fig.transFigure.inverted()
 
     def _w(artist):
-        return artist.get_window_extent(r).transformed(inv)
+        return artist.get_window_extent(fig.canvas.get_renderer()).transformed(inv)
 
-    # legend, laid out left to right from the panel's left edge. Two entries
+    # legend, laid out left to right from the rail's left edge. Two entries
     # minimum: the line style IS the completion encoding, so it is never left
     # implicit.
-    lx = pan.x0
+    lx = x0
     # In identity mode the key shows STYLE, not colour, so it cannot take any
     # player's hue. Two lenses pulled opposite ways here: a viewer called the
     # mid-grey key "a placeholder nobody wired up", so it went white - and a
@@ -831,31 +1151,33 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # The in-between was the problem: too bright to read as furniture, not a
     # data colour either. It now matches its own label and the arrow beside it,
     # which resolves it as furniture rather than as an unassigned series.
-    swatch = accent if not legend_entries else TEXT_MUTED
+    swatch = accent if not identity else TEXT_MUTED
     # The legend prunes on the same rule as the stat block. Under a "completed"
     # filter the panel drops its COMPLETION row, but the legend went on drawing
     # a dashed INCOMPLETE key against a pitch with nothing dashed on it -
     # furniture kept where the data had been cut.
     n_done = int(shown['completed'].sum()) if len(shown) else 0
-    keys = ([('solid', 'COMPLETED')] if n_done else []) +            ([(_DASH, 'INCOMPLETE')] if len(shown) - n_done else [])
+    keys = ([('solid', 'COMPLETED')] if n_done else []) + \
+           ([(_DASH, 'INCOMPLETE')] if len(shown) - n_done else [])
     for style, label in keys:
         # Pulled toward the ink's own strength. At 2,776 passes the lines wash
         # out to alpha 0.13 while the key stayed fully saturated, and a cold
         # viewer could not tell whether the faint marks were the completed
         # passes the bright key was describing. It cannot match exactly - a key
         # has to stay legible - so it meets the ink part way.
-        fig.add_artist(Line2D([lx, lx + SWATCH_W], [sy, sy], color=swatch,
+        sw = L.get('swatch_w', SWATCH_W)
+        fig.add_artist(Line2D([lx, lx + sw], [sy, sy], color=swatch,
                               lw=SWATCH_LW, linestyle=style,
-                              alpha=max(min(density_params(n_shown, bool(legend_entries))[0] * 2.0, 1.0), 0.6),
+                              alpha=max(min(density_params(n_shown, identity)[0] * 2.0, 1.0), 0.6),
                               solid_capstyle='butt', dash_capstyle='butt',
                               transform=fig.transFigure))
-        a = _text(fig, lx + SWATCH_W + 0.007, sy, label, L['legend_size'], TEXT_MUTED,
-                  spaced=1)
+        a = _text(fig, lx + sw + 0.007, sy, label, L['legend_size'],
+                  TEXT_MUTED, spaced=sp)
         fig.canvas.draw()
         lx = _w(a).x1 + 0.028
     legend_x1 = lx - 0.028
 
-    # Attacking direction: centred on the pitch WHERE IT FITS, pushed clear of
+    # Attacking direction: centred on the rail WHERE IT FITS, pushed clear of
     # the legend where it does not. Centring it unconditionally is what
     # produced "INCOMPLETEATTACKING DIRECTION" the moment the strip went to one
     # baseline - the first version of this guard protected the corner note and
@@ -864,7 +1186,7 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # pitch, and a cold viewer said they nearly missed it every time and on two
     # renders could not tell which way the team was attacking.
     lab = _text(fig, 0.5, sy, 'ATTACKING DIRECTION', L['legend_size'],
-                TEXT_SECONDARY, spaced=1)
+                TEXT_SECONDARY, spaced=sp)
     fig.canvas.draw()
     lw_ = _w(lab).width
     # The gap is deliberately generous. The measured clearance at 0.010 was
@@ -872,13 +1194,36 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # sees the arrowhead touching the label on their machine and I could not
     # reproduce it - so the number is set where a mechanism I cannot see still
     # cannot close it, rather than tuned to the clearance I happen to measure.
-    arrow_w, gap = 0.034, 0.020
-    x0 = max((pan.x0 + pan.x1) / 2.0 - (arrow_w + gap + lw_) / 2.0,
-             legend_x1 + 0.030)
-    arrow = ax.annotate('', xy=(x0 + arrow_w, sy), xytext=(x0, sy),
-                        xycoords='figure fraction', textcoords='figure fraction',
-                        arrowprops=dict(arrowstyle='-|>', color=TEXT_SECONDARY,
-                                        lw=1.6, mutation_scale=13))
+    arrow_w, gap = (L['arrow_w'], L['arrow_gap'])
+    # FLOWS from the legend at the stacked aspects instead of centring on the
+    # rail. Centred, the cue keeps the position that suited three items when
+    # the completion key drops to one, and the hole between them measured
+    # 82-85px against the 28-33px this row uses everywhere else - twice
+    # flagged as a missing entry. The 16:9 keeps its centred cue, which is
+    # correct on a 909px pitch rail.
+    ax0 = (legend_x1 + 0.030 if L.get('strip_flow')
+           else max((x0 + x1) / 2.0 - (arrow_w + gap + lw_) / 2.0,
+                    legend_x1 + 0.030))
+    if up:
+        # The shaft runs up the frame, occupying `arrow_w` of HORIZONTAL slot
+        # so the label still clears it by the same arithmetic. Its length is
+        # given in y-fractions, which on a 16in-tall frame is a different
+        # number from the same visual length in x.
+        half = L['arrow_rise'] / 2.0
+        arrow = ax.annotate('', xy=(ax0 + arrow_w / 2.0, sy + half),
+                            xytext=(ax0 + arrow_w / 2.0, sy - half),
+                            xycoords='figure fraction',
+                            textcoords='figure fraction',
+                            arrowprops=dict(arrowstyle='-|>', color=TEXT_SECONDARY,
+                                            lw=2.0,
+                                            mutation_scale=L.get('arrow_scale', 13)))
+    else:
+        arrow = ax.annotate('', xy=(ax0 + arrow_w, sy), xytext=(ax0, sy),
+                            xycoords='figure fraction',
+                            textcoords='figure fraction',
+                            arrowprops=dict(arrowstyle='-|>', color=TEXT_SECONDARY,
+                                            lw=1.6,
+                                            mutation_scale=L.get('arrow_scale', 13)))
     # Place the label after the arrow's MEASURED extent, not after the width it
     # was asked for. An arrowhead is drawn in POINTS via mutation_scale while
     # the shaft is placed in figure fractions, so the drawn patch is not
@@ -889,13 +1234,13 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     try:
         arrow_x1 = _w(arrow.arrow_patch).x1
     except (AttributeError, TypeError, ValueError):
-        arrow_x1 = x0 + arrow_w
-    lab.set_position((max(arrow_x1, x0 + arrow_w) + gap, sy))
+        arrow_x1 = ax0 + arrow_w
+    lab.set_position((max(arrow_x1, ax0 + arrow_w) + gap, sy))
     fig.canvas.draw()
     dir_x1 = _w(lab).x1
     # Assert the clearance rather than trust the arithmetic. Cheap, and it
     # turns an invisible layout regression into a loud one.
-    _gap_px = (_w(lab).x0 - max(arrow_x1, x0 + arrow_w)) * fig.bbox.width
+    _gap_px = (_w(lab).x0 - max(arrow_x1, ax0 + arrow_w)) * fig.bbox.width
     if _gap_px < 6:
         import warnings
         warnings.warn(f"pass map: direction arrow within {_gap_px:.1f}px of "
@@ -910,6 +1255,13 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # two convergence points, both visible, and the same reviewer caught the
     # contradiction. It also fired at 5 corners, where there is no shape to
     # explain and the sentence read as leftover debug text.
+    # "OF THESE", because the count is scoped to what is DRAWN and the old
+    # wording did not say so. Caught by reading two tiles of the SAME match
+    # side by side: the unfiltered one says 14 corners and the into-the-box one
+    # says 11, in identical words and identical positions, and both read as
+    # "Liverpool's corners in this match". Both are true - 11 of the 14 ended
+    # in the box - and nothing on either chart said which question was being
+    # answered.
     # No proportional term. It used to require 4% of the drawn set, which
     # silenced the note exactly where the fan is still plainly visible but
     # numerically small - 14 corners among 554 passes still converge on two
@@ -919,9 +1271,9 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     # enough corners to make the shape.
     corners = int(shown['restart'].eq('Corner').sum()) if len(shown) else 0
     if corners >= 8:
-        note = _text(fig, pan.x1, sy,
-                     f"{corners:,} CORNERS, FANNING FROM THE CORNER FLAGS",
-                     L['cover_size'], TEXT_MUTED, ha='right', spaced=1)
+        note = _text(fig, x1, sy,
+                     f"{corners:,} OF THESE ARE CORNERS, FANNING FROM THE FLAGS",
+                     L['cover_size'], TEXT_MUTED, ha='right', spaced=sp)
         fig.canvas.draw()
         # If it cannot share the baseline it drops to a second one rather than
         # colliding. The strip is measured, not assumed - that is the check the
@@ -929,83 +1281,21 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
         # LEGEND'S rail: right-aligned under a left-aligned row gave the block
         # two alignments and put its left edge on nothing.
         if _w(note).x0 < dir_x1 + 0.012:
-            note.set_position((pan.x0, sy2))
+            note.set_position((x0, sy2))
             note.set_ha('left')
-    # -- right panel: what is on the pitch
-    px, pw = L['panel_x'], L['panel_w']
-    y = L['panel_top']
-    _text(fig, px, y, 'PASSES SHOWN', L['label_size'], TEXT_MUTED,
-          spaced=1)
-    y -= 0.070
-    big = _text(fig, px, y, f"{n_shown:,}", L['big_size'], TEXT_PRIMARY, 'bold')
-    # Sit the qualifier on the NUMERAL'S BASELINE, not on its optical centre.
-    # Centring a 15pt string against a 42pt one hung "of 21,950" 15px below the
-    # figure it qualifies, so the pair read as a separate row rather than as
-    # part of the number.
-    fig.canvas.draw()
-    base = (big.get_window_extent(fig.canvas.get_renderer())
-            .transformed(fig.transFigure.inverted()).y0)
-    of_what = (('by this player' if len(players) == 1 else 'by these players')
-               if players
-               else 'in this match' if int(info.get('total_matches') or 0) == 1
-               else 'in these matches')
-    # The denominator moved here from the header, which means this is now the
-    # only place the chart states it - so it stops being the smallest, greyest
-    # text on the page. A cold viewer said they nearly skipped it, and it is
-    # the text that tells you what the 42pt number means.
-    # "554 of 554" is the same noise pass_filters.caption() refuses to print,
-    # and for the same reason - a ratio against itself reads like a filter that
-    # failed. When nothing is cut there is no denominator to state, only a
-    # population to name, which `of_what` does on the line below.
-    right = px + pw
-    if n_shown < n_pop:
-        # NOT accent. Moving the ratio out of a red banner and into a red
-        # percentage moved the problem rather than fixing it: a cold viewer
-        # said "red = something's wrong to me... every time I saw it I braced
-        # for bad news and it was just a share of the total". The accent on
-        # this chart belongs to the pass lines and the title rule.
-        pct = _text(fig, right, base, f"{100.0 * n_shown / n_pop:.1f}%",
-                    L['value_size'], TEXT_PRIMARY, 'bold', ha='right',
-                    va='baseline')
-        fig.canvas.draw()
-        right -= (pct.get_window_extent(fig.canvas.get_renderer())
-                  .transformed(fig.transFigure.inverted()).width + 0.014)
-        _text(fig, right, base, f"of {n_pop:,}", L['value_size'],
-              TEXT_SECONDARY, ha='right', va='baseline')
-    # Rides UP to the number's own baseline when the "of N" line is absent.
-    # Unfiltered, it sat alone 19px below the figure with 235px of void to its
-    # left and nothing on the line above - an orphan rather than a qualifier.
-    tail = _text(fig, px + pw, base - (0.024 if n_shown < n_pop else 0.0),
-                 of_what, L['cover_size'], TEXT_MUTED, ha='right',
-                 va='baseline')
-    # The rule hangs off the QUALIFIER, not off a fixed step from the number.
-    # A fixed step left 7px of clearance on one render and 2px on another - the
-    # qualifier's nearest neighbour became the rule rather than the figure it
-    # describes, so it read as captioning the rule. Measure and clear it.
-    fig.canvas.draw()
-    y = (tail.get_window_extent(fig.canvas.get_renderer())
-         .transformed(fig.transFigure.inverted()).y0) - 0.022
-    _rule(fig, px, px + pw, y)
 
-    for label, value in summarise(shown):
-        y -= L['stat_step']
-        _text(fig, px, y, label, L['label_size'], TEXT_MUTED, spaced=1)
-        _text(fig, px + pw, y, value, L['value_size'], TEXT_PRIMARY, 'bold',
-              ha='right')
 
-    # SAY WHY COMPLETION IS ABSENT when a receiver is named. The row is dropped
-    # because naming a receiver forces it to 100% - only completed passes carry
-    # one - but silence looked like missing data: a cold viewer noticed the row
-    # was gone and wondered whether the data had failed, then had to reason
-    # their own way to the answer. Cheaper to say it.
-    if receivers and len(shown):
-        y -= L['stat_step']
-        # Short enough to FIT the column: the first wording ran 530px in a
-        # 461px panel and was clipped mid-word at the frame edge.
-        _text(fig, px, y, 'only completed passes name a receiver',
-              L['cover_size'], TEXT_MUTED)
+def _leader_rows(shown, L, info, n_shown, players):
+    """Which ranking block the body should draw, and whether CMP earns a column.
 
-    swatch_of = swatch_colour
+    Returns (rows, coverage, matches_block, show_cmp). Shared by both bodies so
+    the two aspects cannot disagree about what is worth ranking.
+    """
+    if not L['leaders_max']:
+        # 9:8 has no room for a ranking and says so here rather than by
+        # asking leaders() for the top nothing, which returns a coverage line
+        # reading "top 0 of 16 passers".
+        return [], '', [], False
     rows, coverage = leaders(shown, L['leaders_max'])
     # A one-row ranking of the player already named in the title is not a
     # ranking. Its count IS the figure at the top of the panel, and its detail
@@ -1033,6 +1323,120 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
                 and 0 < int(shown['completed'].sum()) < len(shown)
                 and not all(round(c) >= 100 for _, _, c in rows)
                 and not all(round(c) <= 0 for _, _, c in rows))
+    return rows, coverage, matches_block, show_cmp
+
+
+def _of_what(info, players):
+    """What the big number counts, in words."""
+    return (('by this player' if len(players) == 1 else 'by these players')
+            if players
+            else 'in this match' if int(info.get('total_matches') or 0) == 1
+            else 'in these matches')
+
+
+def _body_landscape(fig, L, C):
+    """16:9 - pitch on the left, the summary as a right-hand column."""
+    shown, info = C['shown'], C['info']
+    n_shown, n_pop = C['n_shown'], C['n_pop']
+    players, receivers = C['players'], C['receivers']
+
+    ax = fig.add_axes(L['pitch_ax'])
+    make_pitch(ax)
+    draw_passes(ax, shown, C['color_for'], identity=C['identity'])
+
+    # -- the strip under the pitch: ONE baseline, aligned to the PANEL.
+    #
+    # The pitch is aspect-locked inside its axes, so the drawn panel is 36px
+    # narrower than the axes box it lives in. Aligning furniture to the axes -
+    # which is what `pitch_ax[0] + pitch_ax[2]` does - therefore hangs it 17.6px
+    # past the visible edge. Measure the panel and align to that.
+    fig.canvas.draw()
+    inv = fig.transFigure.inverted()
+    # THE AXES BOX, not the panel patch. mplsoccer aspect-locks the pitch and
+    # compresses the x padding to fit, so the data range is really -2.59..102.59
+    # against the -4..104 the patch was built on - and get_window_extent happily
+    # extrapolates the transform, returning x 59.9..993.8 for a rectangle that
+    # is PAINTED at 72.1..981.6 because it is clipped to the axes. Verified by
+    # scanning pixels: the panel fill starts at x=72 and ends at x=981.
+    # Aligning furniture to the patch extent put it 12px off the visible edge.
+    # matplotlib's apply_aspect has already shrunk ax.bbox to the drawn pitch by
+    # the time this runs, which is what makes the axes box the honest measure.
+    pan = ax.get_window_extent().transformed(inv)
+    _strip(fig, ax, L, shown=shown, n_shown=n_shown, identity=C['identity'],
+           accent=C['accent'], x0=pan.x0, x1=pan.x1)
+
+    # -- right panel: what is on the pitch
+    px, pw = L['panel_x'], L['panel_w']
+    y = L['panel_top']
+    _text(fig, px, y, 'PASSES SHOWN', L['label_size'], TEXT_MUTED, spaced=1)
+    y -= 0.070
+    big = _text(fig, px, y, f"{n_shown:,}", L['big_size'], TEXT_PRIMARY, 'bold')
+    # Sit the qualifier on the NUMERAL'S BASELINE, not on its optical centre.
+    # Centring a 15pt string against a 42pt one hung "of 21,950" 15px below the
+    # figure it qualifies, so the pair read as a separate row rather than as
+    # part of the number.
+    fig.canvas.draw()
+    base = (big.get_window_extent(fig.canvas.get_renderer())
+            .transformed(fig.transFigure.inverted()).y0)
+    # The denominator moved here from the header, which means this is now the
+    # only place the chart states it - so it stops being the smallest, greyest
+    # text on the page. A cold viewer said they nearly skipped it, and it is
+    # the text that tells you what the 42pt number means.
+    # "554 of 554" is the same noise pass_filters.caption() refuses to print,
+    # and for the same reason - a ratio against itself reads like a filter that
+    # failed. When nothing is cut there is no denominator to state, only a
+    # population to name, which `of_what` does on the line below.
+    right = px + pw
+    if n_shown < n_pop:
+        # NOT accent. Moving the ratio out of a red banner and into a red
+        # percentage moved the problem rather than fixing it: a cold viewer
+        # said "red = something's wrong to me... every time I saw it I braced
+        # for bad news and it was just a share of the total". The accent on
+        # this chart belongs to the pass lines and the title rule.
+        pct = _text(fig, right, base, f"{100.0 * n_shown / n_pop:.1f}%",
+                    L['value_size'], TEXT_PRIMARY, 'bold', ha='right',
+                    va='baseline')
+        fig.canvas.draw()
+        right -= (pct.get_window_extent(fig.canvas.get_renderer())
+                  .transformed(fig.transFigure.inverted()).width + 0.014)
+        _text(fig, right, base, f"of {n_pop:,}", L['value_size'],
+              TEXT_SECONDARY, ha='right', va='baseline')
+    # Rides UP to the number's own baseline when the "of N" line is absent.
+    # Unfiltered, it sat alone 19px below the figure with 235px of void to its
+    # left and nothing on the line above - an orphan rather than a qualifier.
+    tail = _text(fig, px + pw, base - (0.024 if n_shown < n_pop else 0.0),
+                 _of_what(info, players), L['cover_size'], TEXT_MUTED,
+                 ha='right', va='baseline')
+    # The rule hangs off the QUALIFIER, not off a fixed step from the number.
+    # A fixed step left 7px of clearance on one render and 2px on another - the
+    # qualifier's nearest neighbour became the rule rather than the figure it
+    # describes, so it read as captioning the rule. Measure and clear it.
+    fig.canvas.draw()
+    y = (tail.get_window_extent(fig.canvas.get_renderer())
+         .transformed(fig.transFigure.inverted()).y0) - 0.022
+    _rule(fig, px, px + pw, y)
+
+    for label, value in summarise(shown):
+        y -= L['stat_step']
+        _text(fig, px, y, label, L['label_size'], TEXT_MUTED, spaced=1)
+        _text(fig, px + pw, y, value, L['value_size'], TEXT_PRIMARY, 'bold',
+              ha='right')
+
+    # SAY WHY COMPLETION IS ABSENT when a receiver is named. The row is dropped
+    # because naming a receiver forces it to 100% - only completed passes carry
+    # one - but silence looked like missing data: a cold viewer noticed the row
+    # was gone and wondered whether the data had failed, then had to reason
+    # their own way to the answer. Cheaper to say it.
+    if receivers and len(shown):
+        y -= L['stat_step']
+        # Short enough to FIT the column: the first wording ran 530px in a
+        # 461px panel and was clipped mid-word at the frame edge.
+        _text(fig, px, y, 'only a completed pass has a receiver',
+              L['cover_size'], TEXT_MUTED)
+
+    swatch_of = C['swatch_colour']
+    rows, coverage, matches_block, show_cmp = _leader_rows(
+        shown, L, info, n_shown, players)
     if rows:
         # BOTTOM-ANCHORED, and now actually so. The block used to flow down
         # from wherever the stat rows ended, so a selection that suppressed
@@ -1049,6 +1453,13 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
         # and a cold designer read it as missing rows rather than as
         # separation. Capped at 2x the house gap; the remainder falls to the
         # foot of the column, where slack reads as margin instead of as a hole.
+        #
+        # `panel_bottom` here is the lowest the block should START, not the
+        # lowest it may END - which is why this clamps in one direction only.
+        # The portrait band needs the other semantics and states them itself;
+        # borrowing this expression there ran BUSIEST MATCHES through the CBS
+        # mark, and lifting that one's floor into here moved a reviewed and
+        # approved 16:9 render by 35px for no reason.
         y = max(min(y, L['panel_bottom'] + height), y - L['gap_max'])
         y -= 0.046
         _rule(fig, px, px + pw, y)
@@ -1111,5 +1522,372 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
             _text(fig, px + pw, y, f"{count:,}", L['row_size'],
                   TEXT_SECONDARY, ha='right')
 
-    add_cbs_footer(fig, x0=L['margin'], x1=1.0 - L['margin'])
+
+def _body_stacked(fig, L, C):
+    """Pitch on top, summary as full-width bands beneath it. 9:16 and 9:8.
+
+    THE PITCH ROTATES, and it takes whatever the text leaves rather than being
+    given a fixed share. Both were settled by building the alternatives and
+    looking at them rather than by reasoning from the sibling chart:
+
+    - A horizontal pitch in a band across the top - which is what the shot
+      chart's portrait cuts do - compresses 554 lines into a red smear and
+      leaves the bottom two thirds a list, so the page reads as a stats table
+      with a picture above it. That inverts the premise of a chart whose whole
+      claim is every pass as a line. The shot chart survives the band because
+      shots are ~100 discrete markers; lines do not survive that compression.
+      Same frame, different data shape, different answer - diverging from the
+      sibling is correct here.
+    - A rotated pitch filling the width reaches 0.82 of the frame and leaves
+      room for four stat cells and nothing else.
+
+    A portrait frame is 1.78 tall-to-wide and a vertical pitch locks at 1.50,
+    so the pitch can fill the width or the height but never both. What it gives
+    up in width buys the whole summary band back, and at this size the passes
+    stay individually traceable, which is the property worth protecting.
+
+    THE BAND IS BUDGETED FROM THE CANVAS EDGE UPWARDS, not laid out on a grid
+    of fixed y's. Its contents vary - three stat cells or four, a receiver note
+    or none, a coverage line or none, a corner note or none - and a fixed grid
+    has to be tuned for one of those combinations and then collides on the
+    rest. Three separate collisions were tuned out by hand before this was
+    rewritten, and the fourth (BUSIEST MATCHES through the CBS mark) was the
+    one that made the point.
+    """
+    shown, info = C['shown'], C['info']
+    n_shown, n_pop = C['n_shown'], C['n_pop']
+    players, receivers = C['players'], C['receivers']
+    x0, x1 = L['margin'], 1.0 - L['margin']
+    fw, fh = L['figsize']
+
+    # -- what the band has to hold, before anything is placed
+    cells = summarise(shown)[:L['cells']]
+    note = bool(receivers and len(shown))
+    rows, coverage, matches_block, show_cmp = _leader_rows(
+        shown, L, info, n_shown, players)
+    block = rows or matches_block
+    corners = int(shown['restart'].eq('Corner').sum()) if len(shown) else 0
+
+    # -- budget upwards from the foot. Every gap below is the same number the
+    # downward flow would have used; the direction is what changes.
+    y = L['panel_bottom']
+    cov_y = None
+    if block and coverage:
+        cov_y, y = y, y + L['row_step']
+    row_y = [y + i * L['row_step'] for i in range(len(block))][::-1]
+    head_y = (row_y[0] if row_y else y) + L['head_gap']
+    # The receiver note sits ABOVE the rule, with the cells. It explains why
+    # COMPLETION is missing from them; below the rule it read as a subtitle to
+    # BUSIEST MATCHES, which it has nothing to do with.
+    rule2_y = head_y + L['head_gap']
+    note_y = rule2_y + L['note_gap'] if note else None
+    if cells:
+        label_y = (note_y or rule2_y) + L['cell_rule']
+        value_y = label_y + L['cell_lead']
+        rule1_y = value_y + L['cell_gap']
+    else:
+        rule1_y = (note_y or rule2_y)
+    hero_base = rule1_y + L['hero_rule'] + L['hero_lead']
+    # The numeral's cap height, derived from its own size rather than guessed -
+    # it is what separates the hero's baseline from the strip above it.
+    hero_top = hero_base + min(L['big_size'],
+                               C['header_size'] * L['big_vs_title']) * 0.75 / (72.0 * fh)
+    strip_y2 = hero_top + L['strip_note_gap']
+    strip_y = strip_y2 + (L['strip_lead'] if corners >= 8 else 0.0)
+    pitch_bottom = strip_y + L['strip_top_gap']
+
+    # THE PITCH TAKES WHAT IS LEFT, between a header whose height depends on
+    # how many lines its title and filter line needed and a band whose height
+    # depends on what there is to say. Height decides width through the aspect
+    # lock, so the panel is recentred as it grows.
+    vert = L['pitch_vertical']
+    hw = _VPITCH_HW if vert else _HPITCH_HW
+    top = C['header_bottom'] - L['pitch_gap']
+    h = top - pitch_bottom
+    w = h * fh / (hw * fw)
+    if w > L['pitch_max_w']:
+        # 9:8 only. A horizontal pitch is short and wide, so on a nearly square
+        # frame it runs out of MEASURE before it runs out of height, and the
+        # leftover falls under the header rather than beside the pitch.
+        w = L['pitch_max_w']
+        h = w * hw * fw / fh
+    ax = fig.add_axes([(1.0 - w) / 2.0, pitch_bottom, w, h])
+    make_pitch(ax, vertical=vert)
+    draw_passes(ax, shown, C['color_for'], identity=C['identity'],
+                vertical=vert)
+    _strip(fig, ax, dict(L, strip_y=strip_y, strip_y2=strip_y2),
+           shown=shown, n_shown=n_shown, identity=C['identity'],
+           accent=C['accent'], x0=x0, x1=x1, up=vert)
+
+    # -- the hero, laid out ACROSS rather than stacked. At 16:9 the count gets
+    # a label above it and two lines below; in portrait that block costs 110px
+    # of pitch, so the label and the denominator sit to the RIGHT of the
+    # numeral instead. Same three facts, a third of the height.
+    # NEVER LARGER THAN THE HEADLINE. big_size is a constant while the title
+    # shrinks to fit, so a long headline ended up SMALLER than a statistic
+    # about it: measured on the 9:8 tile, three player names set 23px against
+    # 36px for the pass count, and the eye landed on the count. At equal point
+    # size the headline still wins outright on weight, colour, position and
+    # its rule - it just no longer has to win from behind. The 16:9 keeps its
+    # own 42-against-30, which was reviewed three times and approved; this
+    # only binds where the frame forces the title to shrink.
+    big_size = min(L['big_size'], C['header_size'] * L['big_vs_title'])
+    big = _text(fig, x0, hero_base, f"{n_shown:,}", big_size,
+                TEXT_PRIMARY, 'bold', va='baseline')
+    fig.canvas.draw()
+    lx = (big.get_window_extent(fig.canvas.get_renderer())
+          .transformed(fig.transFigure.inverted()).x1) + L['hero_gap']
+    # ON THE NUMERAL'S BASELINE, not floated against its optical centre. The
+    # 16:9 panel learned this with its "of 21,950" line: a small string centred
+    # against a 40pt one reads as a separate row rather than as part of the
+    # number.
+    a = _text(fig, lx, hero_base, 'PASSES SHOWN', L['label_size'], TEXT_MUTED,
+              spaced=1, va='baseline')
+    # "554 of 554" is the noise pass_filters.caption() refuses to print, and
+    # for the same reason - a ratio against itself reads like a filter that
+    # failed. Unfiltered there is no denominator to state, only a population
+    # to name.
+    sub = _of_what(info, players)
+    if n_shown < n_pop:
+        # A SENTENCE, and the same one at both vertical aspects. Two earlier
+        # goes were worse: the dot-separated "of 21,950 · 11.0% · in these
+        # matches" read as a log line to a cold viewer, and dropping the
+        # qualifier to fit the tile lost the one thing the caption may never
+        # lose - a reader seeing "of 2,797" with nothing saying 2,797 OF WHAT,
+        # on the one chart where the denominator is a single player's passes
+        # and not the club's. The scope line cannot cover for it: it says
+        # LIVERPOOL · 38 MATCHES, never whose passes these are.
+        sub = f"{100.0 * n_shown / n_pop:.1f}% of {n_pop:,} {sub}"
+    if L['hero_lead']:
+        _text(fig, lx, hero_base - L['hero_lead'], sub, L['value_size'],
+              TEXT_SECONDARY, va='baseline')
+    else:
+        # 9:8 runs the whole hero along one baseline. The second line costs
+        # 45px there, and 45px of an 800px frame is 68px of pitch WIDTH once
+        # the aspect lock has had its say.
+        fig.canvas.draw()
+        # A wider gap than the one inside the label. Measured on the tile:
+        # 23px from "SHOWN" to the sentence against 19px between "PASSES" and
+        # "SHOWN", so the clause read as one more word of the label rather
+        # than as a different thing.
+        sx = (a.get_window_extent(fig.canvas.get_renderer())
+              .transformed(fig.transFigure.inverted()).x1) + L['hero_gap'] * 2.4
+        t = _text(fig, sx, hero_base, sub, L['value_size'], TEXT_SECONDARY,
+                  va='baseline')
+        fig.canvas.draw()
+        over = ((t.get_window_extent(fig.canvas.get_renderer())
+                 .transformed(fig.transFigure.inverted()).x1 - x1)
+                * fig.bbox.width)
+        if over > 0:
+            # Assert the rail rather than trust the arithmetic. This line is
+            # the longest variable-length string on the tile and it already
+            # ran 35px past the rail once, silently, because the lint's margin
+            # check only fires within 5px of the CANVAS edge - and the rail is
+            # 40px inside that.
+            import warnings
+            warnings.warn(f"pass map: hero qualifier overruns the rail by "
+                          f"{over:.0f}px", stacklevel=2)
+    _rule(fig, x0, x1, rule1_y)
+
+    # -- the stat cells, across the rail. Four is the ceiling and it is a
+    # measurement: "ENDING IN BOX" sets 200px at this size, and five cells on
+    # a 792px rail would give each one 158px.
+    if cells:
+        # Capped against the headline, exactly as the hero is. The stat row is
+        # a fixed size while the title shrinks to fit its string, and on the
+        # pair and trio charts the crossover had already happened: a 25px
+        # headline against 27px stat digits, so the largest text on a page
+        # about two players was "21 m". Nothing caught it because nothing
+        # compared the two.
+        # ...but never below a clear step over its own label. The cap is
+        # relative to a title that can itself shrink to the 19pt floor, and a
+        # long custom headline would otherwise drive the stat values to 15pt -
+        # under the 16pt phone floor, and under the labels they caption.
+        cell_pt = max(min(L['cell_value_size'],
+                          C['header_size'] * L['cell_vs_title']),
+                      L['label_size'] * 1.3)
+        # Centres are distributed over an INSET rail. On the full rail the
+        # outermost label is centred at 1/8 of the measure and its own width
+        # then carries it past the margin - "ENDING IN BOX" overhung the right
+        # rail by 2px, which is the margin check's whole point. The inset is
+        # small: at 0.045 it squeezed the four labels into each other, which
+        # is the opposite failure.
+        cx0, cx1 = x0 + L['cell_inset'], x1 - L['cell_inset']
+        for i, (label, value) in enumerate(cells):
+            cx = cx0 + (cx1 - cx0) * (i + 0.5) / len(cells)
+            _text(fig, cx, value_y, value, cell_pt, TEXT_PRIMARY,
+                  'bold', ha='center')
+            _text(fig, cx, label_y, label, L['label_size'], TEXT_MUTED,
+                  ha='center', spaced=L['cell_track'])
+
+    # SAY WHY COMPLETION IS ABSENT when a receiver is named - see the landscape
+    # body. The row is dropped because naming a receiver forces it to 100%, and
+    # silence read as missing data.
+    if note:
+        _text(fig, x0 if block else 0.5, note_y,
+              'only a completed pass has a receiver', L['cover_size'],
+              TEXT_MUTED, ha='left' if block else 'center')
+    # A rule SEPARATES. With no ranking under it there is nothing to separate,
+    # and at 9:8 it landed 7px above the CBS mark doing nothing but crowding
+    # it - the cells already have the hero's rule above them.
+    if cells and block:
+        _rule(fig, x0, x1, rule2_y)
+
+    if block:
+        _text(fig, x0, head_y, 'LEADING PASSERS' if rows else 'BUSIEST MATCHES',
+              L['head_size'], TEXT_MUTED, spaced=1)
+        cnt_x = x0 + (x1 - x0) * (0.86 if (rows and show_cmp) else 1.0)
+        # The counts had no header of their own, so the row read as two
+        # columns over a three-column body and the numbers sat under nothing.
+        # "SHOWN" - the scope word, without repeating the hero's whole label
+        # 200px above it in the same size and colour. Headed just "PASSES" a
+        # cold viewer read 1,022 as the player's SEASON total and concluded
+        # the number was wrong, recovering only by adding the column up; but
+        # headed "PASSES SHOWN" it read as a second copy of the label it sums
+        # to. This is the one word that is doing the work in either.
+        _text(fig, cnt_x, head_y, 'SHOWN', L['head_size'], TEXT_MUTED,
+              ha='right', spaced=1)
+        if rows and show_cmp:
+            _text(fig, x1, head_y, 'CMP', L['head_size'], TEXT_MUTED,
+                  ha='right', spaced=1)
+        swatch_of = C['swatch_colour']
+        for ry, row in zip(row_y, block):
+            name, count = row[0], row[1]
+            name_x = x0
+            # When players are the subject, colour IS their identity, so it
+            # belongs beside the name rather than in a key to cross-reference.
+            if name in swatch_of:
+                fig.add_artist(Line2D([x0, x0 + SWATCH_W], [ry, ry],
+                                      color=swatch_of[name], lw=SWATCH_LW,
+                                      transform=fig.transFigure,
+                                      solid_capstyle='butt'))
+                name_x = x0 + SWATCH_W + 0.008
+            _text(fig, name_x, ry, str(name), L['row_size'], TEXT_PRIMARY)
+            _text(fig, cnt_x, ry, f"{count:,}", L['row_size'],
+                  TEXT_SECONDARY, ha='right')
+            if rows and show_cmp:
+                _text(fig, x1, ry,
+                      f"{min(round(row[2]), 99) if row[2] < 100 else 100}%",
+                      L['row_size'], TEXT_SECONDARY, ha='right')
+        # What the list does NOT account for. Without it the rows read as a
+        # roster rather than a ranking, and on a season map 43% of the drawn
+        # passes belong to nobody named.
+        if cov_y is not None:
+            # Untracked, so it stops matching LEADING PASSERS exactly. At the
+            # 16pt floor the size distinction the 16:9 uses (12 against 13) is
+            # gone, so the table was bracketed by two identical-looking labels
+            # and the closing one read as a second section header.
+            _text(fig, x0, cov_y, coverage.upper(), L['cover_size'],
+                  TEXT_MUTED, spaced=0)
+
+
+_BODIES = {'stacked': _body_stacked}
+
+
+def create_pass_map(shown, info, team_color, *, n_population=None,
+                    caption_text='', filter_text=None, players=None,
+                    receivers=None, player_labels=None, competition='',
+                    custom_title=None, custom_subtitle=None, aspect='default'):
+    """Render the pass map.
+
+    `shown` is the FILTERED frame - the numerator, already annotated by
+    shared.pass_filters.annotate_passes. `n_population` and the header text
+    come from the same module, so the statement beside the marks is generated
+    by the object that did the cutting rather than written twice.
+
+    `filter_text` is pass_filters.filter_phrase() - the qualifier list alone.
+    `caption_text` is the older full sentence and is still accepted so the
+    Streamlit page can keep using one string for its own warnings; the header
+    prefers `filter_text` because the counts belong in the panel.
+
+    `aspect` is 'default' (16:9 editorial), '9x16' (portrait) or '9x8' (tile).
+    """
+    L = _LAYOUTS.get(aspect, _LAYOUTS['default'])
+    n_shown = len(shown)
+    # The HEADLINE is ordered by volume so it matches the table beneath it -
+    # the two disagreed, and a reader matching them positionally got the wrong
+    # player and had to fall back to matching on colour.
+    #
+    # COLOURS ARE NOT REORDERED WITH IT. Handing the slots out in volume order
+    # was the obvious next step and it is wrong: colour has to follow the
+    # PLAYER, never his rank, or adding a filter that changes who passed most
+    # repaints all three and every earlier render of the same trio disagrees
+    # with this one. Pick order is arbitrary but it is STABLE, which is the
+    # property that matters. So the title sorts and the palette does not.
+    title_players = list(players or [])
+    if title_players and len(title_players) > 1 and not shown.empty:
+        counts = shown['passer'].value_counts()
+        title_players = sorted(title_players,
+                               key=lambda p: -int(counts.get(p, 0)))
+    n_pop = n_population if n_population is not None else n_shown
+
+    fig = plt.figure(figsize=L['figsize'])
+    fig.patch.set_facecolor(BG_COLOR)
+
+    color_for, legend_entries = resolve_colors(team_color, players)
+    swatch_colour = {n: c for n, c in legend_entries}
+    accent = ensure_line_contrast(team_color or '#888888', BG_COLOR)
+
+    # FILTERS ARE NOT ALL WORTH THE SAME. The chart is a pass map; the argument
+    # around it lives in the editorial or the podcast that carries it. So the
+    # header ranks its filters by editorial weight rather than listing them:
+    # WHO passed and WHO received is the subject and goes in the title, and
+    # where on the grass the ball started or finished is a qualifier and goes
+    # in a quiet line under the scope (user, 2026-09-11). Stacking every
+    # selected filter into a bold two-line deck gave a corner-of-the-pitch
+    # cut the same voice as the player it was about.
+    team = (info.get('team_name') or '').upper()
+    title_runs = _title_runs(title_players, receivers, swatch_colour, team,
+                             player_labels)
+    if custom_title:
+        title_runs = [(custom_title, TEXT_PRIMARY)]
+
+    scope_lines = None
+    if not custom_subtitle:
+        lead, tail = _scope_line(shown, info, competition, players)
+        head = []
+        # The club drops to the scope line whenever players own the title -
+        # it is still the thing that makes the names mean something, but it is
+        # no longer the subject of the chart.
+        if title_runs and title_runs[0][0] != team and team:
+            head.append((team, TEXT_SECONDARY))
+        if lead:
+            head.append(((('  ·  ' if head and not L.get('flow') else '')
+                          + lead), TEXT_PRIMARY))
+        if L.get('flow'):
+            # PACKED, in portrait. The line count follows the content instead
+            # of being fixed at two, and one part is dropped: when a single
+            # match carries its own date, the season is what the date already
+            # says. Same duplication the competition-label fix was about.
+            has_date = any(k == 'date' for k, _ in tail)
+            items = [(t, c) for t, c in head if t] + [
+                (t, TEXT_MUTED) for k, t in tail
+                if not (has_date and k == 'season')]
+            scope_lines = _pack_runs(fig, items, L['scope_size'],
+                                     L['scope_frac'],
+                                     L.get('scope_track', 1))
+        else:
+            if tail:
+                head.append((('  ·  ' if head else '')
+                             + '  ·  '.join(t for _, t in tail), TEXT_MUTED))
+            scope_lines = [head]
+
+    header_bottom, header_size = _header(
+            fig, L,
+            kicker='PASSES ALLOWED' if info.get('against') else 'PASS MAP',
+            title_runs=title_runs, accent=accent, swatch_colour=swatch_colour,
+            scope_lines=scope_lines, scope_text=custom_subtitle,
+            deck_text=filter_text if filter_text is not None else caption_text)
+
+    ctx = {
+        'shown': shown, 'info': info, 'n_shown': n_shown, 'n_pop': n_pop,
+        'players': list(players or []), 'receivers': list(receivers or []),
+        'color_for': color_for, 'identity': bool(legend_entries),
+        'swatch_colour': swatch_colour, 'accent': accent,
+        'header_bottom': header_bottom, 'header_size': header_size,
+    }
+    _BODIES.get(L.get('orient'), _body_landscape)(fig, L, ctx)
+
+    add_cbs_footer(fig, x0=L['margin'], x1=1.0 - L['margin'],
+                   y=L.get('footer_y', 0.01))
     return fig
