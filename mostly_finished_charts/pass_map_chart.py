@@ -1189,11 +1189,16 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
                 TEXT_SECONDARY, spaced=sp)
     fig.canvas.draw()
     lw_ = _w(lab).width
-    # The gap is deliberately generous. The measured clearance at 0.010 was
-    # 21px and rendered clean here at every dpi and display scale, but the user
-    # sees the arrowhead touching the label on their machine and I could not
-    # reproduce it - so the number is set where a mechanism I cannot see still
-    # cannot close it, rather than tuned to the clearance I happen to measure.
+    # The gap is deliberately generous, and the reason is now KNOWN rather than
+    # defensive. It was doubled from 0.010 against an arrowhead-on-label
+    # collision the user could see and I could not reproduce; the mechanism was
+    # never a mystery of dpi or display scale, it was st.pyplot saving with
+    # bbox_inches="tight" and cropping the frame. An arrowhead is sized in
+    # POINTS and keeps its absolute size through that crop while this gap is a
+    # figure FRACTION and shrinks with the frame - measured, 2.28% of the width
+    # becomes 0.67%. Fixed at source on the page (bbox_inches=None); the
+    # generous value stays because it costs nothing and the same asymmetry
+    # exists wherever a points-sized mark meets a fraction-sized clearance.
     arrow_w, gap = (L['arrow_w'], L['arrow_gap'])
     # FLOWS from the legend at the stacked aspects instead of centring on the
     # rail. Centred, the cue keeps the position that suited three items when

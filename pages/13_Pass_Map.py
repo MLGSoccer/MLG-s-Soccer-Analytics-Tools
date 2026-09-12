@@ -241,10 +241,23 @@ fig = create_pass_map(shown, info, team_color, n_population=len(population),
                       player_labels=player_labels, competition=competition,
                       custom_title=title, custom_subtitle=subtitle,
                       aspect=aspect)
+# bbox_inches=None IS LOAD-BEARING. st.pyplot defaults to
+# {"bbox_inches": "tight", "dpi": 200} and passes them straight to savefig, so
+# the preview is a CROPPED figure, not this one: measured, the 16:9 arrives as
+# 2984x1787 (ratio 1.670) instead of 3200x1800 (1.778). That crop is why the
+# attacking-direction arrowhead appeared to touch its label on screen while
+# every saved PNG measured clean - the arrowhead is sized in POINTS and so
+# keeps its absolute size, while the clearance beside it is a figure FRACTION
+# and shrinks with the frame. Measured on the same figure: the gap is 2.28% of
+# the width uncropped and 0.67% cropped, a 3.4x squeeze.
+#
+# It also means the preview was never showing the aspect ratio the chart is
+# designed for, which is the whole premise of having three of them.
+#
 # The portrait cuts are 9in wide against the 16:9's 16in, so letting Streamlit
 # stretch them to the column width blows them up past any size they will ever
 # be delivered at. The saved PNG is unaffected either way.
-st.pyplot(fig, use_container_width=(aspect == 'default'))
+st.pyplot(fig, use_container_width=(aspect == 'default'), bbox_inches=None)
 
 suffix = '' if aspect == 'default' else f"_{aspect}"
 name = f"pass_map{suffix}.png"
