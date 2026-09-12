@@ -636,7 +636,13 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     fig = plt.figure(figsize=DASHBOARD_FIGSIZE)
     fig.patch.set_facecolor(BG_COLOR)
 
-    gs = fig.add_gridspec(2, 2, hspace=0.52, wspace=0.28, top=0.82)
+    # bottom=0.155 rather than matplotlib's default 0.11, matching the
+    # player dashboard. The bottom-row panels hang their legends below
+    # the axes, so at the default the panel-4 legend sat 4px above the
+    # credit line and overlapped it by 69px horizontally - the credit
+    # read as a fifth legend entry.
+    gs = fig.add_gridspec(2, 2, hspace=0.52, wspace=0.28, top=0.82,
+                          bottom=0.155)
 
     # ============ Panel 1: xG Difference (top left) ============
     ax1 = fig.add_subplot(gs[0, 0])
@@ -745,7 +751,11 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     draw_season_boundaries(ax4, season_segments, y_pos='top')
 
     # Header: kicker, title, accent bar, subtitle (xG race / momentum convention)
-    fig.text(0.5, 0.985, 'TEAM ROLLING xG', fontsize=11, fontweight='bold',
+    # 0.9737, matching the player dashboard: at 0.985 this eyebrow left
+    # 9px of air above a 13px cap on a 1100px frame, which reads as a
+    # crop. The two dashboards are a matched pair and must not drift.
+    fig.text(0.5, 0.9737, 'TEAM ROLLING xG', fontsize=11,
+             fontweight='bold',
              color=TEXT_SECONDARY, ha='center', va='center')
     title_obj = fig.text(0.5, 0.942, custom_title or f'{team_name.upper()}',
                          ha='center', va='center', fontsize=22, fontweight='bold',

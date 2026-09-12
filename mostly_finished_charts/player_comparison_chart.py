@@ -14,9 +14,15 @@ import unicodedata
 # Add parent directory for shared imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# NOTE: deliberately NOT using the shared physical footer margin here. This
+# chart draws its own credit line, and its frames are full: every category
+# card carries a centred note immediately above the credit, so lifting the
+# credit to the 0.19in floor closed that gap to 5-9px with 41-45px of
+# horizontal overlap. The note has to move first, and that is a re-review of
+# the whole card rather than a margin change.
 from shared.styles import (BG_COLOR, SPINE_COLOR, CBS_BLUE_LIGHT,
                            TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer,
-                           footer_y, BROADCAST_FIGSIZE)
+                           BROADCAST_FIGSIZE)
 from shared.file_utils import get_file_path, get_output_folder
 from shared.colors import (
     TEAM_COLORS, fuzzy_match_team, check_colors_need_fix,
@@ -724,8 +730,8 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     # This standalone panel used to drop the "Percentile rank among Xs"
     # segment, so shared on its own it never said what it was ranked against.
     footer_right = build_footer_text(comparison_position, pool_label)
-    fig.text(0.02, footer_y(fig, 0.01), 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, footer_y(fig, 0.01), footer_right,
+    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, 0.01, footer_right,
              fontsize=8, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
@@ -978,8 +984,8 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
 
     # Footer
     footer_right = build_footer_text(position, pool_label)
-    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, footer_y(fig, 0.015), footer_right,
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, 0.015, footer_right,
              fontsize=9, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
@@ -1342,10 +1348,10 @@ def create_comparison_aspect_chart(results, player_row, peer_count, output_path,
     scope, source = footer_segments(position, pool_label)
     fig.text(0.5, L['footer_scope_y'], scope, ha='center',
              fontsize=L['footer_size'], color=LABEL_GREY)
-    fig.text(0.048, footer_y(fig, 0.018), 'CBS SPORTS',
+    fig.text(0.048, 0.018, 'CBS SPORTS',
              fontsize=L['brand_size'],
              fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(1 - 0.048, footer_y(fig, 0.018), source,
+    fig.text(1 - 0.048, 0.018, source,
              fontsize=L['footer_size'],
              color='#666666', ha='right')
 
@@ -1950,7 +1956,7 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     # sides of the frame.
     fig.text(info_x, 0.015, footer_right, fontsize=8, color='#666666',
              ha='right')
-    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=10, fontweight='bold',
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
              color=CBS_BLUE_LIGHT)
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
@@ -2044,8 +2050,8 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
 
     # Footer
     footer_right = build_footer_text(comparison_position, pool_label)
-    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, footer_y(fig, 0.015), footer_right,
+    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, 0.015, footer_right,
              fontsize=8, color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')

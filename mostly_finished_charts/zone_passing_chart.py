@@ -585,7 +585,10 @@ def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
                      ha='center', va='center', fontsize=10, color=TEXT_SECONDARY)
 
     # Color legend
-    legend_y = 0.04
+    # 0.055, matching the detail chart below: the credit line now sits a
+    # fixed 0.19in off the bottom edge, and at 0.04 this legend was left
+    # 4px above it - two rows of small muted type reading as one.
+    legend_y = 0.055
     legend_items = [
         (BACKWARD_COLOR, 'Backward'),
         (LATERAL_COLOR, 'Lateral'),
