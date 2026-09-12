@@ -448,10 +448,10 @@ _LAYOUTS = {
         'big_size': 42, 'label_size': 13, 'value_size': 15,
         'row_size': 13.5, 'head_size': 13, 'cover_size': 12,
         # ONE baseline under the pitch, not four. Measured on the old layout:
-        # the legend label sat 4.8px ON the pitch panel, the corner note 6.3px
-        # on it and 17.6px past its right edge, and the four bottom-strip rows
-        # sat at four different baselines against four different left edges.
-        'strip_y': 0.068, 'strip_y2': 0.042, 'legend_size': 10.5,
+        # the legend label sat 4.8px ON the pitch panel and the four
+        # bottom-strip rows sat at four different baselines against four
+        # different left edges.
+        'strip_y': 0.068, 'legend_size': 10.5,
         'arrow_w': 0.034, 'arrow_gap': 0.020,
         'leaders_max': 6, 'row_step': 0.036, 'stat_step': 0.036,
         'gap_max': 0.038,
@@ -491,12 +491,7 @@ _LAYOUTS = {
         # that has to read clearly: picture ends, apparatus begins. Everything
         # else in the foot spaces at 7-13. They are the widest now, not the
         # narrowest.
-        # strip_lead has to clear the ARROW's height, not the text's: the
-        # vertical cue is a 34px object sitting in a 16px line box, so the row
-        # below it is measured from the arrow tail. At 0.0245 with a 48px
-        # arrow the corner note cleared it by 6px, the tightest gap anywhere
-        # on the page, immediately after I had loosened the two next to it.
-        'strip_top_gap': 0.0200, 'strip_lead': 0.0290,
+        'strip_top_gap': 0.0200,
         'strip_note_gap': 0.0235, 'legend_size': 16,
         # The direction cue points UP here, so the arrow's length is a
         # y-fraction and only its head occupies horizontal slot.
@@ -560,7 +555,7 @@ _LAYOUTS = {
         'deck_frac': 0.88, 'deck_lead': 0.0300, 'deck_lines': 2,
         'pitch_gap': 0.0140,
         'pitch_vertical': False, 'pitch_max_w': 0.91,
-        'strip_top_gap': 0.0320, 'strip_lead': 0.0440,
+        'strip_top_gap': 0.0320,
         'strip_note_gap': 0.0300, 'legend_size': 16, 'strip_track': 0,
         'arrow_w': 0.040, 'arrow_gap': 0.018, 'arrow_rise': 0.0,
         'arrow_scale': 16, 'swatch_w': 0.036, 'strip_flow': True,
@@ -1112,7 +1107,7 @@ def _header(fig, L, *, kicker, title_runs, accent, swatch_colour,
 
 
 def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
-    """The band under the pitch: completion key, attacking direction, corners.
+    """The band under the pitch: completion key and attacking direction.
 
     `x0`/`x1` are the rail it hangs off. At 16:9 that is the PITCH PANEL, which
     is where the marks it describes are; in portrait the pitch is only ~65% of
@@ -1124,7 +1119,7 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
     football graphic and bottom-to-top is not, and a cold viewer nearly missed
     this label at 16:9 where convention was helping them.
     """
-    sy, sy2 = L['strip_y'], L['strip_y2']
+    sy = L['strip_y']
     # TRACKING IS SPENT WHERE A LABEL HAS THE LINE TO ITSELF. This row holds
     # three things on one rail, and at the 16pt phone floor the tracked forms
     # set 830px of a 792px measure - the completion key, the direction cue and
@@ -1242,7 +1237,6 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
         arrow_x1 = ax0 + arrow_w
     lab.set_position((max(arrow_x1, ax0 + arrow_w) + gap, sy))
     fig.canvas.draw()
-    dir_x1 = _w(lab).x1
     # Assert the clearance rather than trust the arithmetic. Cheap, and it
     # turns an invisible layout regression into a loud one.
     _gap_px = (_w(lab).x0 - max(arrow_x1, ax0 + arrow_w)) * fig.bbox.width
@@ -1251,43 +1245,6 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
         warnings.warn(f"pass map: direction arrow within {_gap_px:.1f}px of "
                       f"its label", stacklevel=2)
 
-    # The set-piece note. A cold viewer flagged the corner shapes as a
-    # rendering fault five times over and, told the number was in the panel,
-    # said plainly that a figure in a list does not defuse a shape on a map.
-    #
-    # It used to say "all from one spot". That is FALSE: measured over a
-    # Liverpool season, 137 corners start at (100, 0) and 95 at (100, 100) -
-    # two convergence points, both visible, and the same reviewer caught the
-    # contradiction. It also fired at 5 corners, where there is no shape to
-    # explain and the sentence read as leftover debug text.
-    # "OF THESE", because the count is scoped to what is DRAWN and the old
-    # wording did not say so. Caught by reading two tiles of the SAME match
-    # side by side: the unfiltered one says 14 corners and the into-the-box one
-    # says 11, in identical words and identical positions, and both read as
-    # "Liverpool's corners in this match". Both are true - 11 of the 14 ended
-    # in the box - and nothing on either chart said which question was being
-    # answered.
-    # No proportional term. It used to require 4% of the drawn set, which
-    # silenced the note exactly where the fan is still plainly visible but
-    # numerically small - 14 corners among 554 passes still converge on two
-    # points and still read as a comb. Every cold reader across three rounds
-    # has called that shape a rendering glitch, and one of them hit a render
-    # where the note was suppressed and said so. It fires whenever there are
-    # enough corners to make the shape.
-    corners = int(shown['restart'].eq('Corner').sum()) if len(shown) else 0
-    if corners >= 8:
-        note = _text(fig, x1, sy,
-                     f"{corners:,} OF THESE ARE CORNERS, FANNING FROM THE FLAGS",
-                     L['cover_size'], TEXT_MUTED, ha='right', spaced=sp)
-        fig.canvas.draw()
-        # If it cannot share the baseline it drops to a second one rather than
-        # colliding. The strip is measured, not assumed - that is the check the
-        # old layout never made. On that second line it also switches to the
-        # LEGEND'S rail: right-aligned under a left-aligned row gave the block
-        # two alignments and put its left edge on nothing.
-        if _w(note).x0 < dir_x1 + 0.012:
-            note.set_position((x0, sy2))
-            note.set_ha('left')
 
 
 def _leader_rows(shown, L, info, n_shown, players):
@@ -1571,7 +1528,6 @@ def _body_stacked(fig, L, C):
     rows, coverage, matches_block, show_cmp = _leader_rows(
         shown, L, info, n_shown, players)
     block = rows or matches_block
-    corners = int(shown['restart'].eq('Corner').sum()) if len(shown) else 0
 
     # -- budget upwards from the foot. Every gap below is the same number the
     # downward flow would have used; the direction is what changes.
@@ -1597,8 +1553,10 @@ def _body_stacked(fig, L, C):
     # it is what separates the hero's baseline from the strip above it.
     hero_top = hero_base + min(L['big_size'],
                                C['header_size'] * L['big_vs_title']) * 0.75 / (72.0 * fh)
-    strip_y2 = hero_top + L['strip_note_gap']
-    strip_y = strip_y2 + (L['strip_lead'] if corners >= 8 else 0.0)
+    # One baseline. This used to reserve L['strip_lead'] of extra height
+    # whenever the corner note might wrap onto a second line; with the note
+    # gone the strip is always one row and the pitch keeps that height.
+    strip_y = hero_top + L['strip_note_gap']
     pitch_bottom = strip_y + L['strip_top_gap']
 
     # THE PITCH TAKES WHAT IS LEFT, between a header whose height depends on
@@ -1620,7 +1578,7 @@ def _body_stacked(fig, L, C):
     make_pitch(ax, vertical=vert)
     draw_passes(ax, shown, C['color_for'], identity=C['identity'],
                 vertical=vert)
-    _strip(fig, ax, dict(L, strip_y=strip_y, strip_y2=strip_y2),
+    _strip(fig, ax, dict(L, strip_y=strip_y),
            shown=shown, n_shown=n_shown, identity=C['identity'],
            accent=C['accent'], x0=x0, x1=x1, up=vert)
 
