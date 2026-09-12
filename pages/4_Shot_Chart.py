@@ -254,7 +254,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
             caption1 = f"{player1_name} ({team1_name}) Shot Chart" if player1_name else f"{team1_name} Shot Chart"
             fname1 = f"shot_chart_{(player1_name or team1_name).replace(' ', '_').replace('/', '-')}{aspect_suffix}.png"
             path1 = os.path.join(tmp_dir, fname1)
-            fig1.savefig(path1, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            fig1.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig1)
             with open(path1, "rb") as f:
                 charts[fname1] = (caption1, f.read())
@@ -275,7 +275,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
             caption2 = f"{player2_name} ({team2_name}) Shot Chart" if player2_name else f"{team2_name} Shot Chart"
             fname2 = f"shot_chart_{(player2_name or team2_name).replace(' ', '_').replace('/', '-')}{aspect_suffix}.png"
             path2 = os.path.join(tmp_dir, fname2)
-            fig2.savefig(path2, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            fig2.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig2)
             with open(path2, "rb") as f:
                 charts[fname2] = (caption2, f.read())
@@ -293,7 +293,7 @@ def _generate_single_match_charts(shots_df, match_info, team_colors, chart_optio
             combined_suffix = f"_{aspect}" if aspect != 'default' else ''
             fname_combined = f"shot_chart_{team1_name.replace(' ', '_').replace('/', '-')}_vs_{team2_name.replace(' ', '_').replace('/', '-')}{combined_suffix}.png"
             path_combined = os.path.join(tmp_dir, "shot_chart_combined.png")
-            fig_combined.savefig(path_combined, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+            fig_combined.savefig(path_combined, dpi=300, facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig_combined)
             with open(path_combined, "rb") as f:
                 charts[fname_combined] = ("Combined Shot Chart", f.read())
@@ -326,7 +326,7 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
         filename = f"shot_map_{name_part}{suffix}_season{aspect_suffix}.png"
 
         path = os.path.join(tmp_dir, filename)
-        fig.savefig(path, dpi=300, bbox_inches='tight', facecolor=BG_COLOR, edgecolor='none')
+        fig.savefig(path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
         plt.close(fig)
 
         if shots_against:

@@ -52,13 +52,17 @@ _TEAM_SHOT_LAYOUT_DEFAULT = {
     'bar_y':          0.933, 'bar_height':    0.005,
     'subtitle_y':     0.91,  'subtitle_size': 11,
     'legend_y':       0.89,  'legend_size':   10,
-    'stat_val_y':     0.095, 'stat_val_size': 26,
-    'stat_label_y':   0.055, 'stat_label_size': 10,
+    # Bottom band respread. The gaps below the pitch ran 59/29/36/12 and now
+    # run 50/26/32/28, so the footer clears the canvas edge by about as much
+    # as it clears the labels above it.
+    'stat_val_y':     0.1002, 'stat_val_size': 26,
+    'stat_label_y':   0.0632, 'stat_label_size': 10,
     'stat_xs':        (0.30, 0.50, 0.70),
     'extras_x_goals': 0.715, 'extras_x_xg':   0.545, 'extras_x_shots': 0.345,
     'extras_size':    14,
     'highlight_size': 10,
-    'caption_y':      0.01,  'caption_size':   8,
+    'caption_y':      0.0219, 'caption_size':   8,
+    'footer_y':       0.0219,
 }
 
 # 9:16 fullscreen overlay. The half pitch is pinned to ~1.54:1, so at 9in
@@ -77,10 +81,27 @@ _TEAM_SHOT_LAYOUT_9X16 = {
     # legends, block headers, captions and extras all sit AT 16 - the
     # hierarchy is carried by the values (38-40pt), not by shrinking the
     # small text further.
-    'title_y':        0.9330, 'title_size':    40, 'title_mode': 'name',
+    # The TEXT block sits 0.0503 (121px at 150dpi) higher than it used to. It
+    # was tuned while this chart saved with bbox_inches='tight', which trims to
+    # the ink and so made the space above the title free - uncropped, that
+    # space was a 163px void, four times the top margin of every other frame in
+    # the family and the largest single gap on the page. Title, rule, result
+    # and scope move as a unit (line2 hangs off the title's own bbox).
+    #
+    # The LEGEND deliberately does not move with them. It keys the marks on the
+    # pitch, so it keeps its designed 94px relationship to the pitch and the
+    # reclaimed space becomes one break between the header text and the chart.
+    # Carried up with the header it sat 121px below the scope line and 214px
+    # above the pitch, which reads as an orphan - and, measured cold, as the
+    # pitch having failed to load.
+    'title_y':        0.9833, 'title_size':    40, 'title_mode': 'name',
     'bar_y':          None,   'bar_height':    0.0048, 'bar_gap': 0.0115,
     'line2_size':     26,     'line2_gap':     0.0290,
-    'subtitle_y':     0.8340, 'subtitle_size': 16,
+    'subtitle_y':     0.8843, 'subtitle_size': 16,
+    # 106px of clear frame sits between this line and the legend, so an
+    # over-long subtitle breaks onto a second line here rather than being
+    # clipped at the 16pt floor. Measured room for exactly one extra line.
+    'subtitle_wrap':  True,
     'legend_y':       0.7900, 'legend_size':   16,
     'block':          True,
     'lead_head_y':    0.3860, 'lead_top':      0.3480, 'lead_bot': 0.1620,
@@ -95,7 +116,8 @@ _TEAM_SHOT_LAYOUT_9X16 = {
     'extras_x_goals': 0.815,  'extras_x_xg':   0.595, 'extras_x_shots': 0.265,
     'extras_size':    16,
     'highlight_size': 16,
-    'caption_y':      0.0130, 'caption_size':   16,
+    'caption_y':      0.0163, 'caption_size':   16,
+    'footer_y':       0.0133,
 }
 
 # 9:8 tile overlay - chart lives in HALF of a 9:16 short while the host
@@ -133,13 +155,20 @@ _TEAM_SHOT_LAYOUT_9X8 = {
     'legend_y':       None,  'legend_size':   None,
     # The tile shares the phone's 16pt floor - it is also 9in wide delivered
     # full-width in a short, and cannot buy legibility by being squatter.
-    'stat_val_y':     0.075, 'stat_val_size': 26,
-    'stat_label_y':   0.040, 'stat_label_size': 16,
+    # The stats pair sits 28px higher and the footer 16px higher than they
+    # did. Uncropped, this frame ended with 95px of empty between the pitch
+    # and the values and then three rows crammed into the last 103px - the
+    # footer 9px under the labels and 10px off the canvas edge against 28px
+    # side margins, the "page ran out" reading add_cbs_footer's own docstring
+    # warns about. The band's space is spread now rather than pooled above it.
+    'stat_val_y':     0.0983, 'stat_val_size': 26,
+    'stat_label_y':   0.0633, 'stat_label_size': 16,
     'stat_xs':        (0.20, 0.50, 0.80),
     'extras_x_goals': 0.84,  'extras_x_xg':   0.555, 'extras_x_shots': 0.245,
     'extras_size':    16,
     'highlight_size': None,
     'caption_y':      None,  'caption_size':  None,
+    'footer_y':       0.0233,
 }
 
 
@@ -148,6 +177,56 @@ _TEAM_SHOT_LAYOUTS = {
     '9x16':    _TEAM_SHOT_LAYOUT_9X16,
     '9x8':     _TEAM_SHOT_LAYOUT_9X8,
 }
+
+
+def _text_width_frac(fig, text, size, bold=False):
+    """Rendered width of `text` as a fraction of the figure width."""
+    probe = fig.text(0.5, 0.5, text, fontsize=size,
+                     fontweight='bold' if bold else 'normal')
+    fig.canvas.draw()
+    frac = (probe.get_window_extent(renderer=fig.canvas.get_renderer()).width
+            / (fig.get_size_inches()[0] * fig.dpi))
+    probe.remove()
+    return frac
+
+
+def _draw_subtitle(fig, y, text, nominal, color, *, floor, sep, wrap=False,
+                   max_frac=0.94, lead_em=1.35):
+    """The subtitle, fitted to the frame - and wrapped rather than clipped.
+
+    fit_fontsize returns its FLOOR when even the floor overruns, so shrinking
+    cannot save a long subtitle at the phone aspects, where 16pt is a
+    legibility rule and not a preference. Such a line used to run off both
+    edges of the canvas, which was invisible while this chart saved with
+    bbox_inches='tight': the crop simply widened the image around the
+    overflow. Uncropped it is clipped instead, so a subtitle that cannot fit
+    on one line breaks onto a second at a separator boundary, balanced on
+    RENDERED width rather than character count.
+
+    `wrap` is opt-in per layout because the second line grows downward and
+    only the 9:16 frames have measured room for it beneath the subtitle.
+    """
+    size = fit_fontsize(fig, text, nominal, floor=floor, max_frac=max_frac,
+                        bold=False)
+    parts = text.split(sep) if sep else [text]
+    if (not wrap or len(parts) < 2
+            or _text_width_frac(fig, text, size) <= max_frac):
+        fig.text(0.5, y, text, ha='center', va='center', fontsize=size,
+                 color=color)
+        return
+    best = None
+    for i in range(1, len(parts)):
+        a, b = sep.join(parts[:i]), sep.join(parts[i:])
+        cost = max(_text_width_frac(fig, a, size),
+                   _text_width_frac(fig, b, size))
+        if best is None or cost < best[0]:
+            best = (cost, a, b)
+    _, first, second = best
+    lead = size * lead_em / (72.0 * fig.get_size_inches()[1])
+    fig.text(0.5, y, first, ha='center', va='center', fontsize=size,
+             color=color)
+    fig.text(0.5, y - lead, second, ha='center', va='center', fontsize=size,
+             color=color)
 
 
 def _marker_key(pinned=0):
@@ -310,12 +389,21 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     # Subtitle: match context (score, opponent, competition, date).
     # Skipped entirely when layout['subtitle_y'] is None (e.g. 9:8 tile
     # mode where the host provides the verbal context).
+    # Subtitles are fit to the frame for the same reason the titles are. While
+    # this chart saved with bbox_inches='tight' an over-wide subtitle silently
+    # WIDENED the image - wrong shape, text intact - so the overflow was
+    # invisible. Uncropped it is clipped instead: right shape, text gone.
+    # Measured overflowing at 9:16 and at the default on a real combination
+    # (long competition + long opponent + a highlight mode + minutes played),
+    # and on any custom subtitle past ~60 characters at 9:16.
+    sub_floor = 16 if aspect in ('9x16', '9x8') else 9
     if layout['subtitle_y'] is None:
         pass
     elif custom_subtitle:
-        fig.text(0.5, layout['subtitle_y'], custom_subtitle,
-                 ha='center', va='center',
-                 fontsize=layout['subtitle_size'], color=TEXT_SECONDARY)
+        _draw_subtitle(fig, layout['subtitle_y'], custom_subtitle,
+                       layout['subtitle_size'], TEXT_SECONDARY,
+                       floor=sub_floor, sep=', ',
+                       wrap=layout.get('subtitle_wrap', False))
     else:
         # Match line — score from the focal team's perspective
         if player_name:
@@ -344,9 +432,11 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
             subtitle_parts.append(match_info['date_formatted'])
 
         sep = '   ·   ' if line2 is not None else ' | '
-        fig.text(0.5, layout['subtitle_y'], sep.join(subtitle_parts),
-                 ha='center', va='center', fontsize=layout['subtitle_size'],
-                 color=TEXT_MUTED if line2 is not None else TEXT_SECONDARY)
+        _draw_subtitle(fig, layout['subtitle_y'], sep.join(subtitle_parts),
+                       layout['subtitle_size'],
+                       TEXT_MUTED if line2 is not None else TEXT_SECONDARY,
+                       floor=sub_floor, sep=sep,
+                       wrap=layout.get('subtitle_wrap', False))
 
     # Legend: shape-only (Goal = star, Shot = circle; size encodes xG
     # qualitatively). Skipped entirely when layout['legend_y'] is None
@@ -427,7 +517,7 @@ def create_team_shot_chart(shots_df, team_name, team_color, match_info,
     if layout['tight_rect'] is not None:
         plt.tight_layout(rect=layout['tight_rect'])
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=layout.get('footer_y', 0.01))
     # One line at the foot: the highlight breakdown OR the marker key, never
     # both. They previously drew at 0.025 and 0.01 and physically collided -
     # the season chart already documents the one-or-other rule; this adopts
@@ -467,10 +557,16 @@ _MULTI_LAYOUT_DEFAULT = {
     'subtitle_y': 0.91, 'subtitle_size': 11,
     'legend_y': 0.89,  'legend_size': 10,
     'block': False,
-    'stat_val_y': 0.105, 'stat_val_size': 26,
-    'stat_label_y': 0.07, 'stat_label_size': 10,
-    'context_y': 0.035, 'context_size': 10,
-    'caption_y': 0.012, 'caption_size': 8, 'hl_size': 9,
+    # Four rows share the 211px below the pitch here where the single-match
+    # chart has three, so this band was the tightest in the family: 6px
+    # between the per-game line and the footer, and a 9px bottom margin. The
+    # gaps now run 26/18/19/20/28 from the pitch down. The pitch keeps its
+    # size; the 44px it had below it was the only slack available to spend.
+    'stat_val_y': 0.1161, 'stat_val_size': 26,
+    'stat_label_y': 0.0841, 'stat_label_size': 10,
+    'context_y': 0.0587, 'context_size': 10,
+    'caption_y': 0.0261, 'caption_size': 8, 'hl_size': 9,
+    'footer_y': 0.0241,
 }
 
 # 9:16. The half pitch fills only ~35% of a portrait frame, so this aspect
@@ -479,10 +575,13 @@ _MULTI_LAYOUT_DEFAULT = {
 _MULTI_LAYOUT_9X16 = {
     # 16pt floor throughout - see the single-match 9:16 layout note.
     'axes_position': [0.02, 0.4450, 0.96, 0.2950], 'tight_rect': None,
-    'title_y': 0.9330, 'title_size': 40, 'title_mode': 'name',
+    # Header block raised 0.0503 as a unit - see the single-match 9:16 note.
+    'title_y': 0.9833, 'title_size': 40, 'title_mode': 'name',
     'bar_y': None,     'bar_height': 0.0048, 'bar_gap': 0.0115,
-    'line2_y': 0.8780, 'line2_size': 26, 'line2_gap': 0.0290,
-    'subtitle_y': 0.8340, 'subtitle_size': 16,
+    'line2_y': 0.9283, 'line2_size': 26, 'line2_gap': 0.0290,
+    'subtitle_y': 0.8843, 'subtitle_size': 16,
+    'subtitle_wrap': True,
+    # Stays with the pitch, not with the header - see the single-match note.
     'legend_y': 0.7900, 'legend_size': 16,
     'block': True,
     'lead_head_y': 0.3860, 'lead_top': 0.3480, 'lead_bot': 0.1620,
@@ -490,9 +589,10 @@ _MULTI_LAYOUT_9X16 = {
     'rank_x': 0.0700, 'name_x': 0.1300, 'shots_x': 0.7600, 'xg_x': 0.9300,
     'stat_val_y': 0.1000, 'stat_val_size': 38,
     'stat_label_y': 0.0640, 'stat_label_size': 16,
-    'context_y': 0.0340, 'context_size': 16,
-    'caption_y': 0.0130, 'caption_size': 16, 'hl_size': 16,
+    'context_y': 0.0390, 'context_size': 16,
+    'caption_y': 0.0163, 'caption_size': 16, 'hl_size': 16,
     'og_extras_size': 16,
+    'footer_y': 0.0133,
 }
 
 # 9:8 tile. The half pitch's natural ~0.77 aspect fills this frame almost
@@ -508,11 +608,13 @@ _MULTI_LAYOUT_9X8 = {
     'subtitle_y': None, 'subtitle_size': None,
     'legend_y': None,  'legend_size': None,
     'block': False,
-    'stat_val_y': 0.075, 'stat_val_size': 26,
-    'stat_label_y': 0.040, 'stat_label_size': 16,
+    # Bottom band respread - see the single-match tile note.
+    'stat_val_y': 0.0983, 'stat_val_size': 26,
+    'stat_label_y': 0.0633, 'stat_label_size': 16,
     'context_y': None, 'context_size': None,
     'caption_y': None, 'caption_size': None, 'hl_size': None,
     'og_extras_size': 16,
+    'footer_y': 0.0233,
 }
 
 _MULTI_LAYOUTS = {
@@ -669,12 +771,21 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                                        floor=16, max_frac=0.90),
                  fontweight='bold', color=TEXT_SECONDARY)
 
+    # Subtitles are fit to the frame for the same reason the titles are. While
+    # this chart saved with bbox_inches='tight' an over-wide subtitle silently
+    # WIDENED the image - wrong shape, text intact - so the overflow was
+    # invisible. Uncropped it is clipped instead: right shape, text gone.
+    # Measured overflowing at 9:16 and at the default on a real combination
+    # (long competition + long opponent + a highlight mode + minutes played),
+    # and on any custom subtitle past ~60 characters at 9:16.
+    sub_floor = 16 if aspect in ('9x16', '9x8') else 9
     if layout['subtitle_y'] is None:
         pass
     elif custom_subtitle:
-        fig.text(0.5, layout['subtitle_y'], custom_subtitle, ha='center',
-                 va='center', fontsize=layout['subtitle_size'],
-                 color=TEXT_SECONDARY)
+        _draw_subtitle(fig, layout['subtitle_y'], custom_subtitle,
+                       layout['subtitle_size'], TEXT_SECONDARY,
+                       floor=sub_floor, sep=', ',
+                       wrap=layout.get('subtitle_wrap', False))
     else:
         if competition:
             subtitle_parts.append(competition.upper())
@@ -691,11 +802,13 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
 
         if subtitle_parts:
             sep = '   ·   ' if layout['title_mode'] == 'name' else ' | '
-            fig.text(0.5, layout['subtitle_y'], sep.join(subtitle_parts),
-                     ha='center', va='center',
-                     fontsize=layout['subtitle_size'],
-                     color=TEXT_MUTED if layout['title_mode'] == 'name'
-                     else TEXT_SECONDARY)
+            _draw_subtitle(fig, layout['subtitle_y'],
+                           sep.join(subtitle_parts),
+                           layout['subtitle_size'],
+                           TEXT_MUTED if layout['title_mode'] == 'name'
+                           else TEXT_SECONDARY,
+                           floor=sub_floor, sep=sep,
+                           wrap=layout.get('subtitle_wrap', False))
 
     # Legend: color-only (Goal = team color, Shot = black). On an AGAINST map
     # the words carry the reversal: a cold viewer read t3 as "Sunderland shoot
@@ -808,7 +921,7 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     if layout['tight_rect'] is not None:
         plt.tight_layout(rect=layout['tight_rect'])
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=layout.get('footer_y', 0.01))
 
     return fig
 
@@ -1112,7 +1225,8 @@ _COMBINED_LAYOUT_9X16 = {
     'lead_n':       5,      'head_size':     16,
     'rank_x':       0.0700, 'name_x':        0.1300,
     'shots_x':      0.7600, 'xg_x':          0.9300, 'name_size': 18,
-    'key_y':        0.0330, 'key_size':      16,
+    'key_y':        0.0380, 'key_size':      16,
+    'footer_y':     0.0133,
 }
 
 # 9:8 tile — the horizontal full pitch, unchanged in geometry from the 12x9
@@ -1123,15 +1237,20 @@ _COMBINED_LAYOUT_9X16 = {
 _COMBINED_LAYOUT_9X8 = {
     # 16pt floor - see the single-team 9:8 layout note.
     'title_size':  21,     'y_title':  0.9430, 'y_bar':   0.9080,
-    'pitch_x':     0.0100, 'pitch_w':  0.9800, 'pitch_y': 0.1520,
-    'name_y':      0.1200, 'name_size': 16,
-    'val_y':       0.0790, 'val_size':  24,
-    'lab_y':       0.0450, 'lab_size':  16,
+    # The pitch rises 0.014 to pay for the bottom band. Uncropped, four rows
+    # (team name, values, labels, footer) shared the last 189px with the
+    # footer 10px off the edge, while the pitch had 46px of headroom above it
+    # to lend.
+    'pitch_x':     0.0100, 'pitch_w':  0.9800, 'pitch_y': 0.1660,
+    'name_y':      0.1383, 'name_size': 16,
+    'val_y':       0.1007, 'val_size':  24,
+    'lab_y':       0.0667, 'lab_size':  16,
     # col_dx 0.115: the 16pt "Non-Pen xG" label needs the wide gap - at 0.100
     # the labels were lint-clean by a sliver and visually fused.
     'centre_x':    (0.255, 0.745), 'col_dx': 0.115,
     'swatch_w':    0.0140, 'swatch_h': 0.0090,
     'extras_size': 16,
+    'footer_y':    0.0233,
 }
 
 
@@ -1314,7 +1433,7 @@ def _combined_portrait(c):
                      _combined_leader_rows(c, layout['lead_n']))
 
     _marker_key_row(fig, layout['key_y'], layout['key_size'])
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=layout.get('footer_y', 0.01))
     return fig
 
 
@@ -1342,17 +1461,29 @@ def _combined_leader_rows(c, limit):
 
 
 def _marker_key_row(fig, y, size):
-    """Marker vocabulary and the size encoding on one line at the foot."""
-    fig.text(0.395, y, 'CIRCLE SIZE = xG', ha='right', va='center',
-             fontsize=size, color=TEXT_MUTED)
-    fig.text(0.485, y, '★', ha='right', va='center',
-             fontsize=size + 5, color=TEXT_SECONDARY)
-    fig.text(0.500, y, 'GOAL', ha='left', va='center', fontsize=size,
-             color=TEXT_MUTED)
-    fig.text(0.595, y, '●', ha='right', va='center', fontsize=size,
-             color=TEXT_SECONDARY)
-    fig.text(0.610, y, 'SHOT', ha='left', va='center', fontsize=size,
-             color=TEXT_MUTED)
+    """Marker vocabulary and the size encoding on one line at the foot.
+
+    The five pieces sit on fixed relative anchors and are then shifted as a
+    unit so the ROW centres on the frame. The anchors alone put the block's
+    optical centre at 0.426 - 100px left of centre on a 1350px frame - inside
+    a stack where the title, subtitle, score row, all three stat rows and the
+    footer centre to within 2px of each other. Measured, not eyeballed, so it
+    stays centred if the strings or the size change.
+    """
+    items = ((0.395, 'CIRCLE SIZE = xG', 'right', size, TEXT_MUTED),
+             (0.485, '\u2605', 'right', size + 5, TEXT_SECONDARY),
+             (0.500, 'GOAL', 'left', size, TEXT_MUTED),
+             (0.595, '\u25cf', 'right', size, TEXT_SECONDARY),
+             (0.610, 'SHOT', 'left', size, TEXT_MUTED))
+    drawn = [fig.text(x, y, txt, ha=ha, va='center', fontsize=fs, color=col)
+             for x, txt, ha, fs, col in items]
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    boxes = [t.get_window_extent(renderer=r).transformed(
+        fig.transFigure.inverted()) for t in drawn]
+    shift = 0.5 - (min(b.x0 for b in boxes) + max(b.x1 for b in boxes)) / 2.0
+    for t, item in zip(drawn, items):
+        t.set_x(item[0] + shift)
 
 
 def _combined_tile(c):
@@ -1447,7 +1578,7 @@ def _combined_tile(c):
     _stats(layout['centre_x'][1], c.name2, c.color2, c.s2, c.shot_goals2,
            c.og2, c.pen2)
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=layout.get('footer_y', 0.01))
     return fig
 
 
@@ -1508,8 +1639,11 @@ def _combined_landscape(c):
     team2_hl_stats = compute_highlight_stats(c.s2, c.highlight_mode)
 
     if c.custom_subtitle:
+        # Fit to the frame - see the sub_floor note on the single-match chart.
         fig.text(0.5, 0.895, c.custom_subtitle, ha='center', va='center',
-                 fontsize=11, color=TEXT_SECONDARY)
+                 fontsize=fit_fontsize(fig, c.custom_subtitle, 11, floor=9,
+                                       bold=False),
+                 color=TEXT_SECONDARY)
     else:
         shot_map_label = "NON-PENALTY SHOT MAP" if c.exclude_penalties else "SHOT MAP"
         subtitle_parts = [shot_map_label]
@@ -1576,7 +1710,10 @@ def _combined_landscape(c):
 
     plt.tight_layout(rect=[0.02, 0.16, 0.98, 0.84])
 
-    add_cbs_footer(fig)
+    # 0.0219 rather than the inherited 0.01: see the note on the single-team
+    # default layout. This frame already had 44px above the footer, so only
+    # the footer and the key line move.
+    add_cbs_footer(fig, y=0.0219)
     # One line at the foot: the highlight breakdown OR the marker key, never
     # both. They previously drew at 0.025 and 0.01 and physically overprinted
     # each other on every highlight-mode render - the season chart documents
@@ -1586,10 +1723,10 @@ def _combined_landscape(c):
                    f"{team1_hl_stats['xg']:.2f}xG · {team1_hl_stats['goals']}g    "
                    f"{c.name2} {team2_hl_stats['shots']}sh · "
                    f"{team2_hl_stats['xg']:.2f}xG · {team2_hl_stats['goals']}g")
-        fig.text(0.5, 0.01, hl_text, ha='center', va='bottom',
+        fig.text(0.5, 0.0219, hl_text, ha='center', va='bottom',
                  fontsize=9, color=TEXT_SECONDARY, style='italic')
     else:
-        fig.text(0.5, 0.01, 'Circle size = xG', ha='center', va='bottom',
+        fig.text(0.5, 0.0219, 'Circle size = xG', ha='center', va='bottom',
                  fontsize=8, color=TEXT_MUTED, style='italic')
 
     return fig
@@ -1789,7 +1926,7 @@ def create_shot_charts(file_path, output_folder=None, competition='', save=True,
         os.makedirs(output_folder, exist_ok=True)
         for fig, filename in results:
             filepath = os.path.join(output_folder, filename)
-            fig.savefig(filepath, dpi=300, bbox_inches='tight',
+            fig.savefig(filepath, dpi=300,
                         facecolor=BG_COLOR, edgecolor='none')
             print(f"Saved: {filepath}")
 
@@ -1851,7 +1988,7 @@ def create_multi_match_charts(file_path, output_folder=None, competition='',
         os.makedirs(output_folder, exist_ok=True)
         for fig, fn in results:
             filepath = os.path.join(output_folder, fn)
-            fig.savefig(filepath, dpi=300, bbox_inches='tight',
+            fig.savefig(filepath, dpi=300,
                         facecolor=BG_COLOR, edgecolor='none')
             print(f"Saved: {filepath}")
 
