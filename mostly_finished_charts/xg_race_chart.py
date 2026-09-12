@@ -15,6 +15,7 @@ from shared.colors import (
     prompt_ambiguous_choice, ensure_line_contrast, separate_line_luminance,
 )
 from shared.styles import (
+    footer_y,
     BG_COLOR, SPINE_COLOR, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
     resolve_figsize, fit_fontsize, draw_event_block,
@@ -2294,7 +2295,14 @@ def create_xg_chart(shots, team_info, goal_scorers=None, red_cards=None,
     if layout['key_y'] is not None:
         _draw_marker_key(fig, layout, _all_events, _RC_COLOR)
 
-    add_cbs_footer(fig)
+    # Per aspect, because only one of them cropped. The verticals have always
+    # saved uncropped, so their margins were reviewed as they stand -
+    # deliberately tight and symmetric, 17px top against 20px bottom on the
+    # 9:8's 2400px frame - and the physical floor would treble the bottom while
+    # leaving the top, turning a balanced frame into a lopsided one. The 16:9
+    # DID crop, so its real margins have never been seen: 50px top against 23px
+    # bottom. That one gets the rule.
+    add_cbs_footer(fig, y=footer_y(fig) if aspect == 'default' else 0.01)
     return fig
 
 
@@ -2354,7 +2362,7 @@ def run(config):
         team2 = team_info['team2']['name'].replace(' ', '_')
         filename = f"xg_race_{team1}_vs_{team2}.png"
         filepath = os.path.join(output_folder, filename)
-        fig.savefig(filepath, dpi=300, bbox_inches='tight',
+        fig.savefig(filepath, dpi=300,
                    facecolor='#1A2332', edgecolor='none')
         print(f"\n[OK] Chart saved as {filepath}")
 
@@ -2401,7 +2409,7 @@ def main():
         filename = input("Filename (default: xg_chart.png): ").strip() or "xg_chart.png"
         if not filename.endswith('.png'):
             filename += '.png'
-        fig.savefig(filename, dpi=300, bbox_inches='tight',
+        fig.savefig(filename, dpi=300,
                    facecolor='#1A2332', edgecolor='none')
         print(f"[OK] Chart saved as {filename}")
 

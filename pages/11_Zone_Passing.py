@@ -86,11 +86,16 @@ def _load_and_aggregate(file_content, team_name, player_name=None,
 
 def _render_chart_with_download(fig, filename):
     """Display a chart and provide a download button."""
-    st.pyplot(fig)
+    # bbox_inches=None is load-bearing: st.pyplot defaults to
+    # {"bbox_inches": "tight", "dpi": 200} and hands them straight to savefig,
+    # so a bare call previews a CROPPED figure rather than the one built here -
+    # and then the download below would be a different image again. Same defect
+    # the pass map had.
+    st.pyplot(fig, bbox_inches=None)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         filepath = os.path.join(tmp_dir, filename)
-        fig.savefig(filepath, dpi=300, bbox_inches='tight',
+        fig.savefig(filepath, dpi=300,
                     facecolor=BG_COLOR, edgecolor='none')
         plt.close(fig)
 

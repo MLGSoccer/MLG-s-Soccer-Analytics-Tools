@@ -20,7 +20,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.styles import BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer
+from shared.styles import (BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY,
+                           add_cbs_footer, footer_y)
 from shared.colors import TEAM_COLORS, fuzzy_match_team, get_team_color
 
 from mostly_finished_charts.passing_flow_chart import (
@@ -599,7 +600,7 @@ def create_zone_overview_chart(pass_df, zone_agg_df, team_name, team_color,
              'Circle size = volume | Fill level = completion % | Color = direction tendency',
              ha='center', va='center', fontsize=8, color=TEXT_SECONDARY)
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
     return fig
 
@@ -770,7 +771,7 @@ def create_zone_detail_chart(pass_df, zone_agg_df, source_zone, team_name,
         fig.text(x_pos, legend_y, label, ha='center', va='center',
                  fontsize=14, fontweight='bold', color=color)
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
     return fig
 
@@ -841,7 +842,7 @@ def run(config):
     )
     filename = f"zone_passing_overview_{safe_name}.png"
     filepath = os.path.join(output_folder, filename)
-    fig.savefig(filepath, dpi=300, bbox_inches='tight',
+    fig.savefig(filepath, dpi=300,
                 facecolor=BG_COLOR, edgecolor='none')
     plt.close(fig)
     print(f"\n[OK] Saved overview: {filepath}")
@@ -867,7 +868,7 @@ def run(config):
             zone_safe = zone_name.replace(' ', '_')
             filename = f"zone_passing_{zone_safe}_{safe_name}.png"
             filepath = os.path.join(output_folder, filename)
-            fig.savefig(filepath, dpi=300, bbox_inches='tight',
+            fig.savefig(filepath, dpi=300,
                         facecolor=BG_COLOR, edgecolor='none')
             plt.close(fig)
             print(f"[OK] Saved detail: {filepath}")

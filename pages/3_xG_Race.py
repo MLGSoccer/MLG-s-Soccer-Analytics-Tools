@@ -68,14 +68,17 @@ def _generate_chart(shots, match_info, team_colors, competition, own_goals_hasha
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         output_path = os.path.join(tmp_dir, filename)
-        # The overlay aspects save UNCROPPED. bbox_inches='tight' trims to the
+        # Every aspect saves UNCROPPED. bbox_inches='tight' trims to the
         # outermost artist, so a 9:8 tile came out at 1.091 rather than 1.125 -
         # 3% off, and drifting further with every header tweak, because the
         # crop depends on what happens to be drawn. These are composited into a
-        # video at a declared shape; the shape has to be the one declared. The
-        # 16:9 keeps the crop it has always had.
-        fig.savefig(output_path, dpi=300,
-                    bbox_inches='tight' if aspect == 'default' else None,
+        # video at a declared shape; the shape has to be the one declared.
+        #
+        # The 16:9 used to keep the crop "it has always had". That was wrong
+        # for the same reason: it is an editorial image dropped into a slot
+        # someone else controls, so its declared shape is a contract too. All
+        # three aspects now save the canvas they declare.
+        fig.savefig(output_path, dpi=300, bbox_inches=None,
                     facecolor=BG_COLOR, edgecolor='none')
         plt.close(fig)
         with open(output_path, "rb") as f:

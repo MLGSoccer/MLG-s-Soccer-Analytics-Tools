@@ -129,6 +129,27 @@ def style_axis_full_grid(ax):
     ax.set_axisbelow(True)
 
 
+FOOTER_MARGIN_IN = 0.19
+
+
+def footer_y(fig, at_least=0.0):
+    """The `y` that puts the footer a FIXED PHYSICAL distance off the bottom.
+
+    `add_cbs_footer` positions by figure FRACTION, so the historic y=0.01 means
+    a different real margin on every figure height - 0.09in on a 9in frame,
+    0.16in on a 16in one, and only 0.06in on a 6in one. Uncropped, that reads
+    as the page running out rather than as a margin, and it is the single most
+    common frame defect across this family: measured bottom margins ran 0-18px
+    at 150dpi while the same charts carried 15-45px at the top.
+
+    0.19in is the value the shot chart's per-aspect tuning converged on
+    independently at all three of its aspects. `at_least` keeps a layout that
+    already clears the floor deliberately - pass its existing fraction and this
+    can only ever raise the footer, never lower it.
+    """
+    return max(at_least, FOOTER_MARGIN_IN / float(fig.get_size_inches()[1]))
+
+
 def add_cbs_footer(fig, data_source='Opta/Stats Perform', x0=0.02, x1=0.98,
                    y=0.01):
     """Add CBS Sports branding footer to figure.
@@ -144,6 +165,9 @@ def add_cbs_footer(fig, data_source='Opta/Stats Perform', x0=0.02, x1=0.98,
     16x9, 0.7pt on a 6x4. On the pass map's 9x8 tile the default put the
     footer's descenders 5px off the bottom against 40px side margins, a 1:8
     ratio that reads as the page running out rather than as a margin.
+
+    The default stays 0.01 so untouched callers render byte-identically. New
+    work should pass `y=footer_y(fig)` instead of a fraction - see above.
     """
     fig.text(x0, y, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
     if data_source:

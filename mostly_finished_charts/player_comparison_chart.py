@@ -14,7 +14,9 @@ import unicodedata
 # Add parent directory for shared imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from shared.styles import BG_COLOR, SPINE_COLOR, CBS_BLUE_LIGHT, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer, BROADCAST_FIGSIZE
+from shared.styles import (BG_COLOR, SPINE_COLOR, CBS_BLUE_LIGHT,
+                           TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer,
+                           footer_y, BROADCAST_FIGSIZE)
 from shared.file_utils import get_file_path, get_output_folder
 from shared.colors import (
     TEAM_COLORS, fuzzy_match_team, check_colors_need_fix,
@@ -722,11 +724,11 @@ def create_category_chart(category_name, metrics, player_row, peer_count, output
     # This standalone panel used to drop the "Percentile rank among Xs"
     # segment, so shared on its own it never said what it was ranked against.
     footer_right = build_footer_text(comparison_position, pool_label)
-    fig.text(0.02, 0.01, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, 0.01, footer_right,
+    fig.text(0.02, footer_y(fig, 0.01), 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, footer_y(fig, 0.01), footer_right,
              fontsize=8, color='#666666', ha='right')
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"  Saved: {output_path}")
     plt.close()
 
@@ -976,11 +978,11 @@ def create_comparison_chart(results, player_row, peer_count, output_path, compar
 
     # Footer
     footer_right = build_footer_text(position, pool_label)
-    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, 0.015, footer_right,
+    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=11, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, footer_y(fig, 0.015), footer_right,
              fontsize=9, color='#666666', ha='right')
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"\nSaved: {output_path}")
     plt.close()
 
@@ -1340,9 +1342,11 @@ def create_comparison_aspect_chart(results, player_row, peer_count, output_path,
     scope, source = footer_segments(position, pool_label)
     fig.text(0.5, L['footer_scope_y'], scope, ha='center',
              fontsize=L['footer_size'], color=LABEL_GREY)
-    fig.text(0.048, 0.018, 'CBS SPORTS', fontsize=L['brand_size'],
+    fig.text(0.048, footer_y(fig, 0.018), 'CBS SPORTS',
+             fontsize=L['brand_size'],
              fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(1 - 0.048, 0.018, source, fontsize=L['footer_size'],
+    fig.text(1 - 0.048, footer_y(fig, 0.018), source,
+             fontsize=L['footer_size'],
              color='#666666', ha='right')
 
     plt.savefig(output_path, dpi=L['dpi'], facecolor=BG_COLOR,
@@ -1946,10 +1950,10 @@ def create_multi_player_comparison_chart(results_by_player, player_rows, peer_co
     # sides of the frame.
     fig.text(info_x, 0.015, footer_right, fontsize=8, color='#666666',
              ha='right')
-    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold',
+    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=10, fontweight='bold',
              color=CBS_BLUE_LIGHT)
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"\nSaved: {output_path}")
     plt.close()
 
@@ -2040,11 +2044,11 @@ def create_multi_player_category_chart(category, results_by_player, player_rows,
 
     # Footer
     footer_right = build_footer_text(comparison_position, pool_label)
-    fig.text(0.02, 0.015, 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
-    fig.text(0.98, 0.015, footer_right,
+    fig.text(0.02, footer_y(fig, 0.015), 'CBS SPORTS', fontsize=10, fontweight='bold', color=CBS_BLUE_LIGHT)
+    fig.text(0.98, footer_y(fig, 0.015), footer_right,
              fontsize=8, color='#666666', ha='right')
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"  Saved: {output_path}")
     plt.close()
 

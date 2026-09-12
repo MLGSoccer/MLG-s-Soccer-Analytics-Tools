@@ -23,6 +23,7 @@ from shared.styles import (
     BG_COLOR, style_axis, add_cbs_footer, TEXT_PRIMARY, TEXT_MUTED,
     GRID_COLOR,
     BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, TEXT_SECONDARY, SPINE_COLOR,
+    footer_y,
 )
 from shared.file_utils import get_file_path, get_output_folder
 # One home for the rolling window and the season split - this file used to
@@ -759,9 +760,9 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
              ha='center', fontsize=13, color=TEXT_SECONDARY)
 
     # Footer
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"\nSaved: {output_path}")
     plt.close()
 
@@ -838,11 +839,11 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     _add_team_color_bar(fig1, title1, color_for, bar_y=0.895)
     fig1.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE | {len(matches)} MATCHES',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
-    add_cbs_footer(fig1)
+    add_cbs_footer(fig1, y=footer_y(fig1))
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path1 = os.path.join(output_folder, "rolling_xg_difference.png")
-    plt.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path1}")
     plt.close()
 
@@ -880,11 +881,11 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     _add_team_color_bar(fig2, title2, color_for, bar_y=0.895)
     fig2.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE | {len(matches)} MATCHES',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
-    add_cbs_footer(fig2)
+    add_cbs_footer(fig2, y=footer_y(fig2))
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path2 = os.path.join(output_folder, "rolling_xg_for_against.png")
-    plt.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path2}")
     plt.close()
 
@@ -924,11 +925,11 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     _add_team_color_bar(fig3, title3, color_for, bar_y=0.895)
     fig3.text(0.5, 0.86, f'{season_text}{window}-GAME ROLLING AVERAGE | {len(matches)} MATCHES',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
-    add_cbs_footer(fig3)
+    add_cbs_footer(fig3, y=footer_y(fig3))
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path3 = os.path.join(output_folder, "rolling_xg_combined.png")
-    plt.savefig(path3, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path3, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path3}")
     plt.close()
 
@@ -958,11 +959,11 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
     _add_team_color_bar(fig4, title4, color_for, bar_y=0.895)
     fig4.text(0.5, 0.86, f'{season_text}{len(matches)} MATCHES',
               ha='center', fontsize=12, color=TEXT_SECONDARY)
-    add_cbs_footer(fig4)
+    add_cbs_footer(fig4, y=footer_y(fig4))
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path4 = os.path.join(output_folder, "rolling_xg_cumulative.png")
-    plt.savefig(path4, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path4, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path4}")
     plt.close()
 
@@ -1237,7 +1238,7 @@ def create_aspect_chart(matches, team_name, team_color, output_path, window=10,
             ax.plot([n[drawn[-1]]], [series[drawn[-1]]], 'o', color=col,
                     ms=L['endpoint_ms'], zorder=6)
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
     plt.savefig(output_path, dpi=L['dpi'], facecolor=BG_COLOR, edgecolor='none')
     print(f'Saved: {output_path}')
     plt.close(fig)

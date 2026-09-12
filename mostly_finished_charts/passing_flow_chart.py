@@ -17,7 +17,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.styles import BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, add_cbs_footer
+from shared.styles import (BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY,
+                           add_cbs_footer, footer_y)
 from shared.colors import TEAM_COLORS, fuzzy_match_team, get_team_color
 
 
@@ -829,7 +830,7 @@ def create_passing_flow_chart(pass_df, team_name, team_color, match_info,
 
     plt.tight_layout(rect=[0.02, 0.04, 0.98, 0.90])
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
     return fig
 
@@ -995,7 +996,7 @@ def run(config):
     filepath = os.path.join(output_folder, filename)
 
     os.makedirs(output_folder, exist_ok=True)
-    fig.savefig(filepath, dpi=300, bbox_inches='tight',
+    fig.savefig(filepath, dpi=300,
                 facecolor=BG_COLOR, edgecolor='none')
     plt.close(fig)
     print(f"\n[OK] Saved: {filepath}")

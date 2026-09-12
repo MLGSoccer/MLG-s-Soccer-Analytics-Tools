@@ -26,6 +26,7 @@ from shared.styles import (
     TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED,
     add_cbs_footer, render_two_team_score_header, resolve_figsize,
     fit_fontsize, draw_event_block,
+    footer_y,
 )
 from shared.colors import check_color_similarity, ensure_line_contrast
 # The xG race is this chart's chronological sibling: same axis, same event
@@ -834,7 +835,7 @@ def _draw_momentum_chart(momentum, match_info, goal_scorers,
             x += w + gap
 
     # ── Footer (standard convention) ──────────────────────────────────────────────
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
     return fig
 
@@ -948,7 +949,7 @@ def _render_and_store(events_df, match_info, goal_scorers, own_goals, red_cards,
 
     with tempfile.TemporaryDirectory() as td:
         fp = os.path.join(td, fname)
-        fig.savefig(fp, dpi=300, bbox_inches="tight",
+        fig.savefig(fp, dpi=300,
                     facecolor=BG_COLOR, edgecolor="none")
         with open(fp, "rb") as f:
             img_bytes = f.read()

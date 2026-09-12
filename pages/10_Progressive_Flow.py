@@ -157,7 +157,7 @@ if uploaded_file is not None:
                                 safe_name = selected_team.replace(' ', '_').replace('/', '-')
                                 filename = f"progressive_flow_{safe_name}.png"
                                 filepath = os.path.join(tmp_dir, filename)
-                                fig.savefig(filepath, dpi=300, bbox_inches='tight',
+                                fig.savefig(filepath, dpi=300,
                                             facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(fig)
                                 with open(filepath, "rb") as f:
@@ -167,7 +167,7 @@ if uploaded_file is not None:
                             ref_fig = create_zone_reference_figure(team_color)
                             with tempfile.TemporaryDirectory() as tmp_dir:
                                 ref_path = os.path.join(tmp_dir, "zone_ref.png")
-                                ref_fig.savefig(ref_path, dpi=300, bbox_inches='tight',
+                                ref_fig.savefig(ref_path, dpi=300,
                                                 facecolor=BG_COLOR, edgecolor='none')
                                 plt.close(ref_fig)
                                 with open(ref_path, "rb") as f:

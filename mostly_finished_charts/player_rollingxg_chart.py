@@ -38,6 +38,7 @@ from shared.styles import (
     BG_COLOR, SPINE_COLOR, style_axis, GRID_COLOR,
     add_cbs_footer, BROADCAST_FIGSIZE, DASHBOARD_FIGSIZE, TEXT_SECONDARY,
     TEXT_PRIMARY, TEXT_MUTED,
+    footer_y,
 )
 from matplotlib.lines import Line2D
 from matplotlib.patches import Rectangle
@@ -629,7 +630,12 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
 
     # Adjust grid top based on whether info strip is shown
     grid_top = 0.78 if has_player_info else 0.82
-    gs = fig.add_gridspec(2, 2, hspace=0.55, wspace=0.25, top=grid_top)
+    # bottom=0.155, not matplotlib's default 0.11: the bottom-row panels
+    # hang their legends below the axes (bbox_to_anchor -0.22 and -0.30)
+    # and at the default the lower legend box reached row 0 of the canvas.
+    # The crop used to hide that by widening the saved image around it.
+    gs = fig.add_gridspec(2, 2, hspace=0.55, wspace=0.25, top=grid_top,
+                          bottom=0.155)
 
     empty_from = _first_undrawn_match(season_segments, MIN_LEAD_IN_SAMPLES)
     L = _DASH_TYPE
@@ -784,7 +790,11 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
     total_xg = s['total_xg']
 
     # Header: kicker → title (matches xG race / momentum / team-rolling convention)
-    fig.text(0.5, 0.99, 'PLAYER ROLLING xG', fontsize=11, fontweight='bold',
+    # 0.9737, not 0.99: at 0.99 the kicker's ink stopped 3px short of the
+    # canvas top on this 1100px frame, which reads as clipped now that nothing
+    # crops. This puts it the same 0.19in off the top edge that footer_y puts
+    # the credit off the bottom.
+    fig.text(0.5, 0.9737, 'PLAYER ROLLING xG', fontsize=11, fontweight='bold',
              color=TEXT_SECONDARY, ha='center', va='center')
     title_obj = fig.text(
         0.5, 0.95, custom_title or f'{player_name.upper()}  •  {team_name.upper()}',
@@ -844,9 +854,9 @@ def create_rolling_charts(matches, player_name, team_name, team_color, season, o
                  ha='center', fontsize=11, color='white', fontweight='bold')
 
     # Footer (standard convention)
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
 
-    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"\nSaved: {output_path}")
     plt.close()
 
@@ -987,11 +997,11 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     _draw_club_changes(ax1, s['club_changes'], L['tick'])
 
     layout_rect = add_info_strip_to_figure(fig1, f'GOALS/90 vs xG/90  •  {window}-GAME ROLLING', title_base, subtitle)
-    add_cbs_footer(fig1)
+    add_cbs_footer(fig1, y=footer_y(fig1))
 
     plt.tight_layout(rect=layout_rect)
     path1 = os.path.join(output_folder, "player_goals_vs_xg_rolling.png")
-    plt.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path1}")
     plt.close()
 
@@ -1027,11 +1037,11 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     _draw_club_changes(ax2, s['club_changes'], L['tick'])
 
     layout_rect = add_info_strip_to_figure(fig2, 'xG TREND', title_base, subtitle)
-    add_cbs_footer(fig2)
+    add_cbs_footer(fig2, y=footer_y(fig2))
 
     plt.tight_layout(rect=layout_rect)
     path2 = os.path.join(output_folder, "player_xg_per90_trend.png")
-    plt.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path2}")
     plt.close()
 
@@ -1086,11 +1096,11 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
     _draw_club_changes(ax3, s['club_changes'], L['tick'])
 
     layout_rect = add_info_strip_to_figure(fig3, 'SHOT VOLUME & QUALITY', title_base, subtitle)
-    add_cbs_footer(fig3)
+    add_cbs_footer(fig3, y=footer_y(fig3))
 
     plt.tight_layout(rect=layout_rect)
     path3 = os.path.join(output_folder, "player_shot_volume_quality.png")
-    plt.savefig(path3, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path3, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path3}")
     plt.close()
 
@@ -1108,11 +1118,11 @@ def create_individual_charts(matches, player_name, team_name, team_color, season
 
     layout_rect = add_info_strip_to_figure(
         fig4, f'LAST {n_shown} MATCHES  •  vs HIS AVERAGE', title_base, subtitle)
-    add_cbs_footer(fig4)
+    add_cbs_footer(fig4, y=footer_y(fig4))
 
     plt.tight_layout(rect=layout_rect)
     path4 = os.path.join(output_folder, "player_last10_vs_avg.png")
-    plt.savefig(path4, dpi=300, facecolor=BG_COLOR, edgecolor='none', bbox_inches='tight')
+    plt.savefig(path4, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path4}")
     plt.close()
 
@@ -1324,7 +1334,7 @@ def create_aspect_chart(matches, player_name, team_name, team_color,
             ax.plot([n[drawn[-1]]], [series[drawn[-1]]], 'o', color=col,
                     ms=L['endpoint_ms'], zorder=6)
 
-    add_cbs_footer(fig)
+    add_cbs_footer(fig, y=footer_y(fig))
     plt.savefig(output_path, dpi=L['dpi'], facecolor=BG_COLOR, edgecolor='none')
     print(f'Saved: {output_path}')
     plt.close(fig)
