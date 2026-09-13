@@ -1361,7 +1361,9 @@ def _body_landscape(fig, L, C):
         fig.canvas.draw()
         right -= (pct.get_window_extent(fig.canvas.get_renderer())
                   .transformed(fig.transFigure.inverted()).width + 0.014)
-        _text(fig, right, base, f"of {n_pop:,}", L['value_size'],
+        _text(fig, right, base,
+              f"of {n_pop:,} completed" if C.get('base_completed')
+              else f"of {n_pop:,}", L['value_size'],
               TEXT_SECONDARY, ha='right', va='baseline')
     # Rides UP to the number's own baseline when the "of N" line is absent.
     # Unfiltered, it sat alone 19px below the figure with 235px of void to its
@@ -1620,7 +1622,8 @@ def _body_stacked(fig, L, C):
         # on the one chart where the denominator is a single player's passes
         # and not the club's. The scope line cannot cover for it: it says
         # LIVERPOOL · 38 MATCHES, never whose passes these are.
-        sub = f"{100.0 * n_shown / n_pop:.1f}% of {n_pop:,} {sub}"
+        _base = f"{n_pop:,} completed" if C.get('base_completed') else f"{n_pop:,}"
+        sub = f"{100.0 * n_shown / n_pop:.1f}% of {_base} {sub}"
     if L['hero_lead']:
         _text(fig, lx, hero_base - L['hero_lead'], sub, L['value_size'],
               TEXT_SECONDARY, va='baseline')
@@ -1748,6 +1751,7 @@ _BODIES = {'stacked': _body_stacked}
 
 
 def create_pass_map(shown, info, team_color, *, n_population=None,
+                    base_completed=False,
                     caption_text='', filter_text=None, players=None,
                     receivers=None, player_labels=None, competition='',
                     custom_title=None, custom_subtitle=None, aspect='default'):
@@ -1844,6 +1848,11 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
 
     ctx = {
         'shown': shown, 'info': info, 'n_shown': n_shown, 'n_pop': n_pop,
+        # Whether n_pop is the COMPLETED count rather than every pass. Five
+        # filters can only ever select passes that arrived, and measuring
+        # them against a pool that includes the ones that did not understates
+        # the share by about a fifth. See pass_filters.completed_base.
+        'base_completed': bool(base_completed),
         'players': list(players or []), 'receivers': list(receivers or []),
         'color_for': color_for, 'identity': bool(legend_entries),
         'swatch_colour': swatch_colour, 'accent': accent,

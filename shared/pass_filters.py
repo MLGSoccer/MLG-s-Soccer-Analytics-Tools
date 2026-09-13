@@ -242,7 +242,7 @@ class Filter:
 
     def __init__(self, fid, label, group, kind, resolver,
                  options=None, phrase=None, note=None, option_labels=None,
-                 negate=False, keep_case=False):
+                 negate=False, keep_case=False, completed_only=False):
         self.id, self.label, self.group = fid, label, group
         self.kind, self.resolver = kind, resolver
         self.options = options or []
@@ -252,6 +252,14 @@ class Filter:
         # Player names are proper nouns; lower-casing them turned "Mohamed
         # Salah" into "mohamed salah" in the caption.
         self.keep_case = keep_case
+        # Can this filter EVER select a pass that did not arrive? Five cannot,
+        # and it is a property of the definition rather than of any one
+        # match's data: `progressive` because TruMedia's equation starts from
+        # completed passes, the other four because the feed only records the
+        # thing when the ball got there. Declared, not inferred - at ~80%
+        # completion a three-pass cut is all-completed BY CHANCE half the
+        # time, so reading it off the drawn set gets it wrong at small n.
+        self.completed_only = completed_only
         self.note = note
 
     def mask(self, df, value):
@@ -338,6 +346,7 @@ FILTERS = [
     # -- Vector
     Filter('progressive', 'Progressive', VECTOR, 'flag',
            lambda d: d['progressive'], phrase='progressive',
+           completed_only=True,
            note="TruMedia's ProgPass equation, reproduced at 89.1% exact."),
     Filter('direction', 'Direction', VECTOR, 'multi',
            lambda d: d['direction'], ['Forward', 'Square', 'Backward'],
@@ -390,7 +399,7 @@ FILTERS = [
            note='NULL means zero - no explicit zeros are stored.'),
     Filter('last_line', 'Beat the last line', ATTRIBUTES, 'flag',
            lambda d: d.get('LastLineBroken', pd.Series(None, index=d.index)).eq('last'),
-           phrase='beating the last line'),
+           phrase='beating the last line', completed_only=True),
 
     # -- Receiver. The other end of the pass, and it only exists on completed
     # ones: measured, ZERO of 1.06M failed passes carry a receiver, so naming
@@ -399,7 +408,7 @@ FILTERS = [
     # Salah" and quietly include none of the attempts that missed him.
     Filter('receiver', 'Received by', RECEIVER, 'multi',
            lambda d: d.get('receiver'), [], phrase='completed to {}',
-           keep_case=True,
+           keep_case=True, completed_only=True,
            note='Only completed passes name a receiver, so this always implies '
                 'completion. 0.26% of completed passes carry no named receiver '
                 'and fall outside any selection here.'),
@@ -413,12 +422,14 @@ FILTERS = [
     # -- Consequence
     Filter('shot_assist', 'Shot assist', CONSEQUENCE, 'flag',
            lambda d: d['shot_assist'], phrase='shot assists',
+           completed_only=True,
            note='ChanceCreated OR IsAssist. Verified disjoint - using either '
                 'alone silently drops half the concept.'),
     Filter('assist', 'Assist', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'IsAssist'), phrase='assists'),
     Filter('led_to_shot', 'Led to a shot', CONSEQUENCE, 'flag',
-           lambda d: d['led_to_shot'], phrase='that led to a shot'),
+           lambda d: d['led_to_shot'], phrase='that led to a shot',
+           completed_only=True),
     Filter('led_to_goal', 'Led to a goal', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'SequenceScoredGoal'), phrase='that led to a goal'),
     Filter('reached_box', 'Sequence reached the box', CONSEQUENCE, 'flag',
@@ -539,7 +550,41 @@ def filter_phrase(phrases, match_all=True, skip=()):
     return body if match_all else f"ANY OF: {body}"
 
 
-def caption(n_shown, n_total, phrases, match_all=True):
+def implies_completion(selections) -> bool:
+    """Does this selection restrict the cut to completed passes only?
+
+    True if ANY selected filter declares `completed_only` - the property
+    composes, because narrowing an already-completed set keeps it completed.
+    An explicit `completed` choice is excluded: that is the reader's own cut,
+    not a hidden one, and the chart should not tell them their own filter is
+    implied.
+    """
+    for fid, val in (selections or {}).items():
+        if fid == 'completed' or not val:
+            continue
+        f = BY_ID.get(fid)
+        if f is not None and getattr(f, 'completed_only', False):
+            return True
+    return False
+
+
+def completed_base(population, selections):
+    """The denominator this cut should be measured against.
+
+    Five filters can only ever select passes that arrived, so dividing them
+    by ALL passes measures them against a pool containing rows they could
+    never have been drawn from. Liverpool 492 passes, 395 completed: the 45
+    progressive ones printed as "9.1% of 492" when like-for-like is 11.4% of
+    395 - understated by a fifth, with nothing on the frame to say so.
+
+    Returns (n_base, is_completed_base).
+    """
+    if not implies_completion(selections) or 'completed' not in population:
+        return len(population), False
+    return int(population['completed'].sum()), True
+
+
+def caption(n_shown, n_total, phrases, match_all=True, base_completed=False):
     """The sentence that makes the marks mean something.
 
     Always carries the denominator. "218 of 1,004 passes (21.7%)" is the
@@ -559,7 +604,11 @@ def caption(n_shown, n_total, phrases, match_all=True):
         # like a missing element rather than an absent filter.
         return "ALL PASSES"
     pct = (100.0 * n_shown / n_total) if n_total else 0.0
-    head = f"{n_shown:,} of {n_total:,} passes ({pct:.1f}%)"
+    # THE BASE NAMES ITSELF when the cut moved it. "of 395 completed passes"
+    # fixes the arithmetic and says why in the same breath; a bare "of 395"
+    # would leave a reader wondering what happened to the other 97.
+    noun = "completed passes" if base_completed else "passes"
+    head = f"{n_shown:,} of {n_total:,} {noun} ({pct:.1f}%)"
     joiner = " and " if match_all else " or "
     body = joiner.join(phrases)
     return f"{head} - {body}" if body else head

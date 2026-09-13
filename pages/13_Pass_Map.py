@@ -187,7 +187,13 @@ shown, phrases = pf.apply_filters(population, selections, match_all)
 # ratio, used for the no-results warning below; `filter_text` is the qualifier
 # list alone, which is what the chart's header wants - the counts are already
 # the biggest number in its panel.
-caption = pf.caption(len(shown), len(population), phrases, match_all)
+# THE BASE THE CUT CAME FROM. Five filters can only ever select passes that
+# arrived, so dividing them by every pass measures them against rows they
+# could never have been drawn from - Liverpool's 45 progressive passes read
+# "9.1% of 492" when like-for-like is 11.4% of the 395 completed.
+n_base, base_completed = pf.completed_base(population, selections)
+caption = pf.caption(len(shown), n_base, phrases, match_all,
+                     base_completed=base_completed)
 # Receivers are IDENTITY, so the chart puts them in the title alongside the
 # passers - which means the filter line must not also say "completed to X".
 receivers = list(selections.get('receiver') or [])
@@ -235,7 +241,8 @@ if shown.empty:
     st.warning(f"No passes match those filters. {caption}")
     st.stop()
 
-fig = create_pass_map(shown, info, team_color, n_population=len(population),
+fig = create_pass_map(shown, info, team_color, n_population=n_base,
+                      base_completed=base_completed,
                       caption_text=caption, filter_text=filter_text,
                       players=players, receivers=receivers,
                       player_labels=player_labels, competition=competition,
