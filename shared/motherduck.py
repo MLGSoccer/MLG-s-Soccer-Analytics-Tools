@@ -1769,16 +1769,21 @@ def get_team_rolling_xg_data(team_id, season_id=None):
     """Return per-game xG data for a team, ready for the rolling xG chart.
 
     Aggregates shot xG from the events table joined with games.
-    season_id=None returns all seasons; pass a specific season_id to filter.
+    season_id=None returns all seasons; pass a specific season_id to filter,
+    or a list/tuple of them - a club's season is more than one competition,
+    and the page's picker now hands over exactly the set the user ticked.
+    The chart already captions a multi-competition mix (see rolling.py), so
+    the only thing that was single-season here was this WHERE clause.
 
     Returns (matches, team_name, team_color) where matches is a list of dicts:
         {date, opponent, is_home, xg_for, xg_against, goals_for, goals_against, season}
     """
     con = get_connection()
-    season_filter = "AND g.seasonId = ?" if season_id else ""
-    params = [team_id, team_id, team_id, team_id]
-    if season_id:
-        params.append(season_id)
+    season_ids = ([season_id] if isinstance(season_id, str)
+                  else [s for s in (season_id or []) if s])
+    season_filter = (f"AND g.seasonId IN ({','.join('?' * len(season_ids))})"
+                     if season_ids else "")
+    params = [team_id, team_id, team_id, team_id, *season_ids]
 
     rows = con.execute(f"""
         SELECT

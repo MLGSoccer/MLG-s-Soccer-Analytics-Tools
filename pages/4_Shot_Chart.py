@@ -28,6 +28,7 @@ from mostly_finished_charts.shot_chart import (
 from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, season_label, season_competition,
+    season_competitions,
     build_shot_chart_single, build_shot_chart_multi, build_shots_for_player,
     get_appearances_for_game,
     get_player_game_count, get_player_total_minutes, get_player_all_minutes,
@@ -584,30 +585,48 @@ if data_source == "Database":
             season_filter_col, comp_col = st.columns([1, 2])
 
             with season_filter_col:
+                # ANY SET. "All competitions" or exactly one meant that a
+                # club's league and cup from the same campaign could only be
+                # drawn together with every other season it has - and then
+                # only by deselecting the rest game by game below. Defaults
+                # to everything, as "All competitions" did.
+                selected_season_ids: list = []
                 if unique_seasons:
-                    season_display_options = ["All competitions"] + list(unique_seasons.values())
-                    selected_season_filter = st.selectbox("Competition filter", options=season_display_options)
-                    selected_season_id = None
-                    if selected_season_filter != "All competitions":
-                        selected_season_id = next(
-                            (k for k, v in unique_seasons.items() if v == selected_season_filter), None
-                        )
-                else:
-                    selected_season_filter = "All competitions"
-                    selected_season_id = None
+                    labels_all = list(unique_seasons.values())
+                    chosen = st.multiselect(
+                        "Competition filter", options=labels_all,
+                        default=labels_all,
+                        help="Untick to narrow. Concurrent competitions - the "
+                             "league and the cup from one campaign - make one "
+                             "chart.")
+                    if not chosen:
+                        st.info("Pick at least one competition.")
+                        st.stop()
+                    selected_season_ids = [k for k, v in unique_seasons.items()
+                                           if v in chosen]
+                # Kept for the two readers below: None still means "every
+                # season this club has", exactly as it did.
+                selected_season_id = (
+                    None if len(selected_season_ids) == len(unique_seasons)
+                    else selected_season_ids)
 
             # Filter game list
             filtered_games = (
-                [g for g in games if g.get('season_id') == selected_season_id]
-                if selected_season_id else games
+                [g for g in games if g.get('season_id') in selected_season_ids]
+                if selected_season_ids else games
             )
 
             with comp_col:
+                # NAME EVERY COMPETITION PICKED. The old default read the
+                # team's league bucket whenever more than one season was in
+                # play, which labelled a Premier League + Champions League
+                # chart "PREMIER LEAGUE". season_competitions() joins them; it
+                # collapses duplicates, so ticking every season a club has
+                # still yields one name per competition.
                 comp_default = (
-                    season_competition([selected_season_id])
-                    if selected_season_id
-                    else selected_league or ""
-                ) or selected_league or ""
+                    season_competitions(selected_season_ids)
+                    or selected_league or ""
+                )
                 competition = st.text_input(
                     "Competition Name",
                     value=comp_default,

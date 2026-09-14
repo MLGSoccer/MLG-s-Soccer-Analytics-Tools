@@ -228,13 +228,29 @@ if data_source == "Database":
         if sid and sid not in seen_seasons:
             seen_seasons[sid] = sname
 
+    # ANY SET, not all-or-one. The old selectbox offered "All seasons" or
+    # exactly one, so Liverpool's Premier League AND Champions League from
+    # the same campaign - the pair the chart's caption already knows how to
+    # name - could only be drawn together with every other season in the
+    # database. Defaults to everything, as "All seasons" did, so nobody's
+    # existing chart changes; untick to narrow.
     selected_season_id = None
     if len(seen_seasons) > 1:
         season_display = {name: sid for sid, name in seen_seasons.items()}
-        season_options = ["All seasons"] + sorted(season_display.keys(), reverse=True)
-        chosen = st.selectbox("Season / Competition", season_options)
-        if chosen != "All seasons":
-            selected_season_id = season_display[chosen]
+        season_options = sorted(season_display.keys(), reverse=True)
+        chosen = st.multiselect(
+            "Season / Competition", options=season_options,
+            default=season_options,
+            help="Untick to narrow. Two concurrent competitions - the league "
+                 "and the cup from one campaign - make one chart; the caption "
+                 "names both.")
+        if not chosen:
+            st.info("Pick at least one season.")
+            st.stop()
+        # None means "no filter", which the data function reads as every
+        # season - the same query as before when everything is ticked.
+        if len(chosen) < len(season_options):
+            selected_season_id = [season_display[c] for c in chosen]
     elif len(seen_seasons) == 1:
         only_name = list(seen_seasons.values())[0]
         if only_name:
