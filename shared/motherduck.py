@@ -178,14 +178,16 @@ def _get_team_league(season_ids):
 # -- Connection ----------------------------------------------------------------
 
 @st.cache_resource
-def get_connection():
-    """Open a cached MotherDuck connection for the Streamlit session.
+def _base_connection():
+    """The ONE authenticated DuckDB/MotherDuck connection for the process.
 
     SOCCER_DB_PATH overrides the cloud connection with a local DuckDB file.
     The local mirror uses identical table and column names, so every query in
     this module works unchanged against it. Used to exercise the chart code
     against a candidate schema without touching production, and to develop
     locally without spending MotherDuck quota. Unset = normal cloud behaviour.
+
+    Never hand this object to a caller. See get_connection.
     """
     local = os.environ.get("SOCCER_DB_PATH")
     if local:
@@ -194,6 +196,32 @@ def get_connection():
     if not token:
         raise ValueError("MOTHERDUCK_TOKEN not found in Streamlit secrets.")
     return duckdb.connect(f"md:soccer?motherduck_token={token}")
+
+
+def get_connection():
+    """A per-caller cursor on the shared connection. Thread-safe.
+
+    This used to RETURN the cached connection itself, so every Streamlit
+    session thread in the process executed on one DuckDBPyConnection at
+    once. That object is not safe for concurrent use: one thread's execute()
+    replaces the result set another thread is mid-fetch on, and under
+    contention the process dies natively. Reproduced 2026-09-14 against the
+    local mirror with 8 threads on one connection - one run exited with no
+    output at all, another completed 88 of 320 queries with seven threads
+    throwing "No open result set". The same script with a cursor per thread
+    ran 320/320 clean, three times. Production segfaulted the same day, right
+    after a cold-cache redeploy took three page loads in quick succession,
+    and stayed down - run-streamlit.sh does not restart on a native crash.
+
+    `.cursor()` is DuckDB's documented answer: a new connection sharing the
+    base's database and auth, created in ~0ms (measured against MotherDuck),
+    private to whoever asked for it. Callers use it exactly as before.
+    """
+    return _base_connection().cursor()
+
+
+# test_fallback_readers.py clears the cache by name; keep that working.
+get_connection.clear = _base_connection.clear
 
 
 # -- Team and league data ------------------------------------------------------
