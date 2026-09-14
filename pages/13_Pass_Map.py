@@ -11,6 +11,8 @@ Every control below is generated from shared.pass_filters.FILTERS. Adding a
 filter there adds it here; there is no second list to keep in step.
 """
 import math
+
+import pandas as pd
 import os
 import sys
 import tempfile
@@ -164,12 +166,18 @@ for group in pf.GROUPS:
                                                   key=key, help=f.note)
             else:
                 col = f.resolver
-                hi = float(population[col].max()) if col in population else 0.0
-                # Two ways this used to take the page down, both reachable by
-                # picking one passer. An all-NaN column returns NaN from max(),
-                # and `NaN <= 0` is False, so it walked straight past the
-                # guard; and a real but tiny maximum - one pass with xA 0.004 -
-                # ROUNDED to 0.0, so min and max were both 0.0.
+                _mx = population[col].max() if col in population else 0.0
+                # THREE ways this has taken the page down. An all-NaN column
+                # returns NaN from max(), and `NaN <= 0` is False, so it walked
+                # straight past the guard; a real but tiny maximum - one pass
+                # with xA 0.004 - ROUNDED to 0.0, so min and max were both
+                # 0.0; and the sibling of the first: DuckDB returns an INTEGER
+                # column holding NULLs as pandas' nullable Int32, whose all-null
+                # max() is pd.NA, not NaN - and float(pd.NA) RAISES before any
+                # guard runs. LinesBroken is 0 of 318 on a Championship match
+                # (the feed does not record it there), so float() never got as
+                # far as the isfinite test. pd.isna covers NaN, NA and None.
+                hi = 0.0 if pd.isna(_mx) else float(_mx)
                 if not math.isfinite(hi) or hi <= 0:
                     continue
                 step = 0.01 if hi <= 1.5 else 1.0
