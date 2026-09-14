@@ -25,7 +25,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, season_label, build_pass_map,
-    season_competition, get_player_full_names,
+    season_competition, season_competitions, get_player_full_names,
 )
 from shared import pass_filters as pf
 from mostly_finished_charts.pass_map_chart import create_pass_map, MAX_PLAYERS
@@ -72,11 +72,28 @@ seasons = {g['season_id']: season_label(g['season_id'], g.get('season_name'))
            for g in games if g.get('season_id')}
 s1, s2 = st.columns([2, 3])
 with s1:
-    season_id = None
+    # ONE OR MORE. A club's season is not one competition: Liverpool's
+    # 2025/26 is 38 Premier League matches AND 12 Champions League ones, and
+    # a single selectbox could only ever draw one of them. A multiselect
+    # defaults to the most recent season (the games arrive newest-first, so
+    # the dict does too) and lets the user add the concurrent cup beside it.
+    # Nothing downstream changes shape - build_pass_map takes game ids, the
+    # season span is read off the drawn rows, and the header's competition is
+    # every competition picked, in the order they were picked.
+    season_ids: list = []
     if seasons:
-        picked = st.selectbox("Season / competition", options=list(seasons.values()))
-        season_id = next(k for k, v in seasons.items() if v == picked)
-in_season = [g for g in games if g.get('season_id') == season_id] if season_id else games
+        labels = list(seasons.values())
+        picked = st.multiselect(
+            "Season / competition", options=labels, default=labels[:1],
+            help="Pick more than one to put concurrent competitions on one "
+                 "chart - the Premier League and the Champions League from "
+                 "the same season, say.")
+        season_ids = [k for k, v in seasons.items() if v in picked]
+        if not season_ids:
+            st.info("Pick at least one season.")
+            st.stop()
+in_season = ([g for g in games if g.get('season_id') in season_ids]
+             if season_ids else games)
 
 if mode == "Single match":
     with s2:
@@ -237,8 +254,14 @@ aspect = {"Vertical (9:16)": "9x16", "Tile (9:8)": "9x8"}.get(
 # bucket is the Premier League, so a Champions League tie was labelled with
 # both - the bucket says where a club plays domestically, not what this match
 # was. See split_season_label.
+# And when more than one season is picked, NAME THEM ALL. season_competition
+# returns '' when seasons disagree, and the old fallback to the league bucket
+# would have labelled a Premier League + Champions League chart "PREMIER
+# LEAGUE" - the exact mistake the note above describes, arrived at by a
+# different road.
 competition = st.sidebar.text_input(
-    "Competition name", value=season_competition([season_id]) or league or "")
+    "Competition name",
+    value=season_competitions(season_ids) or league or "")
 title, subtitle = custom_title_inputs(
     "pass_map", (info.get('team_name') or '').upper(),
     "")

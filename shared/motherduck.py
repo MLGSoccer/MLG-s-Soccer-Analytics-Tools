@@ -601,6 +601,34 @@ def season_competition(season_ids):
     return comps.pop() if len(comps) == 1 else ''
 
 
+def season_competitions(season_ids):
+    """Every competition these seasons belong to, joined for a header.
+
+    The sibling above returns '' when the seasons DISAGREE, and its callers
+    lean on that - rolling.py drops the blank and falls back. A chart that
+    was deliberately built across two competitions needs the opposite: the
+    Premier League and the Champions League on one pass map is a choice, and
+    the header has to name both, in the order the seasons were picked.
+    'Premier League + UEFA Champions League'.
+    """
+    cfg = _load_config()
+    names = cfg.get('seasons', {})
+    leagues = cfg.get('season_leagues', {})
+    out = []
+    for s in dict.fromkeys(season_ids):
+        if not s:
+            continue
+        comp = split_season_label(names.get(s), leagues.get(s))[0]
+        if comp and comp not in out:
+            out.append(comp)
+    # "+", not the middle dot. The chart's context line already separates
+    # its KINDS with a dot - "50 MATCHES . competition . 2025/26" - so a dot
+    # inside the competition made two competitions read as two kinds. The
+    # plus says "both", and it is the same joiner the season descriptor
+    # grammar uses on the Double Pivot side.
+    return ' + '.join(out)
+
+
 @st.cache_data(ttl=3600)
 def season_span_label(season_ids):
     """Label the season(s) a set of shots actually spans.
