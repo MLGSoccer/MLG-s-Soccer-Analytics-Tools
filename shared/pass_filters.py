@@ -183,7 +183,23 @@ def _channel(y):
 
 
 def _in_box(x, y):
-    return (x >= BOX_X) & (y >= BOX_Y_LO) & (y <= BOX_Y_HI)
+    """The penalty area, BOUNDED ON ALL FOUR SIDES.
+
+    The goal line is a side of the box like the other three. Without the
+    x <= 100 edge a ball that crossed it and went out of play still counted
+    as ending in the box: measured on a Liverpool season, 109 passes end
+    beyond x=100 and 108 of them are INCOMPLETE - balls out for a goal kick,
+    not coordinate noise - and they were inflating every box count by ~4.6%.
+
+    Mirrored for the defensive box as _in_box(100 - x, y), where the same
+    edge now excludes a pass struck from behind the team's own goal line.
+
+    MATCHES PodcastShorts/pipeline/pass_model.py BY DEFINITION, not by
+    import - the two products keep their own copies deliberately. Change
+    one, change the other.
+    """
+    return ((x >= BOX_X) & (x <= 100.0)
+            & (y >= BOX_Y_LO) & (y <= BOX_Y_HI))
 
 
 def _direction(dx_m, dy_m):
