@@ -16,9 +16,10 @@ from matplotlib.lines import Line2D
 from mplsoccer import Pitch, VerticalPitch
 
 from shared.colors import TEAM_COLORS, fuzzy_match_team
+from shared.match_clock import format_broadcast_minute
 from shared.styles import (
     BG_COLOR, CBS_BLUE, TEXT_PRIMARY, TEXT_SECONDARY, TEXT_MUTED, add_cbs_footer,
-    fit_fontsize, render_two_team_score_header, resolve_figsize,
+    fit_fontsize, render_two_team_score_header, resolve_figsize, text_width_frac,
 )
 
 from .colors import (
@@ -1008,7 +1009,13 @@ def _block_rows_by_shot(shots_df, accent, limit):
     # and unlike the ranking blocks this one is a match narrative.
     df = shots_df.sort_values('xG', ascending=False).head(limit)
     if 'minute' in df.columns:
-        df = df.sort_values('minute', na_position='last')
+        # By PERIOD first: the clock restarts at 45:00 for the second half,
+        # so on the clock alone a first-half stoppage shot at 49:30 (45+5')
+        # sorts AFTER a second-half shot at 47:10 (48'). Invisible while
+        # both printed flat; with broadcast minutes it read 48' above
+        # 45+5'. 182 of 79,251 player-matches in the mirror interleave.
+        keys = ['period', 'minute'] if 'period' in df.columns else ['minute']
+        df = df.sort_values(keys, na_position='last')
     rows = []
     for _, r in df.iterrows():
         pt = str(r.get('playType', ''))
@@ -1017,14 +1024,19 @@ def _block_rows_by_shot(shots_df, accent, limit):
         if style and style.lower() not in ('none', 'nan', 'regularplay'):
             label = f"{label}  ·  {style.upper()}"
         minute = r.get('minute', r.get('gameClock', None))
-        # Broadcast minute: floor(elapsed) + 1, the xG race's convention - a
-        # goal at 60:31 happens in the 61st minute. This showed the raw floor
-        # and disagreed with the race chart on the same event. (First-half
-        # stoppage still reads as a flat minute here, not 45+X - this frame
-        # carries no Period column to split on.)
+        # Broadcast minute, the xG race's rule (shared.match_clock): a goal
+        # at 60:31 happens in the 61st minute, and a shot at 47:58 in the
+        # first half is 45+3, not 47. This showed the raw floor and disagreed
+        # with the race chart on the same event; then it wrote stoppage flat,
+        # so the same first-half shot read 47' here and 45+3' on the race.
+        # The single-game fetch carries `period` now; a frame without one
+        # (a CSV) still writes the minute flat, which the formatter does on
+        # its own.
+        period = r.get('period', None)
         rows.append({'accent': accent, 'label': label,
                      'goals': 1 if pt in GOAL_TYPES else 0,
-                     'v1': f"{int(minute) + 1}'" if pd.notna(minute) else '—',
+                     'v1': (f"{format_broadcast_minute(minute, period if pd.notna(period) else None)}'"
+                            if pd.notna(minute) else '—'),
                      'v2': f"{float(r['xG']):.2f}"})
     return rows
 
@@ -1090,11 +1102,26 @@ def _draw_stat_block(fig, layout, heading, col_heads, rows,
             facecolor=accent, edgecolor='white' if weak else 'none',
             linewidth=0.6 if weak else 0, zorder=4))
         label = row['label']
+        # One glyph per goal reuses the pitch key's vocabulary and reads
+        # instantly at match scale, where nobody scores four. Over a season
+        # it does not: a 13-goal run of stars is unreadable, wider than the
+        # name it follows, and impossible to count at a glance. Past three,
+        # the star becomes a unit and the number does the work.
+        n = row['goals']
+        mark = (goal_glyph * n if n <= _STAR_RUN_MAX
+                else f"{goal_glyph} {n}") if scored else ''
+        # The label's room is what the row's first value leaves it, MEASURED:
+        # a fixed 0.09 held for "5" and "47'" but not for a broadcast minute -
+        # "WOODWORK · FASTBREAK/COUNTER" beside "90+11'" landed 8px apart on a
+        # 900px frame. The goal glyphs count too; they sit after the label.
+        reserve = (text_width_frac(fig, row['v1'], name_size - 2, bold=False)
+                   + (text_width_frac(fig, mark, 16, bold=False) + 0.012 if scored else 0)
+                   + 0.04)
         # Floor 16: the block only exists on 9:16, where nothing readable may
         # sit below 16pt. A very long name overflows its column slightly
         # rather than dropping under the phone floor.
         size = fit_fontsize(fig, label, name_size, floor=16, bold=scored,
-                            max_frac=layout['shots_x'] - layout['name_x'] - 0.09)
+                            max_frac=layout['shots_x'] - layout['name_x'] - reserve)
         nt = fig.text(layout['name_x'], y, label, ha='left', va='center',
                       fontsize=size, fontweight='bold' if scored else 'normal',
                       color=TEXT_PRIMARY if scored else TEXT_SECONDARY,
@@ -1106,14 +1133,6 @@ def _draw_stat_block(fig, layout, heading, col_heads, rows,
             # a star put a mark in the season list that appears nowhere on the
             # season pitch and is named nowhere in its key.
             #
-            # One glyph per goal reuses the pitch key's vocabulary and reads
-            # instantly at match scale, where nobody scores four. Over a
-            # season it does not: a 13-goal run of stars is unreadable, wider
-            # than the name it follows, and impossible to count at a glance.
-            # Past three, the star becomes a unit and the number does the work.
-            n = row['goals']
-            mark = (goal_glyph * n if n <= _STAR_RUN_MAX
-                    else f"{goal_glyph} {n}")
             fig.canvas.draw()
             nb = nt.get_window_extent(
                 renderer=fig.canvas.get_renderer()).transformed(

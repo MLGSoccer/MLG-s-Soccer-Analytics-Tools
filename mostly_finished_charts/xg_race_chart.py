@@ -20,6 +20,14 @@ from shared.styles import (
     add_cbs_footer, BROADCAST_FIGSIZE, render_two_team_score_header,
     resolve_figsize, fit_fontsize, draw_event_block,
 )
+# The broadcast-minute rule lives in shared/match_clock.py now - the shot
+# chart's per-shot rows needed it too, and a third chart importing a clock
+# from the race chart was one too many. Re-exported under the old names so
+# this module's callers (pages/12_Match_Momentum.py imports it from here)
+# are unchanged.
+from shared.match_clock import (
+    PERIOD_REGULAR_END as _PERIOD_REGULAR_END, format_broadcast_minute,
+)
 
 # Try to import web scraping libraries
 try:
@@ -941,52 +949,8 @@ def _event_period(ev, ht_minute=None):
     return 1 if float(ev.get('minute', 0)) <= boundary else 2
 
 
-# Where each period's regular time ends. Anything past it is stoppage and is
-# written the way broadcast writes it.
-_PERIOD_REGULAR_END = {1: 45, 2: 90, 3: 105, 4: 120}
-
-
-def format_broadcast_minute(minute, period):
-    """Render a match minute as football writes it: 45+2, not 47.
-
-    The feed gives elapsed match minutes, so a goal in first-half stoppage
-    time arrives as 47 and a late winner as 94. Printing those raw states a
-    time that does not exist in how anyone reads a match: a 45-minute half
-    has no 47th minute, it has 45+2.
-
-    It also contradicted this chart's own axis, which was moved to broadcast
-    minutes earlier without the annotations following. On Wolves v Fulham the
-    result was a goal labelled 47' sitting beside a HALF TIME line drawn at
-    47 - the chart asserting both that the half ended and that a goal came
-    afterwards, at the same moment.
-
-    Measured over 7,083 matches: 8.4% carry a first-half stoppage goal, plus
-    7.2% of all goals fall past minute 90.
-
-    COUNT THE MINUTE IN PROGRESS, NOT THE ONE COMPLETED. `minute` arrives as
-    `int(gameClock / 60)` - the FLOOR of elapsed time - and football numbers
-    the minute a goal happens IN. Elapsed 0:30 is the 1st minute, 2:12 is the
-    3rd, 44:30 is the 45th. Printing the floor makes a goal 30 seconds in read
-    as "0'", and every label one behind the broadcast.
-
-    So the displayed minute is `floor + 1`, and stoppage falls out of the same
-    arithmetic: anything past the period's regular end is written base+extra.
-
-        elapsed  0:30  -> floor 0   -> 1        1st minute
-        elapsed 44:30  -> floor 44  -> 45       last regular minute
-        elapsed 45:54  -> floor 45  -> 45+1     first stoppage minute
-        elapsed 47:58  -> floor 47  -> 45+3
-        elapsed 95:24  -> floor 95  -> 90+6
-
-    Two earlier versions got this wrong in opposite directions: the first
-    tested `m > base` so Saka's 45:54 goal printed "45'", and the second fixed
-    stoppage but left regular time a minute behind.
-    """
-    m = int(minute) + 1
-    base = _PERIOD_REGULAR_END.get(int(period)) if period is not None else None
-    if base is None or m <= base:
-        return str(m)
-    return f"{base}+{m - base}"
+# format_broadcast_minute and _PERIOD_REGULAR_END: see shared.match_clock,
+# imported at the top of the module.
 
 
 def _px_per_x_unit(ax):

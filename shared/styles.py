@@ -95,15 +95,33 @@ def fit_fontsize(fig, text, nominal, *, max_frac=0.94, floor=10, bold=True):
     Returns a size, and draws nothing. `bold` should match how the text will
     actually be drawn; bold is wider, so leaving it True is the safe default.
     """
-    probe = fig.text(0.5, 0.5, text, fontsize=nominal,
-                     fontweight='bold' if bold else 'normal')
-    fig.canvas.draw()
-    frac = (probe.get_window_extent(renderer=fig.canvas.get_renderer()).width
-            / (fig.get_size_inches()[0] * fig.dpi))
-    probe.remove()
+    frac = text_width_frac(fig, text, nominal, bold=bold)
     if frac <= max_frac:
         return nominal
     return max(floor, int(nominal * max_frac / frac))
+
+
+def text_width_frac(fig, text, size, *, bold=True):
+    """Width of `text` drawn at `size`, as a fraction of the figure's width.
+
+    The measurement fit_fontsize is built on, on its own: a layout that
+    reserves room for a neighbouring value (a table's minute column beside
+    its label) needs the value's width, not a size that fits a budget.
+    Draws nothing; an empty string is 0.
+
+    No canvas draw: a text's extent comes from the renderer and the font,
+    not from anything else on the figure, and the full draw this used to
+    run first cost ~170ms per call on a busy pitch (measured identical
+    extents with and without, 2026-09-15).
+    """
+    if not text:
+        return 0.0
+    probe = fig.text(0.5, 0.5, text, fontsize=size,
+                     fontweight='bold' if bold else 'normal')
+    frac = (probe.get_window_extent(renderer=fig.canvas.get_renderer()).width
+            / (fig.get_size_inches()[0] * fig.dpi))
+    probe.remove()
+    return frac
 
 
 def style_axis(ax):

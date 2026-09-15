@@ -388,7 +388,7 @@ def build_shot_chart_single(game_id):
                e.homeTeam, e.awayTeam, e.ShotPlayStyle, e.shooter,
                e.primaryPlayerId, e.gameClock,
                g.homeFinalScore, g.awayFinalScore,
-               e.teamId, g.homeTeamId, g.awayTeamId
+               e.teamId, g.homeTeamId, g.awayTeamId, e.Period
         FROM events e
         JOIN games g ON e.gameId = g.gameId
         WHERE e.gameId = ?
@@ -404,7 +404,7 @@ def build_shot_chart_single(game_id):
 
     for (ex, ey, xg, play_type, team_full, color, date, home, away,
          shot_style, shooter, shooter_id, game_clock, h_score, a_score,
-         team_id, home_team_id, away_team_id) in rows:
+         team_id, home_team_id, away_team_id, period) in rows:
         # The `Team` column and `meta` below are compared downstream
         # (`shots_df[shots_df['Team'] == team1_name]`), but they come from two
         # different source strings - events.teamFullName and games.homeTeam -
@@ -448,6 +448,9 @@ def build_shot_chart_single(game_id):
             'shooterId': shooter_id,
             # gameClock is seconds elapsed; the per-shot block wants a minute.
             'minute': (float(game_clock) / 60) if game_clock is not None else None,
+            # The period, so that minute can be written as broadcast writes
+            # it: a shot at 47:58 in the first half is 45+3, not 47.
+            'period': int(period) if period is not None else None,
         })
 
     return pd.DataFrame(data), meta or {}, team_colors
@@ -1741,6 +1744,15 @@ def get_red_cards_for_game(game_id):
             FROM events
             WHERE gameId = ?
               AND (qualifierRed OR qualifierSecondYellow)
+              -- A PLAYER's dismissal only. The feed also flags a red card
+              -- shown to a coach or the bench (playType NonPlayerRedCard,
+              -- primaryPlayer NULL): 101 of 1,137 red-card rows, in 98 of
+              -- the 973 games that have one. Drawn like a dismissal it
+              -- told a ten-men story the match never had - Wolves 1-1
+              -- Brighton (2025-10-05) read as "10-man Wolves held on" off
+              -- a card shown to a staff member at 20'. The charts depict
+              -- the eleven on the pitch; a bench card changes nothing there.
+              AND playType = 'Dismissal'
             ORDER BY Period, gameClock
         """, [game_id]).fetchall()
     if rows:
