@@ -2308,3 +2308,227 @@ def build_pass_map(game_ids_tuple, team_id, against=False):
                     .to_records(index=False).tolist()),
     }
     return df, info, team_color
+
+
+# -- Team Profile: one team against a pool ----------------------------------------
+#
+# The chart is a cube (shared/team_profile.py) built from three small frames.
+# Nothing here aggregates; the SQL returns rows and the module derives every
+# cell, so both drill orders come from one fetch and must agree.
+
+_TP_EVENT_TYPES_SQL = "(" + ", ".join(f"'{t}'" for t in
+                                      ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post', 'OwnGoal')) + ")"
+
+# Pool keys in config.json's `player_pools` -> what the chart calls them.
+# Mirrors POOL_FOOTER in pages/6_Player_Comparison.py: the pool is named by
+# the caller, never inferred from the subject's own league.
+POOL_LABELS = {
+    "europe": "Big 5 European Leagues",
+    "north_america": "Americas Big 4",
+    "womens": "Big 4 Women's Leagues",
+}
+
+_CUP_LEAGUES = {"Champions League", "Europa League", "Conference League", "UWCL"}
+
+
+def is_league_season(season_id):
+    """A season the Team Profile can compare within: a domestic league.
+
+    A cup is not a comparable pool - a UEFA league phase mixes eight games
+    against eight different opponents - and a tournament is not a season.
+    The Championship is a league with no wider pool; it stays eligible and
+    simply offers "League" alone.
+    """
+    league = _season_leagues().get(season_id)
+    if not league:
+        return False
+    if league in _CUP_LEAGUES or league in INTERNATIONAL_LEAGUES:
+        return False
+    return season_id not in set(_load_config().get("secondary_seasons", []))
+
+
+@st.cache_data(ttl=3600)
+def season_date_ranges(season_ids_tuple):
+    """{seasonId: (first_date, last_date)} from the games actually held."""
+    if not season_ids_tuple:
+        return {}
+    con = get_connection()
+    ph = ",".join("?" * len(season_ids_tuple))
+    rows = con.execute(
+        f"SELECT seasonId, MIN(Date), MAX(Date) FROM games "
+        f"WHERE seasonId IN ({ph}) GROUP BY seasonId", list(season_ids_tuple)).fetchall()
+    return {sid: (lo, hi) for sid, lo, hi in rows}
+
+
+def pool_for_season(season_id):
+    """The wider pool a league season belongs to, narrowed to ONE campaign.
+
+    `player_pools` lists every season of a pool across campaigns (the Big 5
+    across 2024/25, 2025/26 and 2026/27), and some of those ids carry no
+    label, so the campaign cannot be read off a name. Read it off the games
+    instead: for each league in the pool take the season whose date range
+    overlaps the subject's the most, and drop leagues with no overlap. That
+    is also what makes MLS 2026 sit beside Liga MX 2025/26 and keeps PL
+    2024/25 out of a PL 2025/26 pool.
+
+    Returns {key, label, season_ids} - the subject's own season included -
+    or None when the season is in no pool.
+    """
+    cfg = _load_config()
+    leagues = _season_leagues()
+    pools = cfg.get("player_pools", {}) or {}
+    key = next((k for k, v in pools.items() if season_id in (v.get("seasons") or [])), None)
+    if key is None:
+        return None
+    members = [s for s in pools[key].get("seasons") or [] if leagues.get(s)]
+    ranges = season_date_ranges(tuple(sorted(set(members) | {season_id})))
+    if season_id not in ranges:
+        return None
+    lo0, hi0 = ranges[season_id]
+
+    def overlap(sid):
+        r = ranges.get(sid)
+        if not r or not r[0] or not r[1]:
+            return 0
+        lo, hi = max(lo0, r[0]), min(hi0, r[1])
+        return max((datetime.strptime(hi, "%Y-%m-%d") - datetime.strptime(lo, "%Y-%m-%d")).days + 1, 0)
+
+    best = {}
+    for sid in members:
+        ov = overlap(sid)
+        if ov <= 0:
+            continue
+        lg = leagues[sid]
+        if lg not in best or ov > best[lg][1]:
+            best[lg] = (sid, ov)
+    chosen = sorted(sid for sid, _ in best.values())
+    if season_id not in chosen:
+        chosen.append(season_id)
+    return {"key": key, "label": POOL_LABELS.get(key, key.replace("_", " ").title()),
+            "season_ids": tuple(chosen)}
+
+
+@st.cache_data(ttl=3600)
+def get_team_profile_raw(season_ids_tuple):
+    """The four frames the cube is built from, for a set of seasons.
+
+    1. games        - the scoreline, so goals are exact and own goals are in
+    2. shot rows    - every Goal / PenaltyGoal / AttemptSaved / Miss / Post /
+                      OwnGoal row with the columns the cube derives from:
+                      phase (ShotPlayStyle), pre-event score (the state),
+                      xG, xGOT, period and clock
+    3. period ends  - MAX(gameClock) per game and period, for minutes in state
+    4. restarts     - corners / attacking-third free kicks / box-level
+                      throw-ins per team-game, for the set-piece count
+
+    Row-level rather than pre-grouped on purpose: game state, time in state
+    and every component are then derived in ONE place, and both drill
+    orders read the same numbers. About 2% of the seasons' events come back.
+    Cost, measured on the Big 5 2025/26 (five seasons): see the first-run
+    log line below. Cached for an hour, process-wide.
+    """
+    import logging
+    import time
+    log = logging.getLogger(__name__)
+    if not season_ids_tuple:
+        raise ValueError("get_team_profile_raw needs at least one season id")
+    con = get_connection()
+    ph = ",".join("?" * len(season_ids_tuple))
+    ids = list(season_ids_tuple)
+    t0 = time.perf_counter()
+    games = con.execute(f"""
+        SELECT seasonId, gameId, Date, homeTeamId, awayTeamId, homeFinalScore, awayFinalScore
+        FROM games WHERE seasonId IN ({ph})
+    """, ids).df()
+    shots = con.execute(f"""
+        SELECT seasonId, gameId, gameEventIndex, teamId, opponentId, playType,
+               ShotPlayStyle, xG, xGOT, qualifierBlocked,
+               teamCurrentScore, opponentCurrentScore, Period, gameClock
+        FROM events
+        WHERE seasonId IN ({ph}) AND playType IN {_TP_EVENT_TYPES_SQL}
+    """, ids).df()
+    period_ends = con.execute(f"""
+        SELECT gameId, Period, MAX(gameClock) AS end_clock
+        FROM events WHERE seasonId IN ({ph}) AND Period IS NOT NULL
+        GROUP BY gameId, Period
+    """, ids).df()
+    # 4. set pieces per team-game, thresholded here so only ~760 rows a
+    #    season come back. The definition (and why) lives with the constants
+    #    in shared/team_profile.py; pass rows only - `PassType` Corner also
+    #    flags a shot assisted by the corner.
+    from shared.team_profile import SET_PIECE_FK_MIN_X, SET_PIECE_THROW_MIN_X
+    restarts = con.execute(f"""
+        SELECT seasonId, gameId, teamId, opponentId,
+               COUNT(*) FILTER (WHERE PassType = 'Corner') AS corners,
+               COUNT(*) FILTER (WHERE COALESCE(q5, FALSE) AND EventXDecimal >= ?) AS free_kicks,
+               COUNT(*) FILTER (WHERE PassType = 'Throw-In' AND EventXDecimal >= ?) AS throw_ins
+        FROM events
+        WHERE seasonId IN ({ph}) AND playType IN ('Pass', 'OffsidePass')
+          AND (PassType IN ('Corner', 'Throw-In') OR COALESCE(q5, FALSE))
+        GROUP BY seasonId, gameId, teamId, opponentId
+    """, [SET_PIECE_FK_MIN_X, SET_PIECE_THROW_MIN_X] + ids).df()
+    log.warning("team profile fetch seasons=%d games=%d shot_rows=%d period_rows=%d "
+                "restart_rows=%d in %.1fs", len(ids), len(games), len(shots),
+                len(period_ends), len(restarts), time.perf_counter() - t0)
+    return games, shots, period_ends, restarts
+
+
+@st.cache_data(ttl=3600)
+def get_team_profile_cube(season_ids_tuple, exclude_penalties=False):
+    """The built cube for a season set. Cached separately from the fetch so a
+    toggle flip rebuilds from the frames already in memory, not from MotherDuck."""
+    from shared.team_profile import build_cube
+    games, shots, period_ends, restarts = get_team_profile_raw(season_ids_tuple)
+    return build_cube(games, shots, period_ends, restarts, exclude_penalties=exclude_penalties)
+
+
+def get_team_profile(team_id, season_id, *, pool="league", exclude_penalties=False):
+    """Everything the Team Profile chart needs for one team.
+
+    pool: "league" - every team in `season_id`; "pool" - the wider pool from
+    `pool_for_season` (falls back to the league, and says so, when there is
+    none). Returns a dict:
+        cube, subject (seasonId, teamId), team_name, team_color,
+        season_label, competition, pool_mode ("rank" | "pctl"), pool_label,
+        pool_n, season_ids, checks (the subject's own reconciliation row)
+    """
+    from shared.team_profile import Cube  # noqa: F401  (type only)
+    info = pool_for_season(season_id) if pool == "pool" else None
+    season_ids = info["season_ids"] if info else (season_id,)
+    cube = get_team_profile_cube(tuple(season_ids), exclude_penalties)
+    subject = (season_id, team_id)
+
+    cfg = _load_config()
+    names = cfg.get("seasons", {})
+    leagues = _season_leagues()
+    label = season_label(season_id, names.get(season_id))
+    competition, years = split_season_label(names.get(season_id), leagues.get(season_id))
+    competition = competition or leagues.get(season_id, "")
+
+    team_name = None
+    for teams in get_teams_by_league().values():
+        for t in teams:
+            if t["team_id"] == team_id:
+                team_name = t["display_name"]
+                break
+        if team_name:
+            break
+    team_name = team_name or team_label(team_id, "") or team_id
+    team_color = resolve_single_team_colour(team_name, None, team_id=team_id)
+
+    checks = cube.checks.loc[subject].to_dict() if subject in cube.checks.index else {}
+    return {
+        "cube": cube,
+        "subject": subject,
+        "team_name": team_name,
+        "team_color": team_color,
+        "season_label": label,
+        "season_years": years,
+        "competition": competition,
+        "pool_mode": "pctl" if info else "rank",
+        "pool_label": info["label"] if info else competition,
+        "pool_n": int(len(cube.teams)),
+        "season_ids": tuple(season_ids),
+        "exclude_penalties": exclude_penalties,
+        "checks": checks,
+    }

@@ -28,6 +28,7 @@ pg = st.navigation({
         st.Page("pages/13_Pass_Map.py", title="Pass Map"),
         st.Page("pages/12_Match_Momentum.py", title="Match Momentum"),
         st.Page("pages/6_Player_Comparison.py", title="Player Comparison"),
+        st.Page("pages/14_Team_Profile.py", title="Team Profile"),
     ],
     "xG Trend Lines": [
         st.Page("pages/1_Team_Rolling_xG.py", title="Team Rolling xG"),
