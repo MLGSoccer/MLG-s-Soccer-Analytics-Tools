@@ -152,17 +152,26 @@ def test_minutes_in_state_follow_the_clocks(cube):
     assert c["total_s"] == pytest.approx(2750 + 2800)
 
 
-def test_state_rows_are_per_90_in_state_with_a_floor(cube):
-    # C and D were level for 5450 s - a match's worth - so they are peers;
-    # A was ahead for only 4100 s, below MIN_STATE_SECONDS, so A is NOT a
-    # peer on the "ahead" cell and its own gauge shows no standing.
-    assert tp.MIN_STATE_SECONDS == 5400
+def test_state_rows_are_per_90_in_state_and_every_team_is_a_peer(cube):
+    # No floor: A was ahead for 4100 s and gets its real rate; a team that
+    # was never behind (A) has scored zero when behind - zero, not missing -
+    # so every cell ranks all four teams.
     assert _v(cube, C, "gf", "level", "anchor") == pytest.approx(1.0 / (5450 / 5400))
-    assert math.isnan(_v(cube, A, "ga", "ahead", "anchor"))
-    assert math.isnan(_v(cube, A, "gf", "behind", "anchor"))    # never behind
+    assert _v(cube, A, "ga", "ahead", "anchor") == pytest.approx(1.0 / (4100 / 5400))
+    assert _v(cube, A, "gf", "behind", "anchor") == 0.0
     spec = tp.gauge(cube, (S, A), "gf", "behind", "anchor", "rank")
-    assert spec.standing.readout == "—"
-    # the raw totals are untouched by the floor - the partition test uses them
+    assert spec.standing.n == 4 and spec.standing.readout != "—"
+    assert tp.format_total(spec) == "0 in 0 min (0% of time)"
+    # ... which puts the never-behind side FIRST for goals against when
+    # behind: zero conceded, honestly, with "0 in 0 min" beneath
+    assert tp.gauge(cube, (S, A), "ga", "behind", "anchor", "rank").standing.readout == "1st=/4"
+    # no shots in a situation is chance quality zero, still a peer
+    assert _v(cube, A, "xg", "behind", "xg_per_shot") == 0.0
+    for hk in tp.HEADLINE_ORDER:
+        for sit in tp.SITUATION_ORDER:
+            for c in tp.components_of(tp.HEADLINES[hk]):
+                assert tp.gauge(cube, (S, A), hk, sit, c, "rank").standing.n == 4, (hk, sit, c)
+    # the raw totals are untouched - the partition test uses them
     assert tp.cell(cube, "ga", "ahead", "anchor")[1].loc[(S, A)] == 1
 
 
@@ -367,7 +376,15 @@ def test_format_helpers(cube):
     assert tp.format_value(g) == "1.89" and tp.format_total(g) == "2 in 1"
     assert g.unit == "per 90 min"
     g = tp.gauge(cube, (S, A), "xg", "total", "xg_per_shot", "rank")
-    assert tp.format_value(g) == "0.380" and g.unit == "xG per shot"
+    assert tp.format_value(g) == "0.380" and g.unit == "" and g.formula == "xG per shot"
+    # the definition under the name, on every derived stat, with the side
+    assert tp.gauge(cube, (S, A), "gf", "total", "placement", "rank").formula == "PSxG − xG"
+    assert tp.gauge(cube, (S, B), "ga", "total", "placement", "rank").formula == "PSxGA − xGA"
+    assert tp.gauge(cube, (S, B), "ga", "total", "stopping", "rank").formula == "PSxGA − GA"
+    assert tp.gauge(cube, (S, A), "gd", "total", "net", "rank").formula == "GD − xGD"
+    assert tp.gauge(cube, (S, A), "gf", "sp", "context", "rank").formula == "corners, FKs, throw-ins, pens"
+    assert tp.gauge(cube, (S, A), "gf", "total", "anchor", "rank").formula == ""
+    assert tp.gauge(cube, (S, A), "gf", "total", "shots", "rank").formula == ""
     # a state anchor says its share of the season's minutes
     g = tp.gauge(cube, (S, C), "gf", "level", "anchor", "rank")
     assert tp.format_total(g) == "1 in 91 min (98% of time)"

@@ -83,9 +83,6 @@ OPEN_PLAY_STYLES = ("Open play", "Fastbreak/Counter")
 SET_PIECE_STYLES = ("Corner", "Throw-in", "Direct Free Kick",
                     "Free Kick Set Piece", "Penalty")
 
-# Minimum time in a game state for a per-90-in-state rate to be ranked.
-MIN_STATE_SECONDS = 5400          # one full match
-
 # Cumulative-clock start of each period, seconds. Extra time never occurs in
 # the league seasons this chart is scoped to, but the arithmetic is generic.
 PERIOD_START = {1: 0, 2: 2700, 3: 5400, 4: 6300}
@@ -172,6 +169,31 @@ COMPONENT_LABELS_AGAINST = {
     "placement": "Placement Faced",
     "set_pieces": "Set Pieces Faced",
 }
+
+
+# What a derived stat IS, for the small line under its name. The user's
+# rule: the name may be explanatory, but the specific stat must be on the
+# chart too. Plain quantities (goals, xG, shots, time) need none.
+COMPONENT_FORMULA = {
+    "xg_per_shot": "xG per shot",
+    "placement": "PSxG \u2212 xG",
+    "beat_keeper": "Goals \u2212 PSxG",
+    "stopping": "PSxGA \u2212 GA",
+    "net": "GD \u2212 xGD",
+    "set_pieces": "corners, FKs, throw-ins, pens",
+}
+COMPONENT_FORMULA_AGAINST = {
+    "xg_per_shot": "xGA per shot",
+    "placement": "PSxGA \u2212 xGA",
+}
+
+
+def component_formula(headline: "Headline", comp: str) -> str:
+    if headline.side == "against" and comp in COMPONENT_FORMULA_AGAINST:
+        return COMPONENT_FORMULA_AGAINST[comp]
+    if headline.side == "diff" and comp == "set_pieces":
+        return "taken \u2212 faced"
+    return COMPONENT_FORMULA.get(comp, "")
 
 
 def component_label(headline: "Headline", comp: str, situation: str = "total") -> str:
@@ -533,8 +555,8 @@ def _quantity(cube: Cube, family: str, side: str, situation: str) -> pd.Series:
 
 
 def _denominator(cube: Cube, situation: str) -> pd.Series:
-    """Per 90 minutes - played, or spent in the state. NaN where there is no
-    exposure.
+    """Per 90 minutes - played, or spent in the state. Zero where there is
+    no exposure; `_per90` turns 0/0 into a rate of zero.
 
     ONE time base for the whole cube. The first build normalised Total, Open
     Play and Set Piece per MATCH and the game states per 90' in state, and a
@@ -544,15 +566,19 @@ def _denominator(cube: Cube, situation: str) -> pd.Series:
     (1.48 per 90') is lower. The matches still show in the line beneath.
     """
     t = cube.teams
-    if situation in STATE_SITUATIONS:
-        # A peer needs at least one match's worth of minutes in the state, or
-        # a side that was behind for twenty minutes all season and scored
-        # once outranks everyone. Below the floor the cell is NaN: not a peer,
-        # and "-" on its own gauge.
-        secs = t[f"{situation}_s"]
-        return (secs / 5400.0).where(secs >= MIN_STATE_SECONDS)
-    secs = t["total_s"]
-    return (secs / 5400.0).where(secs > 0)     # 90 minutes = 5400 s
+    secs = t[f"{situation}_s"] if situation in STATE_SITUATIONS else t["total_s"]
+    return secs / 5400.0                        # 90 minutes = 5400 s
+
+
+def _per90(q: pd.Series, den: pd.Series) -> pd.Series:
+    """q per 90, and ZERO where there was no exposure. Every team is a peer
+    on every cell: a side that has never trailed has scored zero when behind,
+    which is a fact about it and not a missing value. The first build kept a
+    90-minute floor so a side behind for twenty minutes all season could not
+    rank 1st on one goal; two games into a season that floor was dropping
+    teams to "18th/19", and the user ruled that a full pool wins. The thin
+    exposure stays visible on the line beneath ("1 in 15 min")."""
+    return (q / den).where(den > 0, 0.0)
 
 
 def resolve_component(situation: str, component: str) -> str:
@@ -582,62 +608,64 @@ def cell(cube: Cube, headline: str, situation: str, component: str) -> tuple[pd.
         og = _q(cube, side, situation, "og").astype(float)
         anchor = goals if h.family == "goals" else xg
         if comp == "anchor":
-            return anchor / den, anchor
+            return _per90(anchor, den), anchor
         if comp == "counterpart":
             other = xg if h.family == "goals" else goals
-            return other / den, other
+            return _per90(other, den), other
         if comp == "shots":
-            return shots / den, shots
+            return _per90(shots, den), shots
         if comp == "xg_per_shot":
-            return (xg / shots).where(shots > 0), None
+            # No shots yet in the situation: chance quality of zero, so the
+            # team stays a peer (the same rule as the states).
+            return (xg / shots).where(shots > 0, 0.0), None
         if comp == "placement":
             # The strike: what the shot added to (or took from) the chance.
             # Off-target and blocked shots carry PSxG 0, so both cost the
             # full xG - a miss is a placement failure; a block is arguably
             # part defensive pressure, and is charged here all the same.
             # On the against side the same number is the opponents' strike.
-            return (psxg - xg) / den, psxg - xg
+            return _per90(psxg - xg, den), psxg - xg
         if comp == "beat_keeper":
             # The last link for the attack: goals FROM SHOTS beyond what
             # their placement was worth - the opposing keeper's failure and
             # the deflections. Own goals are in the scoreline and in no
             # shot's PSxG, so they are left out and the line says so.
             from_shots = goals - og
-            return (from_shots - psxg) / den, from_shots - psxg
+            return _per90(from_shots - psxg, den), from_shots - psxg
         if comp == "stopping":
             # The keeper's link: PSxG faced minus goals conceded FROM SHOTS.
             faced = goals - og
-            return (psxg - faced) / den, psxg - faced
+            return _per90(psxg - faced, den), psxg - faced
         if comp == "set_pieces":
             n = cube.teams[f"sp_{side}"].astype(float)
-            return n / den, n
+            return _per90(n, den), n
         raise KeyError(comp)
 
     # difference headlines
     qf = _quantity(cube, h.family, "for", situation)
     qa = _quantity(cube, h.family, "against", situation)
     if comp == "anchor":
-        return (qf - qa) / den, qf - qa
+        return _per90(qf - qa, den), qf - qa
     if comp == "counterpart":
         other = "xg" if h.family == "goals" else "goals"
         d = _quantity(cube, other, "for", situation) - _quantity(cube, other, "against", situation)
-        return d / den, d
+        return _per90(d, den), d
     if comp == "for":
-        return qf / den, qf
+        return _per90(qf, den), qf
     if comp == "against":
-        return qa / den, qa
+        return _per90(qa, den), qa
     if comp == "shots_diff":
         d = _q(cube, "for", situation, "shots") - _q(cube, "against", situation, "shots")
-        return d.astype(float) / den, d.astype(float)
+        return _per90(d.astype(float), den), d.astype(float)
     if comp == "net":
         # GD - xGD: placement + beating the keeper - placement faced +
         # shot-stopping, own goals included on both sides.
         gd = _quantity(cube, "goals", "for", situation) - _quantity(cube, "goals", "against", situation)
         xgd = _quantity(cube, "xg", "for", situation) - _quantity(cube, "xg", "against", situation)
-        return (gd - xgd) / den, gd - xgd
+        return _per90(gd - xgd, den), gd - xgd
     if comp == "set_pieces":
         d = cube.teams["sp_for"].astype(float) - cube.teams["sp_against"].astype(float)
-        return d / den, d
+        return _per90(d, den), d
     raise KeyError(comp)
 
 
@@ -686,7 +714,9 @@ def standing(values: pd.Series, subject, direction_sign: int, mode: str) -> Stan
 
     direction_sign +1: higher is better; -1: lower is better; 0: no direction,
     ranked by value with the highest first and drawn on a neutral arc.
-    Teams without a value (no shots, no minutes in the state) are not peers.
+    Teams without a value are not peers - which, with zero exposure counted
+    as zero, is only a team whose data is missing (no restart rows for the
+    set-piece count).
     """
     v = pd.to_numeric(values, errors="coerce").dropna()
     n = int(len(v))
@@ -728,6 +758,7 @@ class GaugeSpec:
     parent_total: float | None = None   # the season figure a phase anchor is a share of
     og: float | None = None        # own goals left out of a shot-stopping cell
     shots_per_sp: float | None = None   # on the set-pieces gauge: the link to the shots gauge
+    formula: str = ""              # what the stat IS, under the name ("PSxG - xG")
 
 
 def _fmt_for(family: str, comp: str, side: str = "for") -> str:
@@ -763,7 +794,7 @@ def _unit_for(situation: str, comp: str) -> str:
     if comp == "minutes_pct":
         return ""
     if comp == "xg_per_shot":
-        return "xG per shot"
+        return ""                  # the definition line under the name says it
     # "when behind", not "behind": the bare word read as a preposition
     # missing its object ("per 90 minutes... behind what?").
     when = f" when {SITUATIONS[situation].lower()}" if situation in STATE_SITUATIONS else ""
@@ -784,6 +815,7 @@ def gauge(cube: Cube, subject, headline: str, situation: str, component: str,
         tot = float(totals.loc[subject])
     spec = GaugeSpec(
         key=f"{headline}.{situation}.{comp}",
+        formula=component_formula(h, comp),
         label=label if label is not None else component_label(h, comp, situation),
         value=v, total=tot, unit=_unit_for(situation, comp), fmt=_fmt_for(h.family, comp, h.side),
         direction=d, standing=st,

@@ -409,23 +409,28 @@ def _total_and_ref(spec, L):
 
 
 def _label_plan(fig, spec, L, cell_w):
-    """(lines, pt) for a gauge's label. Fit ladder: tracked, then solid, then
-    shrunk to the delivery floor, then WRAPPED to two lines - "XG DIFFERENCE
-    WHEN BEHIND" at the tile's 16pt floor ran into its neighbour and off the
-    frame. Decided per cell here, applied per FRAME by the caller: a second
-    line takes its height from every dial on the frame, not just its own,
-    so the six dials stay one size."""
+    """(lines, pt, definition) for a gauge's label block. The name: fit
+    ladder tracked, then solid, then shrunk to the delivery floor, then
+    WRAPPED to two lines - "XG DIFFERENCE WHEN BEHIND" at the tile's 16pt
+    floor ran into its neighbour and off the frame. The definition beneath
+    it ("PSxG - xG"): at the delivery floor, muted, or dropped if even that
+    overruns the cell. Decided per cell here, applied per FRAME by the
+    caller: a second line takes its height from every dial on the frame,
+    not just its own, so the six dials stay one size."""
     lab = spec.label.upper()
     lab_px = cell_w * fig.bbox.width * 0.92
+    definition = spec.formula or ''
+    if definition and _width_frac(fig, definition, L['type_floor']) * fig.bbox.width > lab_px:
+        definition = ''
     cands = ([track(lab, L['label_track'])] if L['label_track'] else []) + [lab]
     lab_pt = L['label_size']
     for text in cands:
         if _width_frac(fig, text, lab_pt, 'bold') * fig.bbox.width <= lab_px:
-            return [text], lab_pt
+            return [text], lab_pt, definition
     lab_pt = fit_fontsize(fig, lab, L['label_size'], max_frac=lab_px / fig.bbox.width,
                           floor=L['type_floor'], bold=True)
     if _width_frac(fig, lab, lab_pt, 'bold') * fig.bbox.width <= lab_px or ' ' not in lab:
-        return [lab], lab_pt
+        return [lab], lab_pt, definition
     lab_pt = L['label_size']
     words = lab.split(' ')
     best = None
@@ -434,10 +439,18 @@ def _label_plan(fig, spec, L, cell_w):
         w = max(_width_frac(fig, a, lab_pt, 'bold'), _width_frac(fig, b, lab_pt, 'bold'))
         if best is None or w < best[0]:
             best = (w, [a, b])
-    return best[1], lab_pt
+    return best[1], lab_pt, definition
 
 
-def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, lead_px=None):
+def _label_leads(fig, L, plans):
+    """(wrap_px, def_px): the frame's two label slots in pixels - a second
+    name line if any cell wraps, a definition line if any cell has one."""
+    wrap_px = max((pt * fig.dpi / 72.0 * 1.2 for lines, pt, _ in plans if len(lines) > 1), default=0.0)
+    def_px = L['type_floor'] * fig.dpi / 72.0 * 1.35 if any(d for _, _, d in plans) else 0.0
+    return wrap_px, def_px
+
+
+def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, leads=None):
     """One dial in the figure-fraction box (x0, y0, w, h). `cell_w` is the
     grid cell's width as a figure fraction - the measure the text lines may
     use; the axes box itself shrinks to the dial under aspect='equal'."""
@@ -454,20 +467,20 @@ def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, lead_px=None):
     stack_px = ((L['readout_size'] + L['value_size'] + L['total_size']
                  + (L['total_size'] if L.get('ref_line') else 0)) * fig.dpi / 72.0
                 + 8 + 6 + 5 + 4 + (4 if L.get('ref_line') else 0))
-    lab_lines, lab_pt = _label_plan(fig, spec, L, cell_w if cell_w else box[2])
-    # A second label line is a font-driven number of pixels, like the stack
-    # below: set in dial units it overlapped the first on the frames whose
-    # taller header had shrunk the dial.
-    if lead_px is None:
-        lead_px = lab_pt * fig.dpi / 72.0 * 1.2 if len(lab_lines) > 1 else 0.0
+    plan = _label_plan(fig, spec, L, cell_w if cell_w else box[2])
+    lab_lines, lab_pt, definition = plan
+    # The label slots are font-driven pixels, like the stack below: set in
+    # dial units they overlapped on the frames whose taller header had
+    # shrunk the dial. Per frame, not per cell, so the rows align.
+    wrap_px, def_px = leads if leads is not None else _label_leads(fig, L, [plan])
     box_h_px = box[3] * fig.bbox.height
     span = 1.36 + 0.075
-    lab_lead = 0.0
+    wrap_lead = def_lead = 0.0
     for _ in range(3):
         unit = box_h_px / span
-        lab_lead = lead_px / unit
-        span = 1.36 + lab_lead + 0.075 + max(0.16, 8 / unit) + stack_px / unit
-    top = 1.36 + lab_lead
+        wrap_lead, def_lead = wrap_px / unit, def_px / unit
+        span = 1.36 + wrap_lead + def_lead + 0.075 + max(0.16, 8 / unit) + stack_px / unit
+    top = 1.36 + wrap_lead + def_lead
     ax.set_ylim(top - span, top)
     R, rw = 1.0, L['ring_w']
     neutral = spec.direction == 0
@@ -525,9 +538,15 @@ def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, lead_px=None):
         ax.add_patch(Circle((0, 0), hub_r, facecolor=HUB, edgecolor=BG_COLOR, lw=1.5, zorder=6))
 
     # The label, decided above; two lines stack upward from the same base.
+    # Name above, definition beneath it, the definition slot nearest the
+    # dial; a cell without a definition leaves that slot empty so the names
+    # still sit on one line across the row.
     for i, line in enumerate(reversed(lab_lines)):
-        ax.text(0, 1.20 + i * lab_lead, line, fontsize=lab_pt, color=TEXT_SECONDARY,
+        ax.text(0, 1.20 + def_lead + i * wrap_lead, line, fontsize=lab_pt, color=TEXT_SECONDARY,
                 fontweight='bold', ha='center', va='center')
+    if definition:
+        ax.text(0, 1.20, definition, fontsize=L['type_floor'], color=TEXT_MUTED,
+                ha='center', va='center')
 
     # Readout under the hub. Rank: "3rd" big and "/20" small on one baseline;
     # percentile: the bare number with a small PCTL beside it (bare integer,
@@ -790,11 +809,7 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     L = dict(L, label_track=label_track)
     # One label height per frame: if any label needs two lines, every dial
     # on the frame gives up the same height, so the six stay one size.
-    lead_px = 0.0
-    for spec in specs[:cols * rows]:
-        lines, pt = _label_plan(fig, spec, L, cw)
-        if len(lines) > 1:
-            lead_px = max(lead_px, pt * fig.dpi / 72.0 * 1.2)
+    leads = _label_leads(fig, L, [_label_plan(fig, spec, L, cw) for spec in specs[:cols * rows]])
     if headline is None and cols == 2:
         # Two columns: actual beside expected (GF | xG, GA | xGA, GD | xGD).
         # In reading order the 3x2 grid's pairs sit one above the other; the
@@ -808,7 +823,7 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
         bh = min(ch * (1 - 2 * L['cell_pad_y']), L.get('gauge_h', 1.0))
         box = [x0 + cw * L['cell_pad_x'], y0 + (ch - bh) / 2.0,
                cw * (1 - 2 * L['cell_pad_x']), bh]
-        _gauge(fig, box, spec, L, cell_w=cw, show_ref=show_ref, lead_px=lead_px)
+        _gauge(fig, box, spec, L, cell_w=cw, show_ref=show_ref, leads=leads)
         boxes.append((x0, y0, x0 + cw, y0 + ch))
     fig.tp_gauge_boxes = boxes
     fig.tp_specs = specs
