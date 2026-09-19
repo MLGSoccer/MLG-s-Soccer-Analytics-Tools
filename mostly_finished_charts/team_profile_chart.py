@@ -706,6 +706,45 @@ def _is_tail(part):
     return part in {t.upper() for t in tails}
 
 
+def _own_goals_note(profile, headline, path, order):
+    """Own goals, said once under the header - never a dial.
+
+    On an xG frame they are the term that CLOSES the gap the frame states:
+    Goals Above xG = placement + beating keepers + own goals, exactly. Two
+    dials that visibly do not sum to the third is a frame a reader stops
+    trusting. On a goals frame they are the goals the shot partition cannot
+    account for (no shot, so no outcome). Situation-first frames read them
+    from that situation's cells; the overview and the component-first
+    level 3 say nothing (one stat in six situations has its own note).
+    """
+    if not headline or order != 'situation' and path:
+        return ''
+    if headline is None:
+        return ''
+    h = tp.HEADLINES[headline]
+    sit = path[0] if path else 'total'
+    cube, subject = profile['cube'], profile['subject']
+    if subject not in cube.index:
+        return ''
+    den = float(tp._denominator(cube, sit).loc[subject]) or 0.0
+    og_f = float(tp._q(cube, 'for', sit, 'og').loc[subject])
+    og_a = float(tp._q(cube, 'against', sit, 'og').loc[subject])
+    per90 = lambda n: (n / den) if den > 0 else 0.0
+    plural = lambda n: 'own goal' if n == 1 else 'own goals'
+    if h.side == 'for':
+        if og_f == 0:
+            return 'no own goals scored for them'
+        return f"{int(og_f)} {plural(og_f)} for them ({tp.format_number('signed', per90(og_f))} per 90)"
+    if h.side == 'against':
+        if og_a == 0:
+            return 'no own goals conceded'
+        return f"{int(og_a)} {plural(og_a)} conceded ({tp.format_number('signed', -per90(og_a))} per 90)"
+    # a difference: both ends, and the net per 90 that closes the ladder
+    d = per90(og_f - og_a)
+    return (f"own goals: {int(og_f)} for, {int(og_a)} against "
+            f"({tp.format_number('signed', d)} per 90)")
+
+
 def _situation_note(profile, headline, path, order):
     """What dial two used to carry, now under the header.
 
@@ -799,7 +838,9 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     if shared:
         specs = [replace(s, meaning='') for s in specs]
     else:
-        shared = _situation_note(profile, headline, tuple(path), order)
+        parts = [_situation_note(profile, headline, tuple(path), order),
+                 _own_goals_note(profile, headline, tuple(path), order)]
+        shared = ' \u00b7 '.join(x for x in parts if x)
     bottom = _header(fig, L, kicker='TEAM PROFILE', title=title, accent=accent,
                      scope_parts=scope, frame_line=_frame_line(headline, tuple(path), order),
                      filter_line=filter_line, note=shared)

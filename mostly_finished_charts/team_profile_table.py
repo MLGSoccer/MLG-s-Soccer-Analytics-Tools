@@ -47,7 +47,8 @@ from mostly_finished_charts.team_profile_chart import (
     _LAYOUTS as _FRAME_LAYOUTS, _header, _text, _ramp, _width_frac,
 )
 
-SHOW_MAX = 20            # rows on one graphic; a wider pool shows the top twenty + the subject
+SHOW_MAX = 20            # a POOL wider than SHOW_ALL_UP_TO shows the top twenty + the subject
+SHOW_ALL_UP_TO = 30      # a LEAGUE shows every team - the Championship has 24, MLS 30
 
 _LAYOUTS = {
     '9x16': {
@@ -60,10 +61,10 @@ _LAYOUTS = {
     'default': {
         'cols': 2, 'per_col': 10,
         # per column, in column-fraction terms; the two columns split the width
-        'x_rank': 0.092, 'x_name': 0.122, 'x_bar0': 0.560, 'x_bar1': 0.850, 'x_value': 0.965,
+        'x_rank': 0.100, 'x_name': 0.130, 'x_bar0': 0.560, 'x_bar1': 0.850, 'x_value': 0.965,
         'name_size': 15, 'rank_size': 15, 'value_size': 15, 'unit_size': 11.5,
         'bar_frac': 0.52,
-        'top_gap': 0.062, 'bottom': 0.075, 'name_frac': 0.42, 'tab_x': -0.022,   # the tab sits in the gutter
+        'top_gap': 0.062, 'bottom': 0.075, 'name_frac': 0.41, 'tab_x': -0.034,   # the tab sits in the gutter
         'col_gap': 0.045,
     },
 }
@@ -78,9 +79,11 @@ def _ordinal(n: int) -> str:
 
 
 def _rows_to_show(df, subject_pos):
-    """Top SHOW_MAX plus the subject's own row when it sits outside them.
-    Returns (rows DataFrame, break_before_last: bool)."""
-    if len(df) <= SHOW_MAX:
+    """Every team of a league; the top SHOW_MAX plus the subject's own row
+    for a pool wider than a league can be. Returns (rows, break_before_last).
+    The first cut truncated at twenty - a Premier League assumption - and a
+    Championship ranking read "TOP 20 OF 24"."""
+    if len(df) <= SHOW_ALL_UP_TO:
         return df, False
     top = df.iloc[:SHOW_MAX]
     if subject_pos < SHOW_MAX:
@@ -89,14 +92,29 @@ def _rows_to_show(df, subject_pos):
 
 
 def _fit_name(fig, name, size, max_frac):
-    """A club name that will not run into its bar: shrink two points, then
-    take the first word ('Wolverhampton Wanderers' -> 'Wolverhampton')."""
-    if _width_frac(fig, name, size, 'bold') <= max_frac:
-        return name, size
-    if _width_frac(fig, name, size - 2, 'bold') <= max_frac:
-        return name, size - 2
-    short = name.split(' ')[0]
-    return short, size - 1 if _width_frac(fig, short, size, 'bold') > max_frac else size
+    """A club name that will not run into its bar.
+
+    Full name at size, then two points smaller; then drop words from the
+    END one at a time and try both sizes again - "West Ham United Women" ->
+    "West Ham United" -> "West Ham". Never a result ending in "&" or "and",
+    and never below two words while there are two to keep. (The first cut
+    fell straight back to the first word and the WSL ranking read "West",
+    "London", "Manchester".)
+    """
+    def fits(text, pt):
+        return _width_frac(fig, text, pt, 'bold') <= max_frac
+
+    words = name.split(' ')
+    for k in range(len(words), 0, -1):
+        cand = ' '.join(words[:k])
+        if k > 1 and cand.split(' ')[-1].lower() in ('&', 'and', 'de', 'of'):
+            continue
+        if k < 2 and len(words) >= 2 and k != 1:
+            continue
+        for pt in (size, size - 2):
+            if fits(cand, pt):
+                return cand, pt
+    return words[0], size - 2
 
 
 def create_league_ranking(profile, *, headline, situation='total', component='anchor',
@@ -126,7 +144,7 @@ def create_league_ranking(profile, *, headline, situation='total', component='an
     comp_name = (competition or profile.get('competition') or '').upper()
     years = profile.get('season_years') or ''
     scope = [f"{gp} MATCHES", f"{comp_name} {years}".strip()]
-    if pool_n > SHOW_MAX:
+    if pool_n > SHOW_ALL_UP_TO:
         scope = [f"TOP {SHOW_MAX} OF {pool_n}", (profile.get('pool_label') or '').upper()]
     if custom_subtitle:
         scope = [custom_subtitle]
@@ -151,10 +169,10 @@ def create_league_ranking(profile, *, headline, situation='total', component='an
     top_y = bottom - T['top_gap']
     bot_y = T['bottom']
     cols = T['cols']
-    per_col = T['per_col']
     n_rows = len(rows)
     n_main = n_rows - (1 if has_break else 0)          # the ranked list proper
-    rows_in_col = n_main if cols == 1 else per_col
+    per_col = n_main if cols == 1 else math.ceil(n_main / cols)
+    rows_in_col = per_col
     # A truncated Big-5 list adds the subject's own row under a 0.6-row
     # gap that holds the break marker - not a whole empty slot.
     BREAK = 0.6

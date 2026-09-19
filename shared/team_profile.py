@@ -218,7 +218,7 @@ COMPONENT_LABELS = {
     "xg_per_shot_diff": "Chance Quality Difference",
     "placement_diff": "Placement Difference",
     "keeper_diff": "Keeper Difference",
-    "net": "Goal Difference Above xG",
+    "net": "Goal Difference Above xGD",
 }
 
 # What the name means, or the stat behind a name - whichever the name
@@ -240,8 +240,6 @@ COMPONENT_MEANING = {
     "gap": "over or underperformance",
     "on_target_pct": "",
     "blocked_pct": "stopped by a defender",
-    "shot_dist": "how far out they shoot",
-    "shot_dist_faced": "how far out they force shots",
     "missed_pct": "wide, over or the woodwork",
     "on_target_pct_faced": "",
     "placement_faced": "post-shot xGA \u2212 xGA",
@@ -250,7 +248,6 @@ COMPONENT_MEANING_AGAINST = {
     "xg_per_shot": "chance quality faced",
     "placement": "post-shot xGA \u2212 xGA",
     "blocked_pct": "blocked by your defenders",
-    "shot_dist": "how far out they force shots",
     "missed_pct": "wide, over or the woodwork",
     "on_target_pct": "",
 }

@@ -488,7 +488,7 @@ def test_format_helpers(cube):
     g = tp.gauge(cube, (S, A), "xgd", "total", "anchor", "rank")
     assert g.fmt == "signed" and tp.format_value(g) == "+0.80" and tp.format_total(g) == "+0.8 in 1"
     g = tp.gauge(cube, (S, A), "gd", "total", "net", "rank")
-    assert tp.format_value(g) == "+0.15" and g.label == "Goal Difference Above xG"
+    assert tp.format_value(g) == "+0.15" and g.label == "Goal Difference Above xGD"
     assert tp.format_number("signed", 0.04) == "+0.04"
     assert tp.format_number("xg", -0.06) == "−0.06"
     g = tp.gauge(cube, (S, A), "gf", "ahead", "context", "rank")
