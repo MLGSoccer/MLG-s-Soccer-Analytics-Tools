@@ -2437,12 +2437,13 @@ def get_team_profile_raw(season_ids_tuple):
     ids = list(season_ids_tuple)
     t0 = time.perf_counter()
     games = con.execute(f"""
-        SELECT seasonId, gameId, Date, homeTeamId, awayTeamId, homeFinalScore, awayFinalScore
+        SELECT seasonId, gameId, Date, homeTeamId, awayTeamId, homeFinalScore, awayFinalScore,
+               homeTeam, awayTeam
         FROM games WHERE seasonId IN ({ph})
     """, ids).df()
     shots = con.execute(f"""
         SELECT seasonId, gameId, gameEventIndex, teamId, opponentId, playType,
-               ShotPlayStyle, xG, xGOT, qualifierBlocked,
+               ShotPlayStyle, xG, xGOT, qualifierBlocked, ShotDist, ShotBodyPart,
                teamCurrentScore, opponentCurrentScore, Period, gameClock
         FROM events
         WHERE seasonId IN ({ph}) AND playType IN {_TP_EVENT_TYPES_SQL}
@@ -2528,6 +2529,10 @@ def get_team_profile(team_id, season_id, *, pool="league", exclude_penalties=Fal
         "pool_mode": "pctl" if info else "rank",
         "pool_label": info["label"] if info else competition,
         "pool_n": int(len(cube.teams)),
+        # Every club in the pool, resolved on the STRONG key - the ranking
+        # graphic names twenty teams, not one.
+        "pool_names": ({ix[1]: team_label(ix[1], nm) for ix, nm in cube.teams["name"].items()}
+                       if "name" in cube.teams.columns else {}),
         "season_ids": tuple(season_ids),
         "exclude_penalties": exclude_penalties,
         "checks": checks,

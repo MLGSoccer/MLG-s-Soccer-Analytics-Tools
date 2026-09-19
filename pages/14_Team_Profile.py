@@ -10,13 +10,16 @@ other, and WHICH comes first is the user's call - the "Drill by" control
 under level 2. Both orders read the same numbers, so a cell reached either
 way is the same cell.
 
-Interaction is buttons beside the chart (the Zone Passing pattern): a click
-sets session state and the level below re-renders. Nothing on the image is
-clickable yet - that layer goes on top of this one, over the same figures.
+The gauges are the controls: each frame at levels 1-2 is shown through
+shared.gauge_click, a static component of ours that lays a hoverable region
+over every grid cell and returns the clicked gauge's KEY. The page maps the
+key to the same drill the button rows did, in session state, and the level
+below renders in the same run. The frame is rendered once at 150 dpi for
+the screen; the 300 dpi file is rendered when its download is clicked.
 """
+import io
 import os
 import sys
-import tempfile
 
 import streamlit as st
 
@@ -28,14 +31,16 @@ from shared.motherduck import (
     is_league_season, pool_for_season, get_team_profile,
 )
 from shared import team_profile as tp
+from shared.gauge_click import gauge_click, regions_from_boxes
 from mostly_finished_charts.team_profile_chart import create_team_profile
+from mostly_finished_charts.team_profile_table import create_league_ranking
 from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Team Profile", page_icon="🎯", layout="wide")
 st.title("Team Profile")
 st.caption("Six gauges: where one team stands against its league (rank) or the "
-           "wider pool (percentile). Click a metric to open it - by game situation "
-           "or by component - and click again for the layer beneath.")
+           "wider pool (percentile). Click a gauge to open it; click a gauge on "
+           "the frame that appears to go one layer further.")
 
 # ── Scope: which team, which league season, against whom ─────────────────────
 
@@ -146,65 +151,119 @@ def _set(**kw):
     st.session_state['tp'] = tp_state
 
 
+# The click tokens the page has acted on, one per clickable frame. NOT inside
+# tp_state: a component's value survives a scope change, and a reset that
+# forgot the token would replay the last click onto the new team.
+seen_clicks = st.session_state.setdefault('tp_seen_clicks', {})
+
+# 150 dpi for the screen: 2,400px across for the 16:9, one device pixel per
+# image pixel in a 1,200px column on a 2x display, 170 KB, half a second.
+# The 300 dpi file (390 KB, 4,800px) is made when its download is clicked.
+SCREEN_DPI = 150
+FILE_DPI = 300
+
+
 @st.cache_data(show_spinner=False)
-def _render(_profile, scope_key, headline, path, order, aspect, competition, title, subtitle):
-    """PNG bytes for one frame, 300 dpi. `_profile` is not hashed - the
-    scope key stands for it - so a click re-renders only the level it opens."""
+def _frame(_profile, scope_key, headline, path, order, aspect, competition, title, subtitle, dpi):
+    """(PNG bytes, click regions, height/width) for one frame. `_profile` is
+    not hashed - the scope key stands for it - so a click renders only the
+    level it opens. The regions come off the figure the PNG was saved from,
+    so they are the cells the reader sees, whatever the frame's layout."""
     import matplotlib.pyplot as plt
     fig = create_team_profile(_profile, headline=headline, path=tuple(path), order=order,
                               competition=competition, custom_title=title,
                               custom_subtitle=subtitle, aspect=aspect)
-    tmp = os.path.join(tempfile.gettempdir(), f"team_profile_{abs(hash((scope_key, headline, path, order, aspect)))}.png")
-    fig.savefig(tmp, dpi=300, facecolor=BG_COLOR, edgecolor='none')
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=dpi, facecolor=BG_COLOR, edgecolor='none', format='png')
+    w, h = fig.get_size_inches()
+    regions = regions_from_boxes(fig.tp_gauge_boxes, fig.tp_specs, _profile['pool_mode'])
     plt.close(fig)
-    with open(tmp, 'rb') as fh:
-        return fh.read()
+    return buf.getvalue(), regions, float(h) / float(w)
 
 
-def _show(headline, path, order, filename):
-    png = _render(profile, scope_key, headline, tuple(path), order, aspect,
-                  competition, title, subtitle)
+def _take_click(slot):
+    """The gauge key of a NEW click on the frame in `slot`, else None. Read
+    BEFORE the frame is drawn, so the drill it opens - and the outline on the
+    clicked gauge - land in this run. The component's value is its LAST
+    click and persists across reruns; the token tells a new click from the
+    same one seen again."""
+    click = st.session_state.get(f'tp_click_{slot}')
+    if not click or click.get('t') == seen_clicks.get(slot):
+        return None
+    seen_clicks[slot] = click.get('t')
+    return click.get('key')
+
+
+def _sentence(phrase):
+    """"Game Situation" -> "Game situation": the frame line's title case is
+    not a control's."""
+    return phrase[:1] + phrase[1:].lower()
+
+
+@st.cache_data(show_spinner=False)
+def _ranking(_profile, scope_key, headline, situation, component, aspect, competition, dpi):
+    """PNG bytes of the pool ranked on one stat. Same cache discipline as
+    `_frame`: the scope key stands for the profile."""
+    import matplotlib.pyplot as plt
+    fig = create_league_ranking(_profile, headline=headline, situation=situation,
+                                component=component, aspect=aspect, competition=competition)
+    buf = io.BytesIO()
+    fig.savefig(buf, dpi=dpi, facecolor=BG_COLOR, edgecolor='none', format='png')
+    plt.close(fig)
+    return buf.getvalue()
+
+
+def _show(headline, path, order, filename, *, slot=None, selected=None, ranking=None):
+    """One frame and its download. With a `slot` the frame is clickable and
+    `selected` names the gauge already open beneath it. `ranking` is the
+    (headline, situation, component) the frame was reached by clicking; it
+    hangs the league ranking on that stat under the frame."""
+    args = (profile, scope_key, headline, tuple(path), order, aspect, competition, title, subtitle)
+    png, regions, ratio = _frame(*args, SCREEN_DPI)
     # The portrait cuts are 9in wide against the 16:9's 16in; letting the
     # column stretch them blows them up past any size they will be seen at.
-    if aspect == 'default':
-        st.image(png, width='stretch')
+    max_width = None if aspect == 'default' else (540 if aspect == '9x16' else 640)
+    if slot:
+        gauge_click(png, regions, ratio=ratio, max_width=max_width, selected=selected,
+                    key=f'tp_click_{slot}')
+    elif max_width:
+        st.image(png, width=max_width)
     else:
-        st.image(png, width=540 if aspect == '9x16' else 640)
-    st.download_button("Download PNG (300 dpi)", png, filename, "image/png",
-                       key=f"dl_{filename}")
+        st.image(png, width='stretch')
+    st.download_button("Download PNG (300 dpi)", lambda: _frame(*args, FILE_DPI)[0],
+                       filename, "image/png", key=f"dl_{filename}")
+    if ranking:
+        hk, sit, comp = ranking
+        # Twenty rows fit a tall frame; the tile cannot hold a league.
+        r_aspect = '9x16' if aspect == '9x8' else aspect
+        spec = tp.gauge(profile['cube'], profile['subject'], hk, sit, comp, profile['pool_mode'])
+        name = spec.label if not (comp == 'anchor' and sit == 'total') else tp.HEADLINES[hk].label
+        if comp == 'anchor' and sit != 'total':
+            name = tp.situation_label(tp.HEADLINES[hk], sit)
+        with st.expander(f"League ranking: {name}"):
+            r_args = (profile, scope_key, hk, sit, comp, r_aspect, competition)
+            png = _ranking(*r_args, SCREEN_DPI)
+            st.image(png, width=540 if r_aspect == '9x16' else 'stretch')
+            r_file = filename.replace('team_profile_', 'ranking_')
+            st.download_button("Download ranking PNG (300 dpi)", lambda: _ranking(*r_args, FILE_DPI),
+                               r_file, "image/png", key=f"dl_rank_{r_file}")
 
 
-def _button_row(specs, key_prefix, on_click):
-    """Six buttons under a frame, one per gauge, in the frame's own order."""
-    cols = st.columns(len(specs))
-    for i, spec in enumerate(specs):
-        with cols[i]:
-            read = spec.standing.readout + ('' if spec.standing.mode == 'rank' else ' pctl')
-            if st.button(f"{spec.label}\n{read}", key=f"{key_prefix}_{spec.key}",
-                         width='stretch'):
-                on_click(spec)
-
-
-cube, subject, mode = profile['cube'], profile['subject'], profile['pool_mode']
 safe = team['display_name'].replace(' ', '_').replace('/', '-')
 suffix = '' if aspect == 'default' else f"_{aspect}"
 
 # ── Level 1 ──────────────────────────────────────────────────────────────────
 
 st.subheader("Overview")
-_show(None, (), 'situation', f"team_profile_{safe}{suffix}.png")
-top_specs = tp.view(cube, subject, None, mode=mode)
-
-
-def _pick_headline(spec):
-    _set(headline=spec.key.split('.')[0], pick=None)
-
-
-_button_row(top_specs, "l1", _pick_headline)
+clicked = _take_click('l1')
+if clicked:
+    _set(headline=clicked.split('.')[0], pick=None)
+headline = tp_state.get('headline')
+_show(None, (), 'situation', f"team_profile_{safe}{suffix}.png", slot='l1',
+      selected=f"{headline}.total.anchor" if headline else None)
 
 # ── Level 2 ──────────────────────────────────────────────────────────────────
 
-headline = tp_state.get('headline')
 if headline:
     h = tp.HEADLINES[headline]
     st.divider()
@@ -212,50 +271,67 @@ if headline:
     with lc:
         st.subheader(h.label)
     with rc:
+        # The two splits in a reader's words, and the six names each one
+        # opens listed beneath, so the choice is concrete before it is made.
+        split_options = [_sentence(tp.order_phrase('situation', short=True)),
+                         _sentence(tp.order_phrase('component', h, short=True))]
         order_label = st.radio(
-            "Drill by", options=["Situation", "Component"], horizontal=True,
+            "Split by", options=split_options, horizontal=True,
             index=0 if tp_state.get('order') == 'situation' else 1,
             key=f"order_{scope_key}_{headline}",
-            help="Situation: total, open play, set piece, ahead, drawing, behind. "
-                 "Component: the links of the chain the metric is made of - "
-                 "shots x chance quality (xG per shot) = xG; shot placement is "
-                 "post-shot xG minus xG (how well the shot was struck); beating "
-                 "the keeper is goals minus post-shot xG; on the against side "
-                 "placement faced and shot-stopping (post-shot xGA minus goals "
-                 "against) are the same two links seen from the defence. Own "
-                 "goals sit in the scoreline and in no shot, so the keeper links "
-                 "leave them out. The second gauge is the context: the other "
-                 "family (xG beside goals), time in the game state, or under Set "
-                 "Piece the set pieces themselves - corners, attacking-third free "
-                 "kicks, throw-ins level with the box, penalties. Whichever you "
-                 "open first, the next click opens the other.")
-        new_order = 'component' if order_label == "Component" else 'situation'
+            help="Game situation: the same number in each part of the game - "
+                 "open play, set pieces, and with the team ahead, drawing or "
+                 "behind. The other split takes the number apart, and what it "
+                 "shows depends on which one you opened. A goals headline "
+                 "stays clear of xG: how many shots, from how far out, and how "
+                 "they ended - on target, blocked, or missed. An xG headline "
+                 "walks the chain: the goals beside the xG, the gap between "
+                 "them, and the two things that make the gap - where the shots "
+                 "were placed and what beat the keeper. A difference compares "
+                 "the two ends of the game, netting only what can honestly be "
+                 "netted. Whichever you open first, the next click opens the "
+                 "other.")
+        new_order = 'component' if order_label == split_options[1] else 'situation'
         if new_order != tp_state.get('order'):
             _set(order=new_order, pick=None)
+        if new_order == 'situation':
+            names = [tp.SITUATIONS[s] for s in tp.SITUATION_ORDER]
+        else:
+            names = [tp.component_label(h, tp.resolve_component('total', c, h.side))
+                     for c in tp.components_of(h)]
+            names[0] = h.label
+        st.caption(" \u00b7 ".join(names))
     order = tp_state['order']
-    _show(headline, (), order, f"team_profile_{safe}_{headline}_by_{order}{suffix}.png")
-    lvl2_specs = tp.view(cube, subject, headline, (), order, mode)
-
-    def _pick_cell(spec):
-        _set(pick=spec.key.split('.')[1] if order == 'situation' else spec.key.split('.')[2])
-
-    _button_row(lvl2_specs, f"l2_{order}", _pick_cell)
-    if st.button("Back to overview", key="back1"):
-        _set(headline=None, pick=None)
-        st.rerun()
+    clicked = _take_click('l2')
+    if clicked:
+        # By situation the frame's keys vary in the situation slot
+        # ("gf.behind.anchor"); by component in the component slot
+        # ("gf.total.shots"). The pick is whichever varies.
+        _set(pick=clicked.split('.')[1] if order == 'situation' else clicked.split('.')[2])
+    pick = tp_state.get('pick')
+    if pick:
+        selected = f"{headline}.{pick}.anchor" if order == 'situation' else f"{headline}.total.{pick}"
+    else:
+        selected = None
+    _show(headline, (), order, f"team_profile_{safe}_{headline}_by_{order}{suffix}.png",
+          ranking=(headline, 'total', 'anchor'),
+          slot='l2', selected=selected)
+    # on_click runs before the script body, so the level closes in the same
+    # run as the click - no st.rerun() and no second pass.
+    st.button("Back to overview", key="back1", on_click=_set,
+              kwargs={'headline': None, 'pick': None})
 
     # ── Level 3 ──────────────────────────────────────────────────────────────
 
-    pick = tp_state.get('pick')
     if pick:
         st.divider()
         if order == 'situation':
-            crumb = f"{h.label} › {tp.SITUATIONS[pick]}"
+            crumb = f"{h.label} › {tp.SITUATION_PHRASE[pick]}"
         else:
             crumb = f"{h.label} › {tp.component_label(h, pick)}"
         st.subheader(crumb)
         _show(headline, (pick,), order,
-              f"team_profile_{safe}_{headline}_{pick}{suffix}.png")
-        if st.button(f"Back to {h.label}", key="back2"):
-            _set(pick=None)
-            st.rerun()
+              f"team_profile_{safe}_{headline}_{pick}{suffix}.png",
+              ranking=((headline, pick, 'anchor') if order == 'situation'
+                       else (headline, 'total', pick)))
+        st.button(f"Back to {h.label}", key="back2", on_click=_set, kwargs={'pick': None})

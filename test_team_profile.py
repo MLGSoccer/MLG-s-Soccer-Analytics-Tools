@@ -15,6 +15,7 @@ import pytest
 from shared import team_profile as tp
 
 A, B, C, D = "teamA", "teamB", "teamC", "teamD"
+M = "−"                       # the real minus sign the chart prints
 S = "season1"
 
 
@@ -109,7 +110,71 @@ def test_gd_and_xgd_are_for_minus_against(cube):
     assert _v(cube, A, "xgd", "total", "anchor") == pytest.approx((xg_a - xga_a) / N90_G1)
 
 
-# -- the situations partition the total ----------------------------------------
+def test_the_shot_outcome_partition_closes(cube):
+    """The spine of the goals frames: every shot is exactly one of on
+    target, blocked or missed. A Post is MISSED - the feed's convention,
+    and the reason the third bucket is never called "off target", which
+    conventionally includes blocked shots."""
+    for team in (A, B, C, D):
+        for sit in tp.SITUATION_ORDER:
+            for side in ("for", "against"):
+                q = lambda c: float(tp._q(cube, side, sit, c).loc[(S, team)])
+                assert q("on_target") + q("blocked") + q("missed") == pytest.approx(q("shots")), \
+                    (team, sit, side)
+    # the shares are shares OF SHOTS, and they sum to 1
+    for hk in ("gf", "ga"):
+        shares = [_v(cube, A, hk, "total", c)
+                  for c in ("on_target_pct", "blocked_pct", "missed_pct")]
+        assert sum(shares) == pytest.approx(1.0)
+    # no shots in a situation: a zero share, and the team stays a peer
+    assert _v(cube, D, "gf", "sp", "on_target_pct") == pytest.approx(0.0)
+
+
+def test_the_gap_closes_and_the_difference_frames_address_one_end(cube):
+    """The xG frames state the GAP, then its two components, and the gap is
+    exactly placement + beating keepers + own goals.
+
+    The difference frames never net two capabilities: a `_faced` dial is
+    the opponents' number, identical to the same dial on the against frame,
+    so a 4th-place attack cannot cancel a 20th-place goalkeeper."""
+    assert tp.components_of(tp.HEADLINES["xg"]) == (
+        "anchor", "counterpart", "gap", "placement", "beat_keeper", "xg_per_shot")
+    assert tp.components_of(tp.HEADLINES["xga"]) == (
+        "anchor", "counterpart", "gap", "placement", "stopping", "xg_per_shot")
+    assert tp.components_of(tp.HEADLINES["gd"]) == (
+        "anchor", "shots_diff", "on_target_pct", "on_target_pct_faced",
+        "shot_dist", "shot_dist_faced")
+    assert tp.components_of(tp.HEADLINES["xgd"]) == (
+        "anchor", "net", "placement", "placement_faced", "beat_keeper", "stopping")
+    # a headline no longer shares a frame with its family sibling
+    assert tp.components_of(tp.HEADLINES["gf"]) != tp.components_of(tp.HEADLINES["xg"])
+    assert tp.components_of(tp.HEADLINES["gd"]) != tp.components_of(tp.HEADLINES["xgd"])
+    for team in (A, B, C, D):
+        for sit in tp.SITUATION_ORDER:
+            den = tp._denominator(cube, sit).loc[(S, team)]
+            og = float(tp._q(cube, "for", sit, "og").loc[(S, team)]) / (den or 1)
+            gap = _v(cube, team, "xg", sit, "gap")
+            assert gap == pytest.approx(_v(cube, team, "xg", sit, "placement")
+                                        + _v(cube, team, "xg", sit, "beat_keeper")
+                                        + (og if den else 0.0)), (team, sit)
+    # the difference frame's faced dials ARE the against frame's dials
+    for comp, faced in (("placement", "placement_faced"),
+                        ("on_target_pct", "on_target_pct_faced"),
+                        ("shot_dist", "shot_dist_faced")):
+        hk = "xgd" if faced == "placement_faced" else "gd"
+        assert _v(cube, A, hk, "total", faced) == pytest.approx(_v(cube, A, "ga", "total", comp))
+    assert _v(cube, A, "xgd", "total", "beat_keeper") == pytest.approx(_v(cube, A, "gf", "total", "beat_keeper"))
+    assert _v(cube, A, "xgd", "total", "stopping") == pytest.approx(_v(cube, A, "ga", "total", "stopping"))
+    # opposite directions on ONE frame - the thing a side-wide rule cannot do
+    gd = tp.HEADLINES["gd"]
+    assert tp.direction(gd, "total", "on_target_pct") == 1
+    assert tp.direction(gd, "total", "on_target_pct_faced") == -1
+    assert tp.direction(gd, "total", "shot_dist") == -1
+    assert tp.direction(gd, "total", "shot_dist_faced") == 1
+    # a block is a thing the DEFENCE does; your own shot hitting one is not
+    assert tp.direction(tp.HEADLINES["gf"], "total", "blocked_pct") == -1
+    assert tp.direction(tp.HEADLINES["ga"], "total", "blocked_pct") == 1
+
 
 @pytest.mark.parametrize("headline", tp.HEADLINE_ORDER)
 def test_phases_and_states_partition_the_total(cube, headline):
@@ -225,8 +290,10 @@ def test_context_slot_resolves_by_situation(cube):
     # A's open-play xG beside its open-play goals
     assert _v(cube, A, "gf", "op", "context") == pytest.approx((0.30 + 0.05) / N90_G1)
     assert _v(cube, A, "gf", "ahead", "context") == pytest.approx(4100 / 5700)
-    # on a difference frame the counterpart is the other family's difference
-    assert _v(cube, A, "gd", "total", "context") == pytest.approx((XG_A - 0.30) / N90_G1)
+    # on a difference frame the context is GD above xGD - the other family's
+    # difference is already on the overview
+    assert _v(cube, A, "gd", "total", "context") == pytest.approx((1.0 - (XG_A - 0.30)) / N90_G1)
+    assert _v(cube, A, "xgd", "total", "context") == _v(cube, A, "gd", "total", "context")
     # the share of the season sits on the phase anchor's line, not on a gauge
     g = tp.gauge(cube, (S, A), "gf", "op", "anchor", "rank")
     assert g.parent_total == 2 and tp.format_total(g) == "1 of 2 (50%)"
@@ -234,30 +301,25 @@ def test_context_slot_resolves_by_situation(cube):
     assert g.parent_total is None
 
 
-def test_set_pieces_are_the_set_piece_context(cube):
-    assert tp.resolve_component("sp", "context") == "set_pieces"
+def test_set_pieces_still_compute_but_have_left_the_frame(cube):
+    """The context slot is gone - all six dials are fixed per frame - so set
+    pieces taken and time in state are no longer gauges. The arithmetic
+    stays: the header note draws them."""
+    assert not any("set_pieces" in tp.COMPONENT_ORDER[hk] for hk in tp.COMPONENT_ORDER)
+    assert not any("minutes_pct" in tp.COMPONENT_ORDER[hk] for hk in tp.COMPONENT_ORDER)
+    assert not any("context" in tp.COMPONENT_ORDER[hk] for hk in tp.COMPONENT_ORDER)
     # A: 5 corners + 2 attacking-third FKs + 1 box throw-in + 1 penalty = 9
     # taken; faced B's 3. Per 90 like everything else.
-    assert _v(cube, A, "gf", "sp", "context") == pytest.approx(9 / N90_G1)
-    assert _v(cube, A, "ga", "sp", "context") == pytest.approx(3 / N90_G1)
-    assert _v(cube, B, "ga", "sp", "context") == pytest.approx(9 / N90_G1)   # incl. the pen faced
-    assert _v(cube, A, "gd", "sp", "context") == pytest.approx(6 / N90_G1)
-    labels = {hk: tp.view(cube, (S, A), hk, ("sp",), "situation")[1].label for hk in ("gf", "ga", "gd")}
-    assert labels == {"gf": "Set Pieces Taken", "ga": "Set Pieces Faced", "gd": "Set Piece Differential"}
-    assert tp.direction(tp.HEADLINES["ga"], "sp", "set_pieces") == -1
-    g = tp.gauge(cube, (S, A), "gf", "sp", "context", "rank")
-    assert g.fmt == "count" and tp.format_value(g) == "8.5" and g.unit == "per 90 min"
-    assert tp.format_total(g) == "9 in 1 (0.11 shots per set piece)"
-    g = tp.gauge(cube, (S, A), "gd", "sp", "context", "rank")
-    assert g.fmt == "signed_int" and tp.format_total(g) == "+6 in 1"
+    assert _v(cube, A, "gf", "sp", "set_pieces") == pytest.approx(9 / N90_G1)
+    assert _v(cube, A, "ga", "sp", "set_pieces") == pytest.approx(3 / N90_G1)
+    assert _v(cube, B, "ga", "sp", "set_pieces") == pytest.approx(9 / N90_G1)
+    assert _v(cube, A, "gd", "sp", "set_pieces") == pytest.approx(6 / N90_G1)
     # the toggle takes the penalty out of the count too
     np_ = tp.build_cube(_games(), _shots(), _period_ends(), _restarts(), exclude_penalties=True)
-    assert _v(np_, A, "gf", "sp", "context") == pytest.approx(8 / N90_G1)
-    assert _v(np_, B, "ga", "sp", "context") == pytest.approx(8 / N90_G1)
+    assert _v(np_, A, "gf", "sp", "set_pieces") == pytest.approx(8 / N90_G1)
     # no restart rows (an old fixture): the cell is NaN, the gauge shows a dash
     old = tp.build_cube(_games(), _shots(), _period_ends())
-    assert math.isnan(_v(old, A, "gf", "sp", "context"))
-    assert tp.gauge(old, (S, A), "gf", "sp", "context", "rank").standing.readout == "—"
+    assert math.isnan(_v(old, A, "gf", "sp", "set_pieces"))
 
 
 def test_both_drill_orders_agree_cell_for_cell(cube):
@@ -268,7 +330,7 @@ def test_both_drill_orders_agree_cell_for_cell(cube):
             by_sit = {g.key: g for g in tp.view(cube, (S, A), hk, (sit,), "situation")}
             for c in comps:
                 by_comp = {g.key: g for g in tp.view(cube, (S, A), hk, (c,), "component")}
-                key = f"{hk}.{sit}.{tp.resolve_component('total', c) if c == 'context' else c}"
+                key = f"{hk}.{sit}.{tp.resolve_component('total', c, h.side) if c == 'context' else c}"
                 if key in by_sit and key in by_comp:
                     a, b = by_sit[key], by_comp[key]
                     assert (a.value == b.value) or (math.isnan(a.value) and math.isnan(b.value)), key
@@ -307,22 +369,33 @@ def test_rank_and_percentile(cube):
 
 
 def test_labels_are_names_and_carry_the_side(cube):
-    against = [g.label for g in tp.view(cube, (S, A), "xga", (), "component")]
-    assert against == ["xG Against", "Goals Against", "Shots Faced", "Chance Quality Faced",
-                       "Placement Faced", "Shot-Stopping"]
-    for_side = [g.label for g in tp.view(cube, (S, A), "gf", (), "component")]
-    assert for_side == ["Goals For", "xG For", "Shots", "Chance Quality", "Shot Placement",
-                        "Beating the Keeper"]
-    diff = [g.label for g in tp.view(cube, (S, A), "gd", (), "component")]
-    assert diff == ["Goal Difference", "xG Difference", "Goals For", "Goals Against",
-                    "Shot Differential", "vs Expected"]
-    # under a state the context slot is the time spent there, and the anchor
-    # of a situation-first level 3 names its situation
-    behind = [g.label for g in tp.view(cube, (S, A), "gf", ("behind",), "situation")]
-    assert behind[:2] == ["Goals For When Behind", "Time Behind"]
-    assert tp.view(cube, (S, A), "ga", ("sp",), "situation")[0].label == "Set-Piece Goals Against"
-    assert tp.view(cube, (S, A), "xg", ("op",), "situation")[0].label == "Open-Play xG For"
-    assert tp.view(cube, (S, A), "xg", ("total",), "situation")[0].label == "xG For"
+    against = [(g.label, g.meaning) for g in tp.view(cube, (S, A), "xga", (), "component")]
+    assert against == [("xG Against", ""), ("Goals Against", ""),
+                       ("Goals Above xGA", "over or underperformance"),
+                       ("Placement Faced", f"post-shot xGA {M} xGA"),
+                       ("Goals Prevented", f"post-shot xGA {M} goals against"),
+                       ("xGA per Shot", "chance quality faced")]
+    for_side = [(g.label, g.meaning) for g in tp.view(cube, (S, A), "xg", (), "component")]
+    assert for_side == [("xG For", ""), ("Goals For", ""),
+                        ("Goals Above xG", "over or underperformance"),
+                        ("Shot Placement", f"post-shot xG {M} xG"),
+                        ("Goals Above Post-Shot xG", "beating keepers"),
+                        ("xG per Shot", "chance quality")]
+    goals = [(g.label, g.unit) for g in tp.view(cube, (S, A), "gf", (), "component")]
+    assert goals == [("Goals For", "per 90 min"), ("Shots", "per 90 min"),
+                     ("Average Shot Distance", "metres"), ("On Target %", "of shots"),
+                     ("Blocked %", "of shots"), ("Missed %", "of shots")]
+    # the against side renames what it must: a block is something you DO
+    ga = [g.label for g in tp.view(cube, (S, A), "ga", (), "component")]
+    assert ga[1:4] == ["Shots Faced", "Average Distance Faced", "On Target % Faced"]
+    assert ga[4] == "Blocks %"
+    g = tp.gauge(cube, (S, A), "gf", "total", "on_target_pct", "rank")
+    assert g.fmt == "pct" and g.unit == "of shots" and g.total is None
+    g = tp.gauge(cube, (S, A), "gf", "total", "shot_dist", "rank")
+    assert g.fmt == "dist" and g.unit == "metres"
+    # the drill dimensions and the situations, in a reader's words
+    assert tp.order_phrase("situation") == "By Game Situation"
+    assert tp.order_phrase("situation", short=True) == "Game Situation"
 
 
 def test_directions():
@@ -339,8 +412,8 @@ def test_directions():
     # time in a state is context, never a verdict - on every situation
     assert tp.direction(tp.HEADLINES["xga"], "ahead", "minutes_pct") == 0
     assert tp.direction(tp.HEADLINES["xga"], "behind", "minutes_pct") == 0
-    assert tp.direction(tp.HEADLINES["gd"], "total", "against") == -1
-    assert tp.direction(tp.HEADLINES["xgd"], "total", "counterpart") == 1
+    assert tp.direction(tp.HEADLINES["gd"], "total", "keeper_diff") == 1
+    assert tp.direction(tp.HEADLINES["xgd"], "total", "net") == 1
 
 
 # -- the penalties toggle --------------------------------------------------------------
@@ -376,15 +449,26 @@ def test_format_helpers(cube):
     assert tp.format_value(g) == "1.89" and tp.format_total(g) == "2 in 1"
     assert g.unit == "per 90 min"
     g = tp.gauge(cube, (S, A), "xg", "total", "xg_per_shot", "rank")
-    assert tp.format_value(g) == "0.380" and g.unit == "" and g.formula == "xG per shot"
-    # the definition under the name, on every derived stat, with the side
-    assert tp.gauge(cube, (S, A), "gf", "total", "placement", "rank").formula == "PSxG − xG"
-    assert tp.gauge(cube, (S, B), "ga", "total", "placement", "rank").formula == "PSxGA − xGA"
-    assert tp.gauge(cube, (S, B), "ga", "total", "stopping", "rank").formula == "PSxGA − GA"
-    assert tp.gauge(cube, (S, A), "gd", "total", "net", "rank").formula == "GD − xGD"
-    assert tp.gauge(cube, (S, A), "gf", "sp", "context", "rank").formula == "corners, FKs, throw-ins, pens"
-    assert tp.gauge(cube, (S, A), "gf", "total", "anchor", "rank").formula == ""
-    assert tp.gauge(cube, (S, A), "gf", "total", "shots", "rank").formula == ""
+    assert tp.format_value(g) == "0.380" and g.unit == "per shot" and g.meaning == "chance quality"
+    g = tp.gauge(cube, (S, A), "gd", "total", "xg_per_shot_diff", "rank")
+    assert g.fmt == "signed3" and g.unit == "per shot" and tp.format_value(g).startswith("+0.")
+    assert tp.format_number("signed3", -0.0125) == "\u22120.013"
+    # the drill dimensions and the situations, in a reader's words
+    assert tp.order_phrase("situation") == "By Game Situation"
+    assert tp.order_phrase("situation", short=True) == "Game Situation"
+    # The frame line NAMES the chart, it does not narrate it. The headline
+    # beside it carries the side, so the tail never repeats it - which is
+    # why the two goals frames share one name.
+    assert tp.order_phrase("component", tp.HEADLINES["gf"]) == "Shot Breakdown"
+    assert tp.order_phrase("component", tp.HEADLINES["ga"]) == "Shot Breakdown"
+    assert tp.order_phrase("component", tp.HEADLINES["xg"]) == "Finishing Breakdown"
+    assert tp.order_phrase("component", tp.HEADLINES["xga"]) == "Shot-Stopping Breakdown"
+    assert tp.order_phrase("component", tp.HEADLINES["gd"]) == "Shot Comparison"
+    assert tp.order_phrase("component", tp.HEADLINES["xgd"]) == "Margin Breakdown"
+    assert all(len(tp.order_phrase("component", tp.HEADLINES[k]).split()) <= 2
+               for k in tp.HEADLINE_ORDER)
+    assert [tp.SITUATION_PHRASE[k] for k in tp.SITUATION_ORDER] == [
+        "All Situations", "Open Play", "Set Pieces", "When Ahead", "When Drawing", "When Behind"]
     # a state anchor says its share of the season's minutes
     g = tp.gauge(cube, (S, C), "gf", "level", "anchor", "rank")
     assert tp.format_total(g) == "1 in 91 min (98% of time)"
@@ -404,9 +488,33 @@ def test_format_helpers(cube):
     g = tp.gauge(cube, (S, A), "xgd", "total", "anchor", "rank")
     assert g.fmt == "signed" and tp.format_value(g) == "+0.80" and tp.format_total(g) == "+0.8 in 1"
     g = tp.gauge(cube, (S, A), "gd", "total", "net", "rank")
-    assert tp.format_value(g) == "+0.15" and g.label == "vs Expected"
+    assert tp.format_value(g) == "+0.15" and g.label == "Goal Difference Above xG"
     assert tp.format_number("signed", 0.04) == "+0.04"
     assert tp.format_number("xg", -0.06) == "−0.06"
     g = tp.gauge(cube, (S, A), "gf", "ahead", "context", "rank")
     assert tp.format_value(g) == "72%" and tp.format_total(g) == "68 min (72%)"
     assert g.label == "Time Ahead" and g.direction == 0
+
+
+def test_league_table_is_the_whole_pool_sorted_by_goodness(cube):
+    """The ranking graphic: every team on ONE stat, best first. An against
+    stat sorts lowest first because `direction` decides, not the caller;
+    ties share a rank (two 1sts, no 2nd); the values ARE the cell values."""
+    t = tp.league_table(cube, (S, A), "xga", "total", "anchor")
+    assert list(t.columns) >= ["value", "name", "rank", "pctl", "is_subject"] or set(
+        ["value", "name", "rank", "pctl", "is_subject"]) <= set(t.columns)
+    assert len(t) == 4 and t["is_subject"].sum() == 1
+    assert t["value"].is_monotonic_increasing          # lower xGA is better -> first
+    assert t["rank"].iloc[0] == 1
+    v, _ = tp.cell(cube, "xga", "total", "anchor")
+    assert t["value"].sort_index().equals(v.astype(float).sort_index())
+    # a for-side stat sorts highest first, and the subject's rank matches its gauge
+    t = tp.league_table(cube, (S, A), "gf", "total", "shots")
+    assert t["value"].is_monotonic_decreasing
+    g = tp.gauge(cube, (S, A), "gf", "total", "shots", "rank")
+    assert int(t.loc[t["is_subject"], "rank"].iloc[0]) == g.standing.position
+    # the percentile points the same way as the rank on an against stat
+    t = tp.league_table(cube, (S, A), "ga", "total", "anchor")
+    assert t["pctl"].is_monotonic_decreasing
+    # no names on an old fixture: the id stands in, nothing crashes
+    assert t["name"].notna().all()

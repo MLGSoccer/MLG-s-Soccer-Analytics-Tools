@@ -132,6 +132,52 @@ SITUATIONS = {
 SITUATION_ORDER = ("total", "op", "sp", "ahead", "level", "behind")
 STATE_SITUATIONS = ("ahead", "level", "behind")
 
+# The situation as a phrase, for the frame line and the page's breadcrumb:
+# "Goals For - When Behind". One family of words wherever a state is named
+# (the first build said WHILE LEVEL in the header, DRAWING on the gauge and
+# "when drawing" in the unit, three names for one thing).
+SITUATION_PHRASE = {
+    "total":  "All Situations",
+    "op":     "Open Play",
+    "sp":     "Set Pieces",
+    "ahead":  "When Ahead",
+    "level":  "When Drawing",
+    "behind": "When Behind",
+}
+
+# The two ways a headline opens, in a reader's words. "Situation" and
+# "component" were the plan's words; on the page and the frame they meant
+# nothing to a user. The frame line says what the six gauges below ARE.
+def order_phrase(order: str, headline: "Headline | None" = None, *, short: bool = False) -> str:
+    """The frame line's tail, in football words: BY GAME SITUATION, or the
+    chain the number is made of - SHOOTING AND FINISHING on the attack,
+    SHOTS FACED AND SHOT-STOPPING on the defence, both ends NET on a
+    difference. ("From shots to goals" meant nothing to the user.) `short`
+    drops the preposition for a control that already says "Split by"."""
+    if order == "situation":
+        return "Game Situation" if short else "By Game Situation"
+    key = headline.key if headline is not None else "gf"
+    return ORDER_PHRASE_COMPONENT.get(key, "Shots and How They Ended")
+
+
+# One per HEADLINE, because no two frames are the same object any more:
+# the goals frames partition the shots, the xG frames walk the chain, the
+# difference frames compare the two ends.
+#
+# These NAME the chart; they do not narrate it. An earlier set read
+# "Shots and How They Ended", "Where the Margin Came From" - chapter
+# titles, not labels. The headline beside them already says which side of
+# the ball it is, so the tail never repeats it: GOALS AGAINST . SHOT
+# BREAKDOWN, not SHOTS FACED BREAKDOWN.
+ORDER_PHRASE_COMPONENT = {
+    "gf":  "Shot Breakdown",
+    "ga":  "Shot Breakdown",
+    "xg":  "Finishing Breakdown",
+    "xga": "Shot-Stopping Breakdown",
+    "gd":  "Shot Comparison",
+    "xgd": "Margin Breakdown",
+}
+
 # The context slot is the one that changes with the situation: the other
 # family beside the anchor, the set pieces the shots came from, the time
 # spent in the state.
@@ -140,23 +186,73 @@ CONTEXT_FOR_SITUATION = {
     "ahead": "minutes_pct", "level": "minutes_pct", "behind": "minutes_pct",
 }
 
-# Names, not formulas. The first build put the user's shorthand on the
-# gauges verbatim ("GOALS - XG", "MINUTES %", "FOR") and the frames read as
-# a worksheet. The formula lives in the unit line under the number.
+# The NAME says what the stat is, in words a viewer knows, and where the
+# stat is a difference the name carries its direction ("Goals Above
+# Post-Shot xG"); the MEANING beside it says how to read it ("beating the
+# keeper"). The user's rule: both must land - the stat and what it means.
+# The first build put shorthand on the gauges ("GOALS - XG"); the second
+# put a skill name over a formula in a line too small to read.
 COMPONENT_LABELS = {
     "anchor": "",                      # takes the parent's label
     "shots": "Shots",
-    "xg_per_shot": "Chance Quality",
+    "xg_per_shot": "xG per Shot",
     "placement": "Shot Placement",
-    "beat_keeper": "Beating the Keeper",
-    "stopping": "Shot-Stopping",
+    "beat_keeper": "Goals Above Post-Shot xG",
+    "stopping": "Goals Prevented",
     "set_pieces": "Set Pieces Taken",
-    # difference headlines
-    "shots_diff": "Shot Differential",
-    # GD - xGD: the four links summed. Not "Finishing" - to a fan that word
-    # means goals against chances, and it sat beside numbers saying the
-    # opposite.
-    "net": "vs Expected",
+    # the goals frames: the shot-outcome partition, in plain counts
+    "shot_dist": "Average Shot Distance",
+    "on_target_pct": "On Target %",
+    "blocked_pct": "Blocked %",
+    "missed_pct": "Missed %",
+    "gap": "Goals Above xG",
+    # the difference frames address ONE end explicitly - netting these
+    # would fuse two capabilities into a number nobody asks for
+    "on_target_pct_faced": "On Target % Faced",
+    "shot_dist_faced": "Average Distance Faced",
+    "placement_faced": "Placement Faced",
+    # difference headlines: the same chain, NET of both ends. The first
+    # build showed GF, GA, GD and xGD under Goal Difference - four of six
+    # gauges the overview already had.
+    "shots_diff": "Shot Difference",
+    "xg_per_shot_diff": "Chance Quality Difference",
+    "placement_diff": "Placement Difference",
+    "keeper_diff": "Keeper Difference",
+    "net": "Goal Difference Above xG",
+}
+
+# What the name means, or the stat behind a name - whichever the name
+# does not already say. Drawn beside/under the name in parentheses, at a
+# size that can be read.
+COMPONENT_MEANING = {
+    "xg_per_shot": "chance quality",
+    "placement": "post-shot xG \u2212 xG",
+    "beat_keeper": "beating keepers",
+    "stopping": "post-shot xGA \u2212 goals against",
+    "set_pieces": "corners, free kicks, throw-ins, pens",
+    "shots_diff": "shots \u2212 shots faced",
+    # "net": the difference frame's own word (SHOOTING AND FINISHING, NET)
+    "xg_per_shot_diff": "xG per shot, net",
+    "placement_diff": "post-shot xG \u2212 xG, net",
+    "keeper_diff": "goals prevented, net",
+    "net": "overperformance",
+    "minutes_pct": "share of minutes",
+    "gap": "over or underperformance",
+    "on_target_pct": "",
+    "blocked_pct": "stopped by a defender",
+    "shot_dist": "how far out they shoot",
+    "shot_dist_faced": "how far out they force shots",
+    "missed_pct": "wide, over or the woodwork",
+    "on_target_pct_faced": "",
+    "placement_faced": "post-shot xGA \u2212 xGA",
+}
+COMPONENT_MEANING_AGAINST = {
+    "xg_per_shot": "chance quality faced",
+    "placement": "post-shot xGA \u2212 xGA",
+    "blocked_pct": "blocked by your defenders",
+    "shot_dist": "how far out they force shots",
+    "missed_pct": "wide, over or the woodwork",
+    "on_target_pct": "",
 }
 
 # On an AGAINST headline the same components are the opponents' numbers, and
@@ -165,35 +261,23 @@ COMPONENT_LABELS = {
 # The label carries the side.
 COMPONENT_LABELS_AGAINST = {
     "shots": "Shots Faced",
-    "xg_per_shot": "Chance Quality Faced",
+    "xg_per_shot": "xGA per Shot",
     "placement": "Placement Faced",
     "set_pieces": "Set Pieces Faced",
+    "shot_dist": "Average Distance Faced",
+    "on_target_pct": "On Target % Faced",
+    "blocked_pct": "Blocks %",         # on this side a block is a thing the team DOES
+    "gap": "Goals Above xGA",
 }
 
 
-# What a derived stat IS, for the small line under its name. The user's
-# rule: the name may be explanatory, but the specific stat must be on the
-# chart too. Plain quantities (goals, xG, shots, time) need none.
-COMPONENT_FORMULA = {
-    "xg_per_shot": "xG per shot",
-    "placement": "PSxG \u2212 xG",
-    "beat_keeper": "Goals \u2212 PSxG",
-    "stopping": "PSxGA \u2212 GA",
-    "net": "GD \u2212 xGD",
-    "set_pieces": "corners, FKs, throw-ins, pens",
-}
-COMPONENT_FORMULA_AGAINST = {
-    "xg_per_shot": "xGA per shot",
-    "placement": "PSxGA \u2212 xGA",
-}
-
-
-def component_formula(headline: "Headline", comp: str) -> str:
-    if headline.side == "against" and comp in COMPONENT_FORMULA_AGAINST:
-        return COMPONENT_FORMULA_AGAINST[comp]
+def component_meaning(headline: "Headline", comp: str) -> str:
+    """The parenthetical beside the name; "" for a plain quantity."""
+    if headline.side == "against" and comp in COMPONENT_MEANING_AGAINST:
+        return COMPONENT_MEANING_AGAINST[comp]
     if headline.side == "diff" and comp == "set_pieces":
         return "taken \u2212 faced"
-    return COMPONENT_FORMULA.get(comp, "")
+    return COMPONENT_MEANING.get(comp, "")
 
 
 def component_label(headline: "Headline", comp: str, situation: str = "total") -> str:
@@ -209,12 +293,7 @@ def component_label(headline: "Headline", comp: str, situation: str = "total") -
     if comp == "counterpart":
         return HEADLINES[COUNTERPART[headline.key]].label
     if comp == "set_pieces" and headline.side == "diff":
-        return "Set Piece Differential"
-    if comp in ("for", "against"):
-        # On a difference frame the halves wear their full names: a bare
-        # "FOR" over a gauge was the shorthand the user objected to.
-        return next(h.label for h in HEADLINES.values()
-                    if h.family == headline.family and h.side == comp)
+        return "Set Piece Difference"
     if headline.side == "against" and comp in COMPONENT_LABELS_AGAINST:
         return COMPONENT_LABELS_AGAINST[comp]
     return COMPONENT_LABELS.get(comp, comp)
@@ -225,9 +304,38 @@ def component_label(headline: "Headline", comp: str, situation: str = "total") -
 # headline and forward from an xG one; two orders for one chain was a
 # second thing to learn.)
 COMPONENT_ORDER = {
-    "for":     ("anchor", "context", "shots", "xg_per_shot", "placement", "beat_keeper"),
-    "against": ("anchor", "context", "shots", "xg_per_shot", "placement", "stopping"),
-    "diff":    ("anchor", "context", "for", "against", "shots_diff", "net"),
+    # THE GOALS FRAMES - xG-free, and the spine is the shot-outcome
+    # partition: on target + blocked + missed == shots, exactly, for every
+    # team and situation. Six axes, one dial each: the outcome, how many,
+    # from where, and the three ways a shot ends.
+    "gf":  ("anchor", "shots", "shot_dist", "on_target_pct", "blocked_pct", "missed_pct"),
+    "ga":  ("anchor", "shots", "shot_dist", "on_target_pct", "blocked_pct", "missed_pct"),
+    # THE XG FRAMES - the chain: the quantity, its counterpart, the GAP
+    # between them, then the gap's two components, then one context dial.
+    # The gap closes exactly: goals - xG == placement + beating keepers +
+    # own goals.
+    "xg":  ("anchor", "counterpart", "gap", "placement", "beat_keeper", "xg_per_shot"),
+    "xga": ("anchor", "counterpart", "gap", "placement", "stopping", "xg_per_shot"),
+    # GOAL DIFFERENCE - the funnel compared at each stage. The count nets;
+    # the rates and averages have different denominators at each end, so
+    # they show as BOTH ENDS rather than as a difference of two averages.
+    "gd":  ("anchor", "shots_diff", "on_target_pct", "on_target_pct_faced",
+            "shot_dist", "shot_dist_faced"),
+    # XG DIFFERENCE - how good, how lucky, and the four places the luck
+    # lives. Nothing is netted that would fuse two capabilities: beating
+    # keepers (your attackers) stays separate from goals prevented (your
+    # keeper), which is what stops a 4th-place attack cancelling a
+    # 20th-place goalkeeper into an unremarkable 11th.
+    "xgd": ("anchor", "net", "placement", "placement_faced", "beat_keeper", "stopping"),
+}
+
+# Which END of the game a component addresses on a DIFFERENCE headline.
+# Absent = the difference itself.
+DIFF_SIDE_OF = {
+    "placement": "for", "placement_faced": "against",
+    "beat_keeper": "for", "stopping": "against",
+    "on_target_pct": "for", "on_target_pct_faced": "against",
+    "shot_dist": "for", "shot_dist_faced": "against",
 }
 
 
@@ -241,15 +349,37 @@ def situation_label(headline: Headline, situation: str) -> str:
     if situation == "sp":
         return f"Set-Piece {headline.label}"
     if situation in STATE_SITUATIONS:
-        return f"{headline.label} When {SITUATIONS[situation]}"
+        return f"{headline.label} {SITUATION_PHRASE[situation]}"
     return headline.label
 
 
 def components_of(headline: Headline) -> tuple:
-    return COMPONENT_ORDER[headline.side]
+    return COMPONENT_ORDER[headline.key]
 
 
 # -- Direction: +1 higher is better, -1 lower is better, 0 no direction --------
+
+# Which way is up, per frame and per dial. A table rather than a rule,
+# because the respec puts opposite directions on ONE frame: Goal Difference
+# carries your accuracy (up) beside your opponents' (down), and on the
+# against frames a block is a thing your defenders DO (up) where on the for
+# frames it is your shot hitting one (down).
+_DIRECTION = {
+    "gf":  {"anchor": 1, "shots": 1, "shot_dist": -1,
+            "on_target_pct": 1, "blocked_pct": -1, "missed_pct": -1},
+    "ga":  {"anchor": -1, "shots": -1, "shot_dist": 1,
+            "on_target_pct": -1, "blocked_pct": 1, "missed_pct": 1},
+    "xg":  {"anchor": 1, "counterpart": 1, "gap": 1,
+            "placement": 1, "beat_keeper": 1, "xg_per_shot": 1},
+    "xga": {"anchor": -1, "counterpart": -1, "gap": -1,
+            "placement": -1, "stopping": 1, "xg_per_shot": -1},
+    "gd":  {"anchor": 1, "shots_diff": 1,
+            "on_target_pct": 1, "on_target_pct_faced": -1,
+            "shot_dist": -1, "shot_dist_faced": 1},
+    "xgd": {"anchor": 1, "net": 1, "placement": 1, "placement_faced": -1,
+            "beat_keeper": 1, "stopping": 1},
+}
+
 
 def direction(headline: Headline, situation: str, component: str) -> int:
     """The gauge rates goodness, so every cell needs to know which way is up.
@@ -261,11 +391,13 @@ def direction(headline: Headline, situation: str, component: str) -> int:
     """
     if component == "minutes_pct":
         return 0
+    d = _DIRECTION.get(headline.key, {}).get(component)
+    if d is not None:
+        return d
     if component in ("beat_keeper", "stopping"):
-        # The last link, on either side: more is better for the team.
         return 1
     if headline.side == "diff":
-        return -1 if component == "against" else 1
+        return 1
     return 1 if headline.side == "for" else -1
 
 
@@ -288,11 +420,26 @@ def shot_facts(shots: pd.DataFrame) -> pd.DataFrame:
     for the side it counts AGAINST, each with the state from THAT side's view.
 
     Columns: seasonId gameId teamId side phase state is_pen shots goals og
-             xg xgot
+             xg xgot on_target blocked missed headers dist_sum
     An own goal is a goal for the opponent and against the conceding team,
     in the phase the feed recorded, and is never a shot. It is counted
     separately (`og`) because no shot's post-shot xG covers it: shot-stopping
     is PSxG against goals the keeper actually faced.
+
+    THE SHOT-OUTCOME PARTITION - on_target + blocked + missed == shots, for
+    every team and every situation. On target is a goal or an unblocked save;
+    blocked is `qualifierBlocked` on a save; missed is a Miss or the
+    woodwork. A Post is OFF target by the feed's convention, which is why the
+    third bucket is named "missed" and never "off target" - conventionally
+    off-target includes blocked shots, and that would contradict the blocked
+    bucket sitting beside it. Cross-checked on PL 2025/26: this gate and
+    `xGOT > 0` both give 3,079 on target, to the row.
+
+    `dist_sum` is ShotDist summed over SHOTS ONLY, so the mean is
+    dist_sum / shots. ShotDist, not MetresFromGoal: a penalty measures 11.00m
+    on ShotDist (right) and 13.20m on MetresFromGoal (wrong). Own goals carry
+    garbage distance - the event sits at the conceding end - so they are out
+    of both the numerator and, being no shot, the denominator.
     """
     s = shots.copy()
     pt = s["playType"].astype(str)
@@ -301,6 +448,17 @@ def shot_facts(shots: pd.DataFrame) -> pd.DataFrame:
     is_shot = pt.isin(SHOT_TYPES)
     is_goal = pt.isin(GOAL_TYPES) | is_og
     is_pen = style.eq("Penalty").fillna(False) | pt.eq("PenaltyGoal")
+    # Columns an older cached fixture will not have: absent -> the derived
+    # quantities are 0/NaN and the dials that need them simply cannot draw.
+    blocked_q = (s["qualifierBlocked"].fillna(False).astype(bool)
+                 if "qualifierBlocked" in s.columns else pd.Series(False, index=s.index))
+    is_blocked = pt.eq("AttemptSaved") & blocked_q
+    is_on_target = pt.isin(GOAL_TYPES) | (pt.eq("AttemptSaved") & ~blocked_q)
+    is_missed = pt.isin(("Miss", "Post"))
+    body = (s["ShotBodyPart"].astype("string") if "ShotBodyPart" in s.columns
+            else pd.Series(pd.NA, index=s.index, dtype="string"))
+    dist = (pd.to_numeric(s["ShotDist"], errors="coerce") if "ShotDist" in s.columns
+            else pd.Series(np.nan, index=s.index))
     phase = pd.Series(np.where(style.isin(SET_PIECE_STYLES), "sp",
                       np.where(style.isin(OPEN_PLAY_STYLES), "op", None)),
                       index=s.index, dtype="object")
@@ -316,6 +474,11 @@ def shot_facts(shots: pd.DataFrame) -> pd.DataFrame:
         "og": is_og.astype(int).values,
         "xg": pd.to_numeric(s["xG"], errors="coerce").fillna(0.0).values,
         "xgot": pd.to_numeric(s["xGOT"], errors="coerce").fillna(0.0).values,
+        "on_target": (is_on_target & is_shot).astype(int).values,
+        "blocked": (is_blocked & is_shot).astype(int).values,
+        "missed": (is_missed & is_shot).astype(int).values,
+        "headers": (body.eq("Head").fillna(False) & is_shot).astype(int).values,
+        "dist_sum": dist.where(is_shot).fillna(0.0).values,
     })
     actor = s["teamId"].values
     other = s["opponentId"].values
@@ -397,7 +560,8 @@ def minutes_in_state(goals: pd.DataFrame, period_ends: pd.DataFrame,
 
 # -- Step 3: the cube ----------------------------------------------------------
 
-_Q = ["goals", "og", "xg", "shots", "xgot"]
+_Q = ["goals", "og", "xg", "shots", "xgot",
+      "on_target", "blocked", "missed", "headers", "dist_sum"]
 
 
 @dataclass
@@ -407,6 +571,8 @@ class Cube:
     teams:  index (seasonId, teamId): gp gf ga ahead_s level_s behind_s total_s
             gf_pen ga_pen  (penalty goals, so the headline can drop them)
     cells:  index (seasonId, teamId, side, situation): goals og xg shots xgot
+            on_target blocked missed headers dist_sum  (the last five are 0
+            on a fixture built before the shot-outcome partition existed)
     checks: per team-season reconciliation of goal events vs scoreline
     exclude_penalties: what the cells were built with
     """
@@ -424,14 +590,29 @@ class Cube:
 
 
 def team_games(games: pd.DataFrame) -> pd.DataFrame:
-    """Two rows per game -> gp, gf, ga per (seasonId, teamId) from the scoreline."""
+    """Two rows per game -> gp, gf, ga per (seasonId, teamId) from the scoreline.
+
+    Plus `name`, the feed's raw club name, when the games frame carries it:
+    the league-ranking graphic needs a name for every team in the pool, not
+    just the subject. Raw here on purpose - normalising it is a lookup this
+    module must not do.
+    """
     g = games.dropna(subset=["homeFinalScore", "awayFinalScore"])
+    has_names = "homeTeam" in g.columns and "awayTeam" in g.columns
     h = pd.DataFrame({"seasonId": g["seasonId"], "teamId": g["homeTeamId"],
-                      "gf": g["homeFinalScore"].astype(int), "ga": g["awayFinalScore"].astype(int)})
+                      "gf": g["homeFinalScore"].astype(int), "ga": g["awayFinalScore"].astype(int),
+                      "name": g["homeTeam"] if has_names else None})
     a = pd.DataFrame({"seasonId": g["seasonId"], "teamId": g["awayTeamId"],
-                      "gf": g["awayFinalScore"].astype(int), "ga": g["homeFinalScore"].astype(int)})
+                      "gf": g["awayFinalScore"].astype(int), "ga": g["homeFinalScore"].astype(int),
+                      "name": g["awayTeam"] if has_names else None})
     both = pd.concat([h, a], ignore_index=True)
     out = both.groupby(["seasonId", "teamId"]).agg(gp=("gf", "size"), gf=("gf", "sum"), ga=("ga", "sum"))
+    if has_names:
+        # The club a team-season is most often called, so a mid-season
+        # rename in the feed cannot pick the losing spelling.
+        mode = (both.dropna(subset=["name"]).groupby(["seasonId", "teamId"])["name"]
+                .agg(lambda x: x.mode().iat[0] if not x.mode().empty else None))
+        out["name"] = mode.reindex(out.index)
     return out
 
 
@@ -581,8 +762,21 @@ def _per90(q: pd.Series, den: pd.Series) -> pd.Series:
     return (q / den).where(den > 0, 0.0)
 
 
-def resolve_component(situation: str, component: str) -> str:
-    return CONTEXT_FOR_SITUATION[situation] if component == "context" else component
+def resolve_component(situation: str, component: str, side: str = "for") -> str:
+    """Passthrough. Kept because callers still route through it.
+
+    There used to be a CONTEXT slot here - dial two swapped by situation,
+    to the counterpart under Total/Open Play, to set pieces taken under Set
+    Piece, to time in state under Ahead/Drawing/Behind. The respec fixes all
+    six dials per frame, so nothing swaps any more and the two facts that
+    slot carried moved to the header NOTE: time in state (which is the
+    exposure caveat - it stops a team ranking "bad when behind" off forty
+    minutes of evidence) and set pieces taken.
+    """
+    if component != "context":
+        return component
+    comp = CONTEXT_FOR_SITUATION[situation]
+    return "net" if (side == "diff" and comp == "counterpart") else comp
 
 
 def cell(cube: Cube, headline: str, situation: str, component: str) -> tuple[pd.Series, pd.Series | None]:
@@ -592,7 +786,7 @@ def cell(cube: Cube, headline: str, situation: str, component: str) -> tuple[pd.
     chart prints beneath it ("70 in 38"). Ratios and shares have no total.
     """
     h = HEADLINES[headline]
-    comp = resolve_component(situation, component)
+    comp = resolve_component(situation, component, h.side)
     den = _denominator(cube, situation)
 
     if comp == "minutes_pct":
@@ -639,9 +833,22 @@ def cell(cube: Cube, headline: str, situation: str, component: str) -> tuple[pd.
         if comp == "set_pieces":
             n = cube.teams[f"sp_{side}"].astype(float)
             return _per90(n, den), n
+        if comp == "gap":
+            # The GAP the frame then decomposes: goals minus xG, which is
+            # exactly placement + beating keepers + own goals.
+            return _per90(goals - xg, den), goals - xg
+        if comp in ("on_target_pct", "blocked_pct", "missed_pct"):
+            n = _q(cube, side, situation, comp[:-4]).astype(float)
+            # No shots yet: a zero share, so the team stays a peer.
+            return (n / shots).where(shots > 0, 0.0), None
+        if comp == "shot_dist":
+            d = _q(cube, side, situation, "dist_sum").astype(float)
+            return (d / shots).where(shots > 0, 0.0), None
         raise KeyError(comp)
 
-    # difference headlines
+    # difference headlines: every link is FOR minus AGAINST, so the chain
+    # closes the same way - GD - xGD = placement difference + goals
+    # prevented difference + the own-goal difference.
     qf = _quantity(cube, h.family, "for", situation)
     qa = _quantity(cube, h.family, "against", situation)
     if comp == "anchor":
@@ -650,16 +857,42 @@ def cell(cube: Cube, headline: str, situation: str, component: str) -> tuple[pd.
         other = "xg" if h.family == "goals" else "goals"
         d = _quantity(cube, other, "for", situation) - _quantity(cube, other, "against", situation)
         return _per90(d, den), d
-    if comp == "for":
-        return _per90(qf, den), qf
-    if comp == "against":
-        return _per90(qa, den), qa
+    if comp in DIFF_SIDE_OF:
+        # One END of the game, addressed explicitly. Netting these would
+        # fuse two capabilities - your attackers with your goalkeeper, your
+        # shot selection with your defenders' blocking - into a number
+        # nobody asks for, and the cancellation destroys both facts.
+        end = DIFF_SIDE_OF[comp]
+        base = comp[:-6] if comp.endswith("_faced") else comp
+        return cell(cube, "gf" if end == "for" else "ga", situation, base)
     if comp == "shots_diff":
         d = _q(cube, "for", situation, "shots") - _q(cube, "against", situation, "shots")
         return _per90(d.astype(float), den), d.astype(float)
+    if comp == "xg_per_shot_diff":
+        # Chance quality at both ends: a ratio's difference, no time base.
+        sf = _q(cube, "for", situation, "shots").astype(float)
+        sa = _q(cube, "against", situation, "shots").astype(float)
+        qf_ = (_q(cube, "for", situation, "xg").astype(float) / sf).where(sf > 0, 0.0)
+        qa_ = (_q(cube, "against", situation, "xg").astype(float) / sa).where(sa > 0, 0.0)
+        return qf_ - qa_, None
+    if comp == "placement_diff":
+        pf = _q(cube, "for", situation, "xgot").astype(float) - _q(cube, "for", situation, "xg").astype(float)
+        pa = (_q(cube, "against", situation, "xgot").astype(float)
+              - _q(cube, "against", situation, "xg").astype(float))
+        return _per90(pf - pa, den), pf - pa
+    if comp == "keeper_diff":
+        # Goals prevented by the team's keeper minus goals prevented by the
+        # opponents' (= beating the keeper + shot-stopping), own goals out
+        # of both as no shot's post-shot xG covers them.
+        gf_shots = (_quantity(cube, "goals", "for", situation)
+                    - _q(cube, "for", situation, "og").astype(float))
+        ga_shots = (_quantity(cube, "goals", "against", situation)
+                    - _q(cube, "against", situation, "og").astype(float))
+        beat = gf_shots - _q(cube, "for", situation, "xgot").astype(float)
+        stop = _q(cube, "against", situation, "xgot").astype(float) - ga_shots
+        return _per90(beat + stop, den), beat + stop
     if comp == "net":
-        # GD - xGD: placement + beating the keeper - placement faced +
-        # shot-stopping, own goals included on both sides.
+        # GD - xGD, own goals included on both sides.
         gd = _quantity(cube, "goals", "for", situation) - _quantity(cube, "goals", "against", situation)
         xgd = _quantity(cube, "xg", "for", situation) - _quantity(cube, "xg", "against", situation)
         return _per90(gd - xgd, den), gd - xgd
@@ -758,19 +991,27 @@ class GaugeSpec:
     parent_total: float | None = None   # the season figure a phase anchor is a share of
     og: float | None = None        # own goals left out of a shot-stopping cell
     shots_per_sp: float | None = None   # on the set-pieces gauge: the link to the shots gauge
-    formula: str = ""              # what the stat IS, under the name ("PSxG - xG")
+    meaning: str = ""              # the parenthetical beside the name ("chance quality")
 
 
 def _fmt_for(family: str, comp: str, side: str = "for") -> str:
     if comp == "minutes_pct":
         return "pct"
+    if comp in ("on_target_pct", "blocked_pct", "missed_pct", "on_target_pct_faced"):
+        return "pct"
+    if comp in ("shot_dist", "shot_dist_faced"):
+        return "dist"
+    if comp == "gap":
+        return "signed"
     if comp == "xg_per_shot":
         # 3 dp: at 2 dp "0.11 - median 0.11" carried a 7th/20 beside it, a
         # rank the displayed digits could not support.
         return "xg3"
+    if comp == "xg_per_shot_diff":
+        return "signed3"
     if comp == "shots_diff" or (comp == "set_pieces" and side == "diff"):
         return "signed_int"
-    if comp in ("placement", "beat_keeper", "stopping", "net"):
+    if comp in ("placement", "beat_keeper", "stopping", "net", "placement_diff", "keeper_diff"):
         return "signed"
     if comp in ("shots", "set_pieces"):
         return "count"
@@ -793,8 +1034,12 @@ def _unit_for(situation: str, comp: str) -> str:
     short-unit layouts drop."""
     if comp == "minutes_pct":
         return ""
-    if comp == "xg_per_shot":
-        return ""                  # the definition line under the name says it
+    if comp in ("on_target_pct", "blocked_pct", "missed_pct", "on_target_pct_faced"):
+        return "of shots"          # "29% of shots", so the denominator is stated
+    if comp in ("shot_dist", "shot_dist_faced"):
+        return "metres"
+    if comp in ("xg_per_shot", "xg_per_shot_diff"):
+        return "per shot"          # "0.104 per shot", beside "1.44 per 90 min"
     # "when behind", not "behind": the bare word read as a preposition
     # missing its object ("per 90 minutes... behind what?").
     when = f" when {SITUATIONS[situation].lower()}" if situation in STATE_SITUATIONS else ""
@@ -804,7 +1049,7 @@ def _unit_for(situation: str, comp: str) -> str:
 def gauge(cube: Cube, subject, headline: str, situation: str, component: str,
           mode: str, label: str | None = None) -> GaugeSpec:
     h = HEADLINES[headline]
-    comp = resolve_component(situation, component)
+    comp = resolve_component(situation, component, h.side)
     values, totals = cell(cube, headline, situation, component)
     d = direction(h, situation, comp)
     st = standing(values, subject, d, mode)
@@ -815,7 +1060,7 @@ def gauge(cube: Cube, subject, headline: str, situation: str, component: str,
         tot = float(totals.loc[subject])
     spec = GaugeSpec(
         key=f"{headline}.{situation}.{comp}",
-        formula=component_formula(h, comp),
+        meaning=component_meaning(h, comp),
         label=label if label is not None else component_label(h, comp, situation),
         value=v, total=tot, unit=_unit_for(situation, comp), fmt=_fmt_for(h.family, comp, h.side),
         direction=d, standing=st,
@@ -883,7 +1128,7 @@ def view(cube: Cube, subject, headline: str | None, path: tuple = (),
         sit = pick
         return [gauge(cube, subject, headline, sit, c, mode,
                       situation_label(h, sit) if c == "anchor" else None) for c in comps]
-    comp = resolve_component("total", pick)
+    comp = resolve_component("total", pick, h.side)
     return [gauge(cube, subject, headline, sit, comp, mode, SITUATIONS[sit])
             for sit in SITUATION_ORDER]
 
@@ -903,6 +1148,37 @@ def _signed(s: str) -> str:
     return _minus(s)
 
 
+def league_table(cube: Cube, subject, headline: str, situation: str,
+                 component: str, mode: str = "rank") -> pd.DataFrame:
+    """Every team in the pool on ONE stat, best first.
+
+    The gauges already compute this and throw it away: `cell()` returns the
+    value for the whole pool and the chart keeps one row. Columns: name,
+    value, rank (ties shared, `method='min'`, so two firsts are both 1st and
+    there is no 2nd), pctl, and `is_subject`.
+
+    Sorted by GOODNESS, not by value: an against-side stat ranks lowest
+    first, which is why `direction` decides the sort and not the caller.
+    """
+    h = HEADLINES[headline]
+    values, _totals = cell(cube, headline, situation, component)
+    d = direction(h, situation, component)
+    ascending = d < 0
+    df = pd.DataFrame({"value": values.astype(float)})
+    df["name"] = (cube.teams["name"].reindex(df.index)
+                  if "name" in cube.teams.columns else pd.Series(index=df.index, dtype=object))
+    df["name"] = df["name"].fillna(pd.Series(
+        [ix[1] for ix in df.index], index=df.index))
+    df["rank"] = df["value"].rank(ascending=ascending, method="min").astype(int)
+    df["pctl"] = [calculate_percentile(v, list(df["value"].dropna())) if pd.notna(v) else float("nan")
+                  for v in df["value"]]
+    if d < 0:
+        df["pctl"] = 100.0 - df["pctl"]
+    df["is_subject"] = [ix == subject for ix in df.index]
+    df = df.sort_values(["rank", "name"], kind="mergesort")
+    return df
+
+
 def format_number(fmt: str, v, *, total: bool = False) -> str:
     """One number in a cell's format - the value, the pool median beneath it,
     or (total=True) the raw total on the last line."""
@@ -912,12 +1188,16 @@ def format_number(fmt: str, v, *, total: bool = False) -> str:
         return f"{v * 100:.0f}%"
     if fmt == "signed":
         return _signed(f"{v:+.1f}" if total else f"{v:+.2f}")
+    if fmt == "signed3":
+        return _signed(f"{v:+.3f}")
     if fmt == "signed_int":
         return _signed(f"{v:+.0f}" if total else f"{v:+.2f}")
     if fmt in ("goals", "count"):
         return _minus(f"{v:.0f}" if total else (f"{v:.2f}" if fmt == "goals" else f"{v:.1f}"))
     if fmt == "xg3":
         return _minus(f"{v:.3f}")
+    if fmt == "dist":
+        return _minus(f"{v:.1f}")
     return _minus(f"{v:.1f}" if total else f"{v:.2f}")
 
 

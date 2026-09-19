@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>gauge click</title>
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+  /* The wrap is sized by CSS alone (width + aspect ratio), so the frame
+     height is known before the PNG has decoded and never jumps. */
+  #wrap { position: relative; width: 100%; line-height: 0; }
+  #img { position: absolute; inset: 0; width: 100%; height: 100%; display: block;
+         user-select: none; -webkit-user-drag: none; }
+  /* A region is a whole grid cell: name, dial, readout and the lines under
+     it. The hit area is the cell; the highlight is inset from it so two
+     neighbours never fuse into one rectangle. */
+  .region { position: absolute; cursor: pointer; outline: none;
+            -webkit-tap-highlight-color: transparent; }
+  .region::after { content: ''; position: absolute; inset: 3px; border-radius: 10px;
+                   background: rgba(255, 255, 255, 0);
+                   box-shadow: inset 0 0 0 0 rgba(184, 197, 214, 0);
+                   transition: background .12s ease, box-shadow .12s ease; }
+  .region:hover::after, .region:focus-visible::after {
+    background: rgba(255, 255, 255, .055);
+    box-shadow: inset 0 0 0 1.5px rgba(184, 197, 214, .55); }
+  /* The gauge that is open on the level below stays marked. */
+  .region.selected::after {
+    background: rgba(255, 255, 255, .04);
+    box-shadow: inset 0 0 0 2px rgba(184, 197, 214, .70); }
+  .region.active::after {
+    background: rgba(255, 255, 255, .10);
+    box-shadow: inset 0 0 0 2px rgba(184, 197, 214, .90); }
+  /* No pointer to hover with: show the regions faintly all the time. */
+  @media (hover: none) {
+    .region::after { box-shadow: inset 0 0 0 1px rgba(184, 197, 214, .22); }
+  }
+  @media (prefers-reduced-motion: reduce) { .region::after { transition: none; } }
+</style>
+</head>
+<body>
+<div id="wrap"><img id="img" alt=""><div id="regions"></div></div>
+<script>
+(function () {
+  'use strict';
+  // Streamlit's custom-component protocol, read from the 1.53.1 bundle:
+  // the parent drops any message without an `isStreamlitMessage` own
+  // property, hides the iframe until `streamlit:componentReady`, and
+  // accepts `setFrameHeight` / `setComponentValue` only after it. Bytes
+  // kwargs arrive in `args` as a Uint8Array.
+  var wrap = document.getElementById('wrap');
+  var img = document.getElementById('img');
+  var layer = document.getElementById('regions');
+  var lastSig = '';
+  var activeTimer = null;
+
+  function send(type, data) {
+    var msg = { isStreamlitMessage: true, type: type };
+    if (data) { for (var k in data) { if (Object.prototype.hasOwnProperty.call(data, k)) { msg[k] = data[k]; } } }
+    window.parent.postMessage(msg, '*');
+  }
+
+  function reportHeight() {
+    var h = Math.ceil(wrap.getBoundingClientRect().height);
+    if (h > 0) { send('streamlit:setFrameHeight', { height: h }); }
+  }
+
+  // Cheap identity for the PNG so an unchanged frame keeps its bitmap.
+  function signature(bytes) {
+    if (!bytes || !bytes.length) { return ''; }
+    var n = bytes.length, parts = [n];
+    for (var i = 0; i < 32 && i < n; i++) { parts.push(bytes[i]); }
+    for (var j = Math.max(0, n - 32); j < n; j++) { parts.push(bytes[j]); }
+    return parts.join(',');
+  }
+
+  function showImage(bytes) {
+    var sig = signature(bytes);
+    if (sig === lastSig) { return; }
+    lastSig = sig;
+    var url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+    var old = img.src;
+    img.onload = function () { if (old && old.indexOf('blob:') === 0) { URL.revokeObjectURL(old); } };
+    img.src = url;
+  }
+
+  function clearActive() {
+    var els = layer.querySelectorAll('.active');
+    for (var i = 0; i < els.length; i++) { els[i].classList.remove('active'); }
+  }
+
+  function onClick(key, el) {
+    clearActive();
+    el.classList.add('active');
+    if (activeTimer) { clearTimeout(activeTimer); }
+    activeTimer = setTimeout(clearActive, 900);
+    // A fresh token per click: the value persists in Streamlit across
+    // reruns, and the page acts only on a token it has not seen.
+    send('streamlit:setComponentValue',
+         { value: { key: key, t: Date.now() + Math.random() }, dataType: 'json' });
+  }
+
+  function buildRegions(regions, selected) {
+    layer.innerHTML = '';
+    for (var i = 0; i < regions.length; i++) {
+      (function (r) {
+        var el = document.createElement('div');
+        el.className = 'region' + (selected && r.key === selected ? ' selected' : '');
+        el.style.left = (r.x * 100) + '%';
+        el.style.top = (r.y * 100) + '%';
+        el.style.width = (r.w * 100) + '%';
+        el.style.height = (r.h * 100) + '%';
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('aria-label', r.label || r.key);
+        el.addEventListener('click', function () { onClick(r.key, el); });
+        el.addEventListener('keydown', function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onClick(r.key, el); }
+        });
+        layer.appendChild(el);
+      })(regions[i]);
+    }
+  }
+
+  function render(args) {
+    var ratio = Number(args.ratio) || 0.5625;           // height / width
+    var maxw = args.max_width;
+    wrap.style.maxWidth = maxw ? (maxw + 'px') : 'none';
+    wrap.style.aspectRatio = '1 / ' + ratio;
+    if (args.png) { showImage(args.png); }
+    buildRegions(args.regions || [], args.selected || null);
+    reportHeight();
+  }
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.type !== 'streamlit:render') { return; }
+    render(d.args || {});
+  });
+  if (window.ResizeObserver) { new ResizeObserver(reportHeight).observe(wrap); }
+  else { window.addEventListener('resize', reportHeight); }
+
+  send('streamlit:componentReady', { apiVersion: 1 });
+})();
+</script>
+</body>
+</html>

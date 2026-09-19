@@ -46,6 +46,7 @@ contract). Layout is a per-aspect dict - adding a variant is adding a key.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import matplotlib
@@ -117,7 +118,7 @@ _LAYOUTS = {
         # bold it measured 1px taller than the tracked grey scope under it
         # and sat fourth in reading order behind the six 34px rank numerals.
         'frame_gap': 0.046, 'frame_size': 20,
-        'deck_gap': 0.036, 'deck_size': 12.5, 'show_deck': False,
+        'note_gap': 0.036, 'note_size': 12.5,
         'cols': 3, 'rows': 2,
         'grid_gap': 0.030, 'grid_bottom': 0.075,
         # The gauge axes inside its cell, as fractions of the cell.
@@ -125,16 +126,16 @@ _LAYOUTS = {
         'label_size': 13, 'label_track': 1, 'readout_size': 30, 'readout_sub': 0.55,
         # Muted line a point smaller: three 406px muted lines 86px apart on
         # the by-situation frame read as one grey ribbon across the row.
-        'value_size': 17, 'unit_size': 11.5, 'total_size': 10.5, 'show_ref': True,
-        # ONE dial per aspect, near enough. The grid takes what the header
-        # leaves, so the dial shrank 247 -> 179px from the overview to a Big-5
-        # level 3 while the type inside the cell did not - three templates,
-        # not one drilled into. The gauge box is capped and centred in its
-        # cell; the overview's surplus becomes air between rows. Measured:
-        # 0.275 holds ~190px on every frame but the tallest-header one (179),
-        # a 6% drift, where the level-3 minimum (0.25) would starve the
-        # overview to 160px for the last 6%.
-        'gauge_h': 0.275,
+        'value_size': 17, 'unit_size': 11.5,
+        # ONE dial per aspect. The grid takes what the header leaves, so
+        # the dial shrank 247 -> 179px from the overview to a Big-5 level 3
+        # while the type inside the cell did not - three templates, not one
+        # drilled into. The DIAL is capped (in px at the 100-dpi figure), and
+        # each frame's box is label block + dial + stack, so a frame with a
+        # meaning line under its names keeps the same dial as one without.
+        # (Capping the box instead left those frames 10% smaller.) Set to
+        # what the tightest frame takes uncapped; the surplus becomes air.
+        'dial_px': 213,
         'ring_w': 0.30, 'needle_lw': 2.6,
     },
     '9x16': {
@@ -146,20 +147,16 @@ _LAYOUTS = {
         'scope_gap': 0.0300, 'scope_size': 16, 'scope_track': 0, 'scope_frac': 0.94,
         'scope_lead': 0.0195,
         'frame_gap': 0.0260, 'frame_size': 24,
-        'deck_gap': 0.0240, 'deck_size': 16, 'show_deck': False,
+        'note_gap': 0.0240, 'note_size': 16,
         'cols': 2, 'rows': 3,
         'grid_gap': 0.0220, 'grid_bottom': 0.0500,
         'cell_pad_x': 0.05, 'cell_pad_y': 0.03,
         'label_size': 17, 'label_track': 1, 'readout_size': 34, 'readout_sub': 0.55,
-        'value_size': 20, 'unit_size': 16, 'total_size': 16, 'show_ref': True,
-        # The median on its own line: "63 in 38 - pool median 1.19" at 16pt
-        # never fitted a 380px column, so the frame rule was silently
-        # dropping it on 27 of 28 sample frames. The 2x3 grid has the height.
-        'ref_line': True,
+        'value_size': 20, 'unit_size': 16,
         # The short unit here too: "1.79 per 90 min when behind" at 16pt ran
         # 91% of a 475px column and read as one sentence with its neighbour
         # across a 48px gutter. The subject line names the situation.
-        'short_unit': True, 'gauge_h': 1.0,
+        'short_unit': True, 'dial_px': 274,
         'ring_w': 0.30, 'needle_lw': 3.0,
         'footer_y': 0.0175,
     },
@@ -174,7 +171,7 @@ _LAYOUTS = {
         'frame_gap': 0.0440, 'frame_size': 22,
         # No deck on the tile: the frame line names the level, the host
         # carries the rest, and the header is already four lines deep.
-        'deck_gap': 0.0400, 'deck_size': 16, 'show_deck': False,
+        'note_gap': 0.0400, 'note_size': 16,
         'cols': 3, 'rows': 2,
         'grid_gap': 0.0300, 'grid_bottom': 0.0700,
         'cell_pad_x': 0.04, 'cell_pad_y': 0.03,
@@ -185,11 +182,14 @@ _LAYOUTS = {
         # labels that own their line - and the tile's own brief (the host
         # carries context) both point the same way. 16:9 and 9:16 keep both.
         'label_size': 16, 'label_track': 0, 'readout_size': 28, 'readout_sub': 0.58,
-        'value_size': 18, 'unit_size': 16, 'total_size': 16, 'show_ref': False,
+        'value_size': 18, 'unit_size': 16,
         # The stack had 4px between the value and the total (2px on level 3)
         # while the header took a third of the tile. The lines get leading;
         # the header gave up a scope gap and the deck.
-        'short_unit': True, 'gauge_h': 0.280,
+        # No meaning line on the tile: a wrapped name plus a 16pt gloss took
+        # a third of the dial (126px against 180). The name still says the
+        # stat; the gloss is on the two larger cuts and the page.
+        'short_unit': True, 'meaning': False, 'dial_px': 177,
         'ring_w': 0.30, 'needle_lw': 2.8,
         'footer_y': 0.0260,
     },
@@ -278,8 +278,8 @@ def _pack(fig, parts, size, max_frac, spaced):
     return lines
 
 
-def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_line, deck):
-    """Kicker, title, club-colour rule, scope, FRAME LINE, filter line, deck.
+def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_line, note):
+    """Kicker, title, club-colour rule, FRAME LINE, filter line, scope, note.
 
     Same furniture as the pass map header, in the same places, so the two
     families read as one house. The frame line is this chart's own: it says,
@@ -319,7 +319,7 @@ def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_li
     if frame_line:
         parts = list(frame_line) if isinstance(frame_line, (list, tuple)) else [frame_line]
         cands = [SEP.join(parts)]
-        if len(parts) > 1 and parts[-1].startswith('BY '):
+        if len(parts) > 1 and _is_tail(parts[-1]):
             cands.append(SEP.join(parts[:-1]))
         for cand in cands:
             if _width_frac(fig, cand, L['frame_size'], 'bold') <= 0.92:
@@ -352,10 +352,12 @@ def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_li
                       spaced=L['scope_track'])
             fig.canvas.draw()
             bottom = _low(fig, a)
-    if deck and L.get('show_deck', True):
-        pt = fit_fontsize(fig, deck, L['deck_size'], max_frac=0.92,
-                          floor=min(L['deck_size'], 10), bold=False)
-        a = _text(fig, 0.5, bottom - L['deck_gap'], deck, pt, TEXT_MUTED)
+    if note:
+        # The one definition a component-first level 3 shares across its six
+        # cells, nearest the gauges it explains.
+        pt = fit_fontsize(fig, note, L['note_size'], max_frac=0.92,
+                          floor=min(L['note_size'], 10), bold=False)
+        a = _text(fig, 0.5, bottom - L['note_gap'], note, pt, TEXT_MUTED)
         fig.canvas.draw()
         bottom = _low(fig, a)
     return bottom
@@ -381,56 +383,49 @@ def _fill_colour(needle):
     return ensure_line_contrast(_ramp(needle), BG_COLOR, FILL_MIN_CONTRAST)
 
 
-def _fmt_min(m):
-    return f"{m:,.0f} min"
-
-
-def _fmt_like(spec, x):
-    """Format a pool statistic the way the gauge formats its own value."""
-    return tp.format_number(spec.fmt, x)
-
-
-def _total_and_ref(spec, L):
-    """The two halves of the line beneath the value: what the rate was made
-    from, and the pool median it is read against."""
-    total = tp.format_total(spec)
-    if spec.component == 'xg_per_shot' and spec.n_shots is not None:
-        total = f"of {spec.n_shots:.0f} shots"
-    elif spec.component == 'minutes_pct' and spec.minutes is not None and spec.minutes_total:
-        total = f"{spec.minutes:,.0f} of {_fmt_min(spec.minutes_total)}"
-    med = float(np.median(spec.pool_values)) if spec.pool_values else float('nan')
-    # "pool median": a bare "median 1.33" on Liverpool's own line was read as
-    # Liverpool's median match; "league median" overran the portrait cell.
-    # "league median" when the pool is the league - "pool" meant nothing to
-    # a cold reader; "pool median" stays for the wider pools, whose names
-    # do not shorten reliably.
-    ref = f"{L.get('ref_word', 'pool median')} {_fmt_like(spec, med)}" if L.get('show_ref', True) else ''
-    return total, ref
-
-
 def _label_plan(fig, spec, L, cell_w):
-    """(lines, pt, definition) for a gauge's label block. The name: fit
-    ladder tracked, then solid, then shrunk to the delivery floor, then
-    WRAPPED to two lines - "XG DIFFERENCE WHEN BEHIND" at the tile's 16pt
-    floor ran into its neighbour and off the frame. The definition beneath
-    it ("PSxG - xG"): at the delivery floor, muted, or dropped if even that
-    overruns the cell. Decided per cell here, applied per FRAME by the
-    caller: a second line takes its height from every dial on the frame,
-    not just its own, so the six dials stay one size."""
+    """A gauge's label block, decided per cell and applied per FRAME.
+
+    The NAME: fit ladder tracked, then solid, then shrunk to the delivery
+    floor, then WRAPPED to two lines - "XG DIFFERENCE WHEN BEHIND" at the
+    tile's 16pt floor ran into its neighbour and off the frame. The
+    MEANING, in parentheses at the unit's size, regular weight: on the
+    same line as the name where the whole frame can take it ("GOALS ABOVE
+    POST-SHOT XG (beating the keeper)"), else on its own line beneath -
+    a frame is one form or the other, and a row of names
+    with empty slots under them floated above its dials. (The previous
+    build set a formula at the floor size under the name: smaller than the
+    line the user had already called unreadable.)
+    Returns dict(lines, pt, meaning, meaning_pt, inline_ok)."""
     lab = spec.label.upper()
     lab_px = cell_w * fig.bbox.width * 0.92
-    definition = spec.formula or ''
-    if definition and _width_frac(fig, definition, L['type_floor']) * fig.bbox.width > lab_px:
-        definition = ''
+    meaning, meaning_pt, inline_ok = '', 0.0, True
+    if spec.meaning and L.get('meaning', True):
+        text = f"({spec.meaning})"
+        for pt in (L['unit_size'], L['type_floor']):
+            if _width_frac(fig, text, pt) * fig.bbox.width <= lab_px:
+                meaning, meaning_pt = text, pt
+                break
+    plan = dict(meaning=meaning, meaning_pt=meaning_pt, inline_ok=inline_ok)
     cands = ([track(lab, L['label_track'])] if L['label_track'] else []) + [lab]
     lab_pt = L['label_size']
     for text in cands:
         if _width_frac(fig, text, lab_pt, 'bold') * fig.bbox.width <= lab_px:
-            return [text], lab_pt, definition
+            if meaning:
+                # Beside the name the meaning wears the unit's size - the
+                # secondary voice, like "/20" beside "4th".
+                # Measured to 0.96 of the cell, not the name's 0.92: the
+                # fallback here is the clean two-line form, not a shrunk
+                # name, and centred neighbours leave the 2% each side real.
+                inline = (_width_frac(fig, text, lab_pt, 'bold')
+                          + _width_frac(fig, ' ' + meaning, L['unit_size'])) * fig.bbox.width
+                plan['inline_ok'] = inline <= lab_px * 0.96 / 0.92
+            return dict(plan, lines=[text], pt=lab_pt)
+    plan['inline_ok'] = not meaning       # a shrunk or wrapped name takes no meaning beside it
     lab_pt = fit_fontsize(fig, lab, L['label_size'], max_frac=lab_px / fig.bbox.width,
                           floor=L['type_floor'], bold=True)
     if _width_frac(fig, lab, lab_pt, 'bold') * fig.bbox.width <= lab_px or ' ' not in lab:
-        return [lab], lab_pt, definition
+        return dict(plan, lines=[lab], pt=lab_pt)
     lab_pt = L['label_size']
     words = lab.split(' ')
     best = None
@@ -439,18 +434,37 @@ def _label_plan(fig, spec, L, cell_w):
         w = max(_width_frac(fig, a, lab_pt, 'bold'), _width_frac(fig, b, lab_pt, 'bold'))
         if best is None or w < best[0]:
             best = (w, [a, b])
-    return best[1], lab_pt, definition
+    return dict(plan, lines=best[1], pt=lab_pt)
 
 
 def _label_leads(fig, L, plans):
-    """(wrap_px, def_px): the frame's two label slots in pixels - a second
-    name line if any cell wraps, a definition line if any cell has one."""
-    wrap_px = max((pt * fig.dpi / 72.0 * 1.2 for lines, pt, _ in plans if len(lines) > 1), default=0.0)
-    def_px = L['type_floor'] * fig.dpi / 72.0 * 1.35 if any(d for _, _, d in plans) else 0.0
-    return wrap_px, def_px
+    """The frame's label decision: dict(inline, wrap_px, meaning_px). Inline
+    when every cell with a meaning can carry it beside its name; otherwise
+    a meaning slot (px) under the names. wrap_px is a second name line if
+    any cell wraps."""
+    inline = all(p['inline_ok'] for p in plans)
+    wrap_px = max((p['pt'] * fig.dpi / 72.0 * 1.2 for p in plans if len(p['lines']) > 1), default=0.0)
+    meaning_px = 0.0 if inline else max((p['meaning_pt'] * fig.dpi / 72.0 * 1.3 for p in plans if p['meaning']),
+                                        default=0.0)
+    return dict(inline=inline, wrap_px=wrap_px, meaning_px=meaning_px)
 
 
-def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, leads=None):
+def _stack_px(fig, L):
+    """The text under the dial, in pixels: the readout and the value line.
+    (A third line carried the total and the pool median, at a size the
+    user could not read.)"""
+    return (L['readout_size'] + L['value_size']) * fig.dpi / 72.0 + 8 + 6 + 6
+
+
+def _box_px_for_dial(fig, L, d_px, wrap_px, meaning_px):
+    """The axes box height (px) that gives a dial of diameter `d_px`: the
+    inverse of the solve in `_gauge` - half-dial units 1.36 (dial + hub
+    clearance) and 0.075 (hub), the 8px/8% gap, the label slots, the stack."""
+    unit = d_px / 2.0
+    return (1.36 + 0.075) * unit + max(0.16 * unit, 8) + wrap_px + meaning_px + _stack_px(fig, L)
+
+
+def _gauge(fig, box, spec, L, cell_w=None, leads=None):
     """One dial in the figure-fraction box (x0, y0, w, h). `cell_w` is the
     grid cell's width as a figure fraction - the measure the text lines may
     use; the axes box itself shrinks to the dial under aspect='equal'."""
@@ -464,23 +478,22 @@ def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, leads=None):
     # fixed number of pixels (three fonts + gaps) and the dial takes what the
     # box leaves. box height px = span * unit_px, so
     # span = 1.36 + hub + gap + stack_px / unit_px; three fixed-point passes.
-    stack_px = ((L['readout_size'] + L['value_size'] + L['total_size']
-                 + (L['total_size'] if L.get('ref_line') else 0)) * fig.dpi / 72.0
-                + 8 + 6 + 5 + 4 + (4 if L.get('ref_line') else 0))
+    stack_px = _stack_px(fig, L)
     plan = _label_plan(fig, spec, L, cell_w if cell_w else box[2])
-    lab_lines, lab_pt, definition = plan
+    lab_lines, lab_pt, meaning, meaning_pt = plan['lines'], plan['pt'], plan['meaning'], plan['meaning_pt']
     # The label slots are font-driven pixels, like the stack below: set in
     # dial units they overlapped on the frames whose taller header had
     # shrunk the dial. Per frame, not per cell, so the rows align.
-    wrap_px, def_px = leads if leads is not None else _label_leads(fig, L, [plan])
+    leads = leads if leads is not None else _label_leads(fig, L, [plan])
+    wrap_px, meaning_px, inline = leads['wrap_px'], leads['meaning_px'], leads['inline']
     box_h_px = box[3] * fig.bbox.height
     span = 1.36 + 0.075
-    wrap_lead = def_lead = 0.0
+    wrap_lead = meaning_lead = 0.0
     for _ in range(3):
         unit = box_h_px / span
-        wrap_lead, def_lead = wrap_px / unit, def_px / unit
-        span = 1.36 + wrap_lead + def_lead + 0.075 + max(0.16, 8 / unit) + stack_px / unit
-    top = 1.36 + wrap_lead + def_lead
+        wrap_lead, meaning_lead = wrap_px / unit, meaning_px / unit
+        span = 1.36 + wrap_lead + meaning_lead + 0.075 + max(0.16, 8 / unit) + stack_px / unit
+    top = 1.36 + wrap_lead + meaning_lead
     ax.set_ylim(top - span, top)
     R, rw = 1.0, L['ring_w']
     neutral = spec.direction == 0
@@ -537,16 +550,28 @@ def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, leads=None):
     if not neutral:
         ax.add_patch(Circle((0, 0), hub_r, facecolor=HUB, edgecolor=BG_COLOR, lw=1.5, zorder=6))
 
-    # The label, decided above; two lines stack upward from the same base.
-    # Name above, definition beneath it, the definition slot nearest the
-    # dial; a cell without a definition leaves that slot empty so the names
-    # still sit on one line across the row.
-    for i, line in enumerate(reversed(lab_lines)):
-        ax.text(0, 1.20 + def_lead + i * wrap_lead, line, fontsize=lab_pt, color=TEXT_SECONDARY,
-                fontweight='bold', ha='center', va='center')
-    if definition:
-        ax.text(0, 1.20, definition, fontsize=L['type_floor'], color=TEXT_MUTED,
-                ha='center', va='center')
+    # The label, decided above. Inline: name and meaning on one line, the
+    # meaning at the name's size in regular weight. Otherwise the names sit
+    # on one line across the frame (the meaning slot is frame-level) with
+    # the meaning beneath, nearest the dial. A wrapped name extends upward.
+    base = 1.20 + meaning_lead
+    if inline and meaning:
+        t1 = ax.text(0, base, lab_lines[0], fontsize=lab_pt, color=TEXT_SECONDARY,
+                     fontweight='bold', ha='left', va='center')
+        t2 = ax.text(0, base, ' ' + meaning, fontsize=L['unit_size'], color=TEXT_SECONDARY,
+                     ha='left', va='center')
+        w1 = t1.get_window_extent(rnd).width
+        w2 = t2.get_window_extent(rnd).width
+        x_left = -px_u(w1 + w2) / 2.0
+        t1.set_position((x_left, base))
+        t2.set_position((x_left + px_u(w1), base))
+    else:
+        if meaning:
+            ax.text(0, 1.20, meaning, fontsize=meaning_pt, color=TEXT_SECONDARY,
+                    ha='center', va='center')
+        for i, line in enumerate(reversed(lab_lines)):
+            ax.text(0, base + i * wrap_lead, line, fontsize=lab_pt, color=TEXT_SECONDARY,
+                    fontweight='bold', ha='center', va='center')
 
     # Readout under the hub. Rank: "3rd" big and "/20" small on one baseline;
     # percentile: the bare number with a small PCTL beside it (bare integer,
@@ -646,81 +671,88 @@ def _gauge(fig, box, spec, L, cell_w=None, show_ref=True, leads=None):
     else:
         ax.text(0, y_val, value, fontsize=L['value_size'], color=TEXT_PRIMARY,
                 fontweight='bold', ha='center', va='baseline')
-    y_total = y_val - (pt_u(L['value_size']) * 0.28 + px_u(5) + pt_u(L['total_size']) * CAP)
-
-    total, ref = _total_and_ref(spec, L)
-    if not show_ref:
-        ref = ''
-    # The line yields in order when the cell cannot take it: the penalty note
-    # first, then - only if the frame as a whole could not carry it - the
-    # median. Nothing overruns.
-    fig.canvas.draw()
-    rnd = fig.canvas.get_renderer()
-    bare = total.split(' (')[0] if '(' in total else total
-    own_line = bool(L.get('ref_line')) and bool(ref)
-    beside = '' if own_line else ref
-    cands = [SEP.join(p for p in (total, beside) if p)]
-    if '(' in total:
-        cands.append(SEP.join(p for p in (bare, beside) if p))
-    if beside:
-        cands.append(bare)
-    for line in cands:
-        t = ax.text(0, y_total, line, fontsize=L['total_size'], color=TEXT_MUTED,
-                    ha='center', va='baseline')
-        if t.get_window_extent(rnd).width <= cell_px or line == cands[-1]:
-            break
-        t.remove()
-    if own_line:
-        y_ref = y_total - (pt_u(L['total_size']) * 0.28 + px_u(4) + pt_u(L['total_size']) * CAP)
-        ax.text(0, y_ref, ref, fontsize=L['total_size'], color=TEXT_MUTED,
-                ha='center', va='baseline')
     return ax
 
 
 # -- The frame -----------------------------------------------------------------------
 
-_SITUATION_PHRASE = {'total': 'ALL PLAY', 'op': 'OPEN PLAY', 'sp': 'SET PIECES',
-                     'ahead': 'WHILE AHEAD', 'level': 'WHILE LEVEL', 'behind': 'WHILE BEHIND'}
-
-
 def _frame_line(headline, path, order):
-    """What the six gauges ARE. The overview names its six too - without a
-    subject line its header looked unfinished beside the levels below."""
+    """Which slice of the cube the six gauges are - levels 2 and 3 only.
+    The overview has none: its headline is the kicker, the club and the
+    scope ("GOALS AND XG - FOR - AGAINST - DIFFERENCE" listed the page, and
+    "ATTACK AND DEFENCE" said nothing - the user's words - so it went). The
+    last part is the drill dimension in a reader's words; the header's fit
+    ladder may drop it, the six labels beneath say it anyway."""
     if not headline:
-        return ['GOALS AND XG', 'FOR', 'AGAINST', 'DIFFERENCE']
+        return []
     h = tp.HEADLINES[headline]
     H = h.label.upper()
     if not path:
-        return [H, f"BY {'SITUATION' if order == 'situation' else 'COMPONENT'}"]
+        return [H, tp.order_phrase(order, h).upper()]
     (pick,) = path
     if order == 'situation':
-        return [H, _SITUATION_PHRASE[pick], 'BY COMPONENT']
-    comp = tp.resolve_component('total', pick)
+        return [H, tp.SITUATION_PHRASE[pick].upper(), tp.order_phrase('component', h).upper()]
+    comp = tp.resolve_component('total', pick, h.side)
     if comp == 'anchor':
-        return [H, 'BY SITUATION']
+        return [H, tp.order_phrase('situation').upper()]
     # The headline in front: "SHOT-STOPPING - BY SITUATION" alone read as a
     # level-2 frame with no parent.
-    return [H, tp.component_label(h, comp, 'total').upper(), 'BY SITUATION']
+    return [H, tp.component_label(h, comp, 'total').upper(), tp.order_phrase('situation').upper()]
 
 
-def _deck(cube, subject, headline, path, order, mode):
-    """The headline's SEASON standing, on level 3 only, labelled as such.
+def _is_tail(part):
+    # Is this frame-line part the drill dimension (droppable by the fit ladder)?
+    tails = {tp.order_phrase('situation')} | {tp.order_phrase('component', h) for h in tp.HEADLINES.values()}
+    return part in {t.upper() for t in tails}
 
-    Level 2 always contains its parent - the Total gauge or the anchor - so a
-    deck there said the first gauge twice. Level 3 contains the level-2 pick
-    the same way; what it does not contain is the headline it hangs from.
-    "Season:" in front, because "Goals For 1.66 (4th/20)" above a gauge
-    labelled GOALS FOR 3rd/20 read as a contradiction until the unit was read.
+
+def _situation_note(profile, headline, path, order):
+    """What dial two used to carry, now under the header.
+
+    Time in state is the EXPOSURE caveat - per-90-in-state means a team
+    that trailed for forty minutes all season would otherwise rank on forty
+    minutes of evidence - and set pieces taken is the supply a Set Piece
+    frame rests on. Both were the context slot until the respec fixed all
+    six dials per frame.
     """
     if not headline or not path or order != 'situation':
-        # Component-first level 3 already has the season figure as its first
-        # gauge (Total), and a "Season: xG Against" line over six ON TARGET %
-        # gauges named a metric that was not on the page.
         return ''
-    top = {g.key: g for g in tp.view(cube, subject, None, mode=mode)}
-    g1 = top[f"{headline}.total.anchor"]
-    read = g1.standing.readout + ('' if g1.standing.mode == 'rank' else ' pctl')
-    return f"Season: {g1.label} {tp.format_value(g1)} {g1.unit}".strip() + f"  ({read})"
+    sit = path[0]
+    cube, subject = profile['cube'], profile['subject']
+    if subject not in cube.index:
+        return ''
+    t = cube.teams.loc[subject]
+    if sit in tp.STATE_SITUATIONS:
+        total = float(t['total_s']) or 0.0
+        if total <= 0:
+            return ''
+        secs = float(t[f'{sit}_s'])
+        word = tp.SITUATION_PHRASE[sit].lower().replace('when ', '')
+        return (f"{word} for {secs / total:.0%} of the season "
+                f"({secs / 60.0:,.0f} minutes)")
+    if sit == 'sp':
+        h = tp.HEADLINES[headline]
+        col = 'sp_against' if h.side == 'against' else 'sp_for'
+        n = t.get(col)
+        if n is None or (isinstance(n, float) and math.isnan(n)):
+            return ''
+        word = 'faced' if h.side == 'against' else 'taken'
+        return f"{int(n):,} set pieces {word} - corners, free kicks, throw-ins, penalties"
+    return ''
+
+
+def _shared_meaning(specs, headline, path, order):
+    """On a component-first level 3 the six cells are one stat in six
+    situations; its name and meaning, said once under the header, replace
+    six identical parentheticals. '' when there is nothing shared to say."""
+    if not headline or not path or order != 'component':
+        return ''
+    meanings = {s.meaning for s in specs}
+    if len(meanings) != 1 or not specs[0].meaning:
+        return ''
+    h = tp.HEADLINES[headline]
+    comp = tp.resolve_component('total', path[0], h.side)
+    return f"{tp.component_label(h, comp, 'total')} ({specs[0].meaning})"
 
 
 def create_team_profile(profile, *, headline=None, path=(), order='situation',
@@ -747,30 +779,30 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     comp = (competition or profile.get('competition') or '').upper()
     years = profile.get('season_years') or ''
     n = profile.get('pool_n', 0)
-    # The direction is declared ONCE, here, and every cell inherits it: an
-    # against-metric's "3rd/20" is third BEST, i.e. third fewest. A cold
-    # analyst read "76 PCTL xG Against" in the statistical sense (76% concede
-    # less) until the colour corrected it; the words do it now.
-    # The minutes beside the matches: every rate is per 90 and a match
-    # runs ~101, so "63 in 38" beside "1.48 per 90 min" failed a reader's
-    # arithmetic by 12% until the denominator turned up three frames later.
-    mins = float(cube.teams.loc[subject, 'total_s']) / 60.0 if subject in cube.index else 0.0
-    scope = [f"{gp} MATCHES", f"{mins:,.0f} MIN", f"{comp} {years}".strip()]
-    L = dict(L, ref_word='league median' if mode == 'rank' else 'pool median')
-    if mode == 'rank':
-        scope += [f"RANKED AMONG {n} TEAMS", "1ST = BEST"]
-    else:
-        scope += [f"PERCENTILE AMONG {n} TEAMS", profile.get('pool_label', '').upper(),
-                  "HIGHER = BETTER"]
+    # The scope is the season: matches and competition. The ranking legend
+    # ("RANKED AMONG 20 TEAMS - 1ST = BEST") and the minutes were boilerplate
+    # the user struck; the readouts say "/20" and the colour says which way
+    # is up. A wider pool still names itself, since the readout does not.
+    scope = [f"{gp} MATCHES", f"{comp} {years}".strip()]
+    if mode != 'rank':
+        scope.append(f"PERCENTILES vs {profile.get('pool_label', '').upper()}")
     if custom_subtitle:
         scope = [custom_subtitle]
     filter_line = 'PENALTIES EXCLUDED' if profile.get('exclude_penalties') else ''
 
     title = custom_title or (profile.get('team_name') or '').upper()
+    # Two different notes. _shared_meaning REPLACES six identical
+    # parentheticals, so it silences them; _situation_note is the
+    # exposure caveat for a state (or the set-piece supply) and says
+    # nothing about the stats, so the cells keep their own meanings.
+    shared = _shared_meaning(specs, headline, tuple(path), order)
+    if shared:
+        specs = [replace(s, meaning='') for s in specs]
+    else:
+        shared = _situation_note(profile, headline, tuple(path), order)
     bottom = _header(fig, L, kicker='TEAM PROFILE', title=title, accent=accent,
                      scope_parts=scope, frame_line=_frame_line(headline, tuple(path), order),
-                     filter_line=filter_line,
-                     deck=_deck(cube, subject, headline, tuple(path), order, mode))
+                     filter_line=filter_line, note=shared)
 
     # The grid takes what the header leaves.
     m = L['margin']
@@ -780,24 +812,8 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     cw = (1.0 - 2 * m) / cols
     ch = (top - gb) / rows
     boxes = []
-    # The median is shown on all six cells or on none. The fit ladder drops
-    # it per cell when a line cannot take it, and one cell without it among
-    # five with it read as "this one has no comparable median" (analyst,
-    # round 2). Measured here once, at the total line's size, against the
-    # cell's width, on the FULL line: the parenthesis now carries a phase's
-    # share of the season ("44 of 63 (70%)"), which is content, and the
-    # median is reference - so the median yields frame-wide before any one
-    # cell loses its share.
-    show_ref = bool(L.get('show_ref', True))
     cell_px = cw * fig.bbox.width * 0.92
-    if show_ref and not L.get('ref_line'):
-        for spec in specs[:cols * rows]:
-            total, ref = _total_and_ref(spec, L)
-            line = SEP.join(p for p in (total, ref) if p)
-            if _width_frac(fig, line, L['total_size']) * fig.bbox.width > cell_px:
-                show_ref = False
-                break
-    # Label tracking is one voice per frame too: four tracked labels over
+    # Label tracking is one voice per frame: four tracked labels over
     # two solid ones (the 9:16 GD frame) read as two kinds of gauge.
     label_track = L['label_track']
     if label_track:
@@ -820,10 +836,13 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
         r, c = divmod(i, cols)
         x0 = m + c * cw
         y0 = top - (r + 1) * ch
-        bh = min(ch * (1 - 2 * L['cell_pad_y']), L.get('gauge_h', 1.0))
+        bh = ch * (1 - 2 * L['cell_pad_y'])
+        if L.get('dial_px'):
+            bh = min(bh, _box_px_for_dial(fig, L, L['dial_px'], leads['wrap_px'], leads['meaning_px'])
+                     / fig.bbox.height)
         box = [x0 + cw * L['cell_pad_x'], y0 + (ch - bh) / 2.0,
                cw * (1 - 2 * L['cell_pad_x']), bh]
-        _gauge(fig, box, spec, L, cell_w=cw, show_ref=show_ref, leads=leads)
+        _gauge(fig, box, spec, L, cell_w=cw, leads=leads)
         boxes.append((x0, y0, x0 + cw, y0 + ch))
     fig.tp_gauge_boxes = boxes
     fig.tp_specs = specs
