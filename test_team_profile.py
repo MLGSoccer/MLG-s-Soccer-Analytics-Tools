@@ -229,7 +229,7 @@ def test_state_rows_are_per_90_in_state_and_every_team_is_a_peer(cube):
     assert tp.format_total(spec) == "0 in 0 min (0% of time)"
     # ... which puts the never-behind side FIRST for goals against when
     # behind: zero conceded, honestly, with "0 in 0 min" beneath
-    assert tp.gauge(cube, (S, A), "ga", "behind", "anchor", "rank").standing.readout == "1st=/4"
+    assert tp.gauge(cube, (S, A), "ga", "behind", "anchor", "rank").standing.readout == "T-1st/4"
     # no shots in a situation is chance quality zero, still a peer
     assert _v(cube, A, "xg", "behind", "xg_per_shot") == 0.0
     for hk in tp.HEADLINE_ORDER:
@@ -359,7 +359,7 @@ def test_rank_and_percentile(cube):
     # ties share the higher place and wear the mark
     tied = pd.Series({(S, A): 2.0, (S, B): 1.0, (S, C): 1.0, (S, D): 0.0})
     st = tp.standing(tied, (S, C), +1, "rank")
-    assert st.readout == "2nd=/4" and st.tied
+    assert st.readout == "T-2nd/4" and st.tied
     # lower is better flips it
     st = tp.standing(values, (S, A), -1, "rank")
     assert st.readout == "4th/4" and st.needle == 0.0
@@ -389,6 +389,14 @@ def test_labels_are_names_and_carry_the_side(cube):
     ga = [g.label for g in tp.view(cube, (S, A), "ga", (), "component")]
     assert ga[1:4] == ["Shots Faced", "Average Distance Faced", "On Target % Faced"]
     assert ga[4] == "Blocks %"
+    # every share on the against side carries its side: "Missed %" alone
+    # read as the team's own misses beside the GOALS FOR frame's
+    assert ga[5] == "Missed % Faced"
+    ga_m = [g.meaning for g in tp.view(cube, (S, A), "ga", (), "component")]
+    assert ga_m[4] == "blocked by the defence"       # third person, like the rest
+    # a net dial's meaning never says "overperformance" over a minus
+    net = [g for g in tp.view(cube, (S, A), "xgd", (), "component") if g.component == "net"][0]
+    assert net.meaning == "over or underperformance"
     g = tp.gauge(cube, (S, A), "gf", "total", "on_target_pct", "rank")
     assert g.fmt == "pct" and g.unit == "of shots" and g.total is None
     g = tp.gauge(cube, (S, A), "gf", "total", "shot_dist", "rank")
@@ -518,3 +526,48 @@ def test_league_table_is_the_whole_pool_sorted_by_goodness(cube):
     assert t["pctl"].is_monotonic_decreasing
     # no names on an old fixture: the id stands in, nothing crashes
     assert t["name"].notna().all()
+
+
+def test_the_three_shares_print_to_100_on_every_row(cube):
+    """Independent rounding leaves a partition at 99 or 101 a third of the
+    time; the shares round jointly (largest remainder), the gauge prints the
+    joint figure, and the ranking prints the SAME figure - never one off."""
+    for hk, side in (("gf", "for"), ("ga", "against")):
+        for sit in tp.SITUATION_ORDER:
+            cols = [tp.share_display(cube, hk, sit, c) for c in tp.SHARE_COMPONENTS]
+            shots = tp._q(cube, side, sit, "shots")
+            for key in cube.index:
+                total = sum(int(c.loc[key].rstrip("%")) for c in cols)
+                assert total == (100 if shots.loc[key] > 0 else 0), (hk, sit, key, total)
+    # hand data: 28.6 / 25.6 / 45.8 rounds to 28 / 26 / 46, not 29 / 26 / 46
+    df = pd.DataFrame({"on_target_pct": [0.286], "blocked_pct": [0.256], "missed_pct": [0.458]})
+    assert tp._largest_remainder(df).iloc[0].tolist() == [28, 26, 46]
+    g = tp.gauge(cube, (S, A), "gf", "total", "on_target_pct", "rank")
+    t = tp.league_table(cube, (S, A), "gf", "total", "on_target_pct")
+    assert g.display == t.loc[t["is_subject"], "shown"].iloc[0] == tp.format_value(g)
+    # a difference frame's faced share is the AGAINST partition's figure
+    d = tp.gauge(cube, (S, A), "gd", "total", "on_target_pct_faced", "rank")
+    a = tp.gauge(cube, (S, A), "ga", "total", "on_target_pct", "rank")
+    assert d.display == a.display
+    # not a share: no pre-formatted value, format_number as before
+    assert tp.gauge(cube, (S, A), "gf", "total", "shots", "rank").display is None
+    assert tp.league_table(cube, (S, A), "gf", "total", "shots")["shown"].isna().all()
+
+
+def test_the_one_ranking_rule_rounds_to_3dp_first():
+    """Project-wide: round to 3 dp, then rank. A float apart at the 4th
+    decimal is the same team to a reader who sees two decimals."""
+    v = pd.Series({(S, A): 1.0004, (S, B): 1.0001, (S, C): 0.5, (S, D): 0.0})
+    st = tp.standing(v, (S, B), +1, "rank")
+    assert st.readout == "T-1st/4" and st.tied
+    v = pd.Series({(S, A): 1.0006, (S, B): 1.0001, (S, C): 0.5, (S, D): 0.0})
+    assert tp.standing(v, (S, B), +1, "rank").readout == "2nd/4"
+
+
+def test_the_feed_colour_rides_on_the_cube_when_the_fetch_carries_it():
+    shots = _shots()
+    assert "feed_color" not in tp.build_cube(_games(), shots, _period_ends(), _restarts()).teams.columns
+    shots = shots.assign(newestTeamColor=shots["teamId"].map({A: "#AA0000", B: "#00BB00", C: None, D: "#0000DD"}))
+    teams = tp.build_cube(_games(), shots, _period_ends(), _restarts()).teams
+    assert teams.loc[(S, A), "feed_color"] == "#AA0000"
+    assert pd.isna(teams.loc[(S, C), "feed_color"])

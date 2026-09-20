@@ -2444,7 +2444,8 @@ def get_team_profile_raw(season_ids_tuple):
     shots = con.execute(f"""
         SELECT seasonId, gameId, gameEventIndex, teamId, opponentId, playType,
                ShotPlayStyle, xG, xGOT, qualifierBlocked, ShotDist, ShotBodyPart,
-               teamCurrentScore, opponentCurrentScore, Period, gameClock
+               teamCurrentScore, opponentCurrentScore, Period, gameClock,
+               newestTeamColor
         FROM events
         WHERE seasonId IN ({ph}) AND playType IN {_TP_EVENT_TYPES_SQL}
     """, ids).df()
@@ -2483,6 +2484,21 @@ def get_team_profile_cube(season_ids_tuple, exclude_penalties=False):
     return build_cube(games, shots, period_ends, restarts, exclude_penalties=exclude_penalties)
 
 
+def _profile_colour(team_name, team_id, feed_color, registry=None):
+    """Registry -> the feed's colour -> a women's side's parent -> neutral,
+    as the other charts resolve. The profile passed no feed value and left
+    24/24 Championship and 12/12 WSL clubs on the neutral grey."""
+    from shared.team_registry import NEUTRAL, WOMENS_SUFFIX, get_team_colors, is_hex
+    registry = registry if registry is not None else load_team_registry()
+    colour = get_team_colors(team_id, team_name, feed_color, registry=registry).primary
+    if colour == NEUTRAL and str(team_name).endswith(WOMENS_SUFFIX):
+        parent = team_name[: -len(WOMENS_SUFFIX)].strip()
+        for pid, entry in registry.items():
+            if entry.get("name") == parent and is_hex(entry.get("primary")):
+                return get_team_colors(pid, parent, None, registry=registry).primary
+    return colour
+
+
 def get_team_profile(team_id, season_id, *, pool="league", exclude_penalties=False):
     """Everything the Team Profile chart needs for one team.
 
@@ -2515,7 +2531,11 @@ def get_team_profile(team_id, season_id, *, pool="league", exclude_penalties=Fal
         if team_name:
             break
     team_name = team_name or team_label(team_id, "") or team_id
-    team_color = resolve_single_team_colour(team_name, None, team_id=team_id)
+    feed = None
+    if "feed_color" in cube.teams.columns and subject in cube.teams.index:
+        fv = cube.teams.loc[subject, "feed_color"]
+        feed = fv if isinstance(fv, str) else None
+    team_color = _profile_colour(team_name, team_id, feed)
 
     checks = cube.checks.loc[subject].to_dict() if subject in cube.checks.index else {}
     return {

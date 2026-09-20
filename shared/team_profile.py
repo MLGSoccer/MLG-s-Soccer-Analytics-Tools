@@ -235,7 +235,7 @@ COMPONENT_MEANING = {
     "xg_per_shot_diff": "xG per shot, net",
     "placement_diff": "post-shot xG \u2212 xG, net",
     "keeper_diff": "goals prevented, net",
-    "net": "overperformance",
+    "net": "over or underperformance",
     "minutes_pct": "share of minutes",
     "gap": "over or underperformance",
     "on_target_pct": "",
@@ -247,7 +247,7 @@ COMPONENT_MEANING = {
 COMPONENT_MEANING_AGAINST = {
     "xg_per_shot": "chance quality faced",
     "placement": "post-shot xGA \u2212 xGA",
-    "blocked_pct": "blocked by your defenders",
+    "blocked_pct": "blocked by the defence",
     "missed_pct": "wide, over or the woodwork",
     "on_target_pct": "",
 }
@@ -264,6 +264,7 @@ COMPONENT_LABELS_AGAINST = {
     "shot_dist": "Average Distance Faced",
     "on_target_pct": "On Target % Faced",
     "blocked_pct": "Blocks %",         # on this side a block is a thing the team DOES
+    "missed_pct": "Missed % Faced",    # the same words as the FOR frame read as the team's own misses
     "gap": "Goals Above xGA",
 }
 
@@ -651,6 +652,14 @@ def build_cube(games: pd.DataFrame, shots: pd.DataFrame, period_ends: pd.DataFra
     period_ends["gameId"] = period_ends["gameId"].astype(str)
 
     teams = team_games(games)
+    if "newestTeamColor" in shots.columns:
+        # The feed's colour per team-season (its mode), the tail fallback
+        # behind the registry - the profile resolved with no feed value and
+        # every Championship and WSL club came out neutral grey.
+        fc = (shots.dropna(subset=["newestTeamColor"])
+              .groupby(["seasonId", "teamId"])["newestTeamColor"]
+              .agg(lambda x: x.mode().iat[0] if not x.mode().empty else None))
+        teams["feed_color"] = fc.reindex(teams.index)
     facts = shot_facts(shots)
 
     # Penalty goals per side, kept on the team frame so the headline can be
@@ -934,9 +943,61 @@ class Standing:
         if self.n == 0 or self.position is None or (isinstance(self.position, float) and math.isnan(self.position)):
             return "\u2014"
         if self.mode == "rank":
+            # A shared place is "T-3rd" (the house style): "3rd=" before the
+            # "/20" read as a typo to a cold viewer.
             r = int(self.position)
-            return f"{ordinal(r)}{'=' if self.tied else ''}/{self.n}"
+            return f"{'T-' if self.tied else ''}{ordinal(r)}/{self.n}"
         return f"{self.position:.0f}"
+
+
+RANK_DP = 3            # the ONE ranking rule: round to 3 dp, then rank
+SHARE_COMPONENTS = ("on_target_pct", "blocked_pct", "missed_pct")
+
+
+def _largest_remainder(shares: pd.DataFrame) -> pd.DataFrame:
+    """Integer percentages that sum to 100 on every row (Hamilton's method).
+
+    Independent rounding leaves a partition printing 99 or 101 about a third
+    of the time (three uniform rounding errors exceed half a point with
+    probability 1/3); a frame whose spine is "these split every shot" cannot
+    print 101. Ties in the remainder go to the earlier column.
+    """
+    pct = shares.astype(float) * 100.0
+    floors = np.floor(pct)
+    # a row with no shots is all zeros and stays so - it is not short of 100
+    short = pd.Series(np.where(pct.sum(axis=1) > 0, 100 - floors.sum(axis=1), 0),
+                      index=pct.index).round().astype(int)
+    rem = pct - floors
+    out = floors.astype(int)
+    order = np.argsort(-rem.values, axis=1, kind="stable")
+    for i in range(len(out)):
+        k = int(short.iloc[i])
+        if k > 0:
+            cols = order[i][:k]
+            out.iloc[i, cols] += 1
+        elif k < 0:                       # only when a row does not sum to 1
+            cols = order[i][k:]
+            out.iloc[i, cols] -= 1
+    return out
+
+
+def share_display(cube: Cube, headline: str, situation: str, component: str) -> pd.Series | None:
+    """The printed form of a shot-outcome share, or None for any other stat.
+
+    The three shares of one (side, situation) are rounded together so they
+    print to 100; a difference frame's "on_target_pct_faced" is the AGAINST
+    partition's figure. Zero shots prints as 0%.
+    """
+    base = component[:-6] if component.endswith("_faced") else component
+    if base not in SHARE_COMPONENTS:
+        return None
+    h = HEADLINES[headline]
+    side = h.side if h.side in ("for", "against") else DIFF_SIDE_OF.get(component, "for")
+    shots = _q(cube, side, situation, "shots").astype(float)
+    parts = pd.DataFrame({c: (_q(cube, side, situation, c[:-4]).astype(float) / shots).where(shots > 0, 0.0)
+                          for c in SHARE_COMPONENTS})
+    ints = _largest_remainder(parts)
+    return ints[base].map(lambda n: f"{int(n)}%")
 
 
 def standing(values: pd.Series, subject, direction_sign: int, mode: str) -> Standing:
@@ -948,7 +1009,10 @@ def standing(values: pd.Series, subject, direction_sign: int, mode: str) -> Stan
     as zero, is only a team whose data is missing (no restart rows for the
     set-piece count).
     """
-    v = pd.to_numeric(values, errors="coerce").dropna()
+    # THE ONE RANKING RULE (project-wide, the user's call): round to 3 dp,
+    # then rank. Two teams a float apart at the 9th decimal are the same
+    # team for a reader who sees two decimals; they share the rank.
+    v = pd.to_numeric(values, errors="coerce").dropna().round(RANK_DP)
     n = int(len(v))
     if subject not in v.index or n == 0:
         return Standing(mode, float("nan"), n, 0.5)
@@ -989,6 +1053,7 @@ class GaugeSpec:
     og: float | None = None        # own goals left out of a shot-stopping cell
     shots_per_sp: float | None = None   # on the set-pieces gauge: the link to the shots gauge
     meaning: str = ""              # the parenthetical beside the name ("chance quality")
+    display: str | None = None     # a pre-formatted value (jointly rounded shares); else format_number
 
 
 def _fmt_for(family: str, comp: str, side: str = "for") -> str:
@@ -1065,6 +1130,9 @@ def gauge(cube: Cube, subject, headline: str, situation: str, component: str,
         gp=int(t["gp"]) if t is not None else None,
         component=comp, situation=situation,
     )
+    shown = share_display(cube, headline, situation, component)
+    if shown is not None and subject in shown.index:
+        spec.display = str(shown.loc[subject])
     if t is not None and situation in STATE_SITUATIONS:
         secs = float(t[f"{situation}_s"])
         spec.minutes = secs / 60.0
@@ -1166,9 +1234,13 @@ def league_table(cube: Cube, subject, headline: str, situation: str,
                   if "name" in cube.teams.columns else pd.Series(index=df.index, dtype=object))
     df["name"] = df["name"].fillna(pd.Series(
         [ix[1] for ix in df.index], index=df.index))
-    df["rank"] = df["value"].rank(ascending=ascending, method="min").astype(int)
-    df["pctl"] = [calculate_percentile(v, list(df["value"].dropna())) if pd.notna(v) else float("nan")
-                  for v in df["value"]]
+    keyed = df["value"].round(RANK_DP)          # the ONE ranking rule, as in standing()
+    df["rank"] = keyed.rank(ascending=ascending, method="min").astype(int)
+    df["pctl"] = [calculate_percentile(v, list(keyed.dropna())) if pd.notna(v) else float("nan")
+                  for v in keyed]
+    # A share prints as its jointly-rounded figure, the one the frame shows.
+    shown = share_display(cube, headline, situation, component)
+    df["shown"] = shown.reindex(df.index) if shown is not None else None
     if d < 0:
         df["pctl"] = 100.0 - df["pctl"]
     df["is_subject"] = [ix == subject for ix in df.index]
@@ -1199,6 +1271,8 @@ def format_number(fmt: str, v, *, total: bool = False) -> str:
 
 
 def format_value(spec: GaugeSpec) -> str:
+    if spec.display is not None and not (isinstance(spec.value, float) and math.isnan(spec.value)):
+        return spec.display
     return format_number(spec.fmt, spec.value)
 
 

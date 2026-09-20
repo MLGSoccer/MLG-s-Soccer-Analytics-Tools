@@ -129,3 +129,83 @@ def test_pctl_label_says_so():
     plt.close(fig)
     assert not rank[0]["label"].endswith("pctl")
     assert pctl[0]["label"].endswith("pctl")
+
+
+def _slots(fig):
+    """(key, column, row) per region, columns and rows by geometry."""
+    regs = regions_from_boxes(fig.tp_gauge_boxes, fig.tp_specs)
+    xs = sorted({round(r["x"], 3) for r in regs}); ys = sorted({round(r["y"], 3) for r in regs})
+    return [(r["key"], xs.index(round(r["x"], 3)), ys.index(round(r["y"], 3))) for r in regs]
+
+
+def test_groups_lie_along_the_axis_that_fits_them():
+    """Triples run down the columns at 2-wide, for/against pairs down the
+    columns at 3-wide - and the click regions follow, because boxes and
+    specs are stored in one slot order."""
+    prof = _profile()
+    fig = create_team_profile(prof, headline="gf", path=(), order="component", aspect="9x16")
+    by_col = {}
+    for key, c, r in _slots(fig):
+        by_col.setdefault(c, []).append((r, key.split(".")[2]))
+    plt.close(fig)
+    assert [k for _, k in sorted(by_col[0])] == ["anchor", "shots", "shot_dist"]
+    assert [k for _, k in sorted(by_col[1])] == ["on_target_pct", "blocked_pct", "missed_pct"]
+    fig = create_team_profile(prof, headline="xg", path=(), order="situation", aspect="9x16")
+    by_col = {}
+    for key, c, r in _slots(fig):
+        by_col.setdefault(c, []).append((r, key.split(".")[1]))
+    plt.close(fig)
+    assert [k for _, k in sorted(by_col[0])] == ["total", "op", "sp"]
+    assert [k for _, k in sorted(by_col[1])] == ["ahead", "level", "behind"]
+    fig = create_team_profile(prof, headline="gd", path=(), order="component", aspect="default")
+    by_row = {}
+    for key, c, r in _slots(fig):
+        by_row.setdefault(r, []).append((c, key.split(".")[2]))
+    plt.close(fig)
+    assert [k for _, k in sorted(by_row[0])] == ["anchor", "on_target_pct", "shot_dist"]
+    assert [k for _, k in sorted(by_row[1])] == ["shots_diff", "on_target_pct_faced", "shot_dist_faced"]
+    # the pairs stay in rows at 2-wide, as the overview does
+    fig = create_team_profile(prof, headline="xgd", path=(), order="component", aspect="9x16")
+    by_row = {}
+    for key, c, r in _slots(fig):
+        by_row.setdefault(r, []).append((c, key.split(".")[2]))
+    plt.close(fig)
+    assert [k for _, k in sorted(by_row[1])] == ["placement", "placement_faced"]
+
+
+def _texts(fig):
+    return [t.get_text() for t in fig.texts]
+
+
+def _joined(fig):
+    """The header's text as one string: the note wraps to its measure."""
+    return " ".join(_texts(fig))
+
+
+def test_the_spine_says_what_the_dials_add_up_to():
+    """The identity under the scope, in the dials' own names, with the
+    own-goal term folded in on the xG frames; nothing on the shot
+    comparison, nothing on a six-situation frame."""
+    prof = _profile()
+    fig = create_team_profile(prof, headline="gf", path=(), order="component")
+    assert "On Target %, Blocked % and Missed % split every shot" in _joined(fig)
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="ga", path=(), order="component")
+    assert "On Target % Faced, Blocks % and Missed % Faced split every shot faced" in _joined(fig)
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="xg", path=(), order="component")
+    j = _joined(fig)
+    assert "Goals Above xG = Shot Placement + Goals Above Post-Shot xG + opposition own goals (" in j
+    assert "own goals for them" not in j
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="xgd", path=(), order="component")
+    j = _joined(fig)
+    assert "Goal Difference Above xGD = Shot Placement" in j
+    assert "Placement Faced + Goals Above Post-Shot xG + Goals Prevented + own goals" in j
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="gd", path=(), order="component")
+    assert " = " not in _joined(fig)
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="gf", path=(), order="situation")
+    assert "split every shot" not in _joined(fig)
+    plt.close(fig)
