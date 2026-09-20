@@ -177,16 +177,16 @@ def create_league_ranking(profile, *, headline, situation='total', component='an
     if custom_subtitle:
         scope = [custom_subtitle]
     filter_line = 'PENALTIES EXCLUDED' if profile.get('exclude_penalties') else ''
-    label = spec.label if component != 'anchor' or situation != 'total' else h.label
-    if component == 'anchor' and situation != 'total':
-        label = tp.situation_label(h, situation)
-    title = custom_title or label.upper()
+    title = custom_title or tp.cell_label(h, situation, component, sep="\n").upper()
     # The frame line names the frame this stat was clicked on, so a
     # ranking stands alone: "XG AGAINST . SHOT-STOPPING BREAKDOWN".
     # Provenance - the frame this stat was clicked on - in the note's
     # sentence-case voice beside the definition. Set as a caps line it read
     # as a second subtitle over the scope line beneath it.
-    if component != 'anchor':
+    if component != 'anchor' and situation != 'total':
+        # a component inside a situation: the level-3 dial a click chose
+        provenance = f"from {h.label}: {tp.SITUATION_PHRASE[situation]}"
+    elif component != 'anchor':
         provenance = f"from {h.label}: {tp.order_phrase('component', h)}"
     elif situation != 'total':
         provenance = f"from {h.label}: {tp.order_phrase('situation')}"

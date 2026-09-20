@@ -142,7 +142,8 @@ if profile['pool_n'] < 2:
 scope_key = f"{team['team_id']}|{season_id}|{pool}|{int(exclude_penalties)}"
 tp_state = st.session_state.get('tp')
 if not tp_state or tp_state.get('scope') != scope_key:
-    tp_state = {'scope': scope_key, 'headline': None, 'order': 'situation', 'pick': None}
+    tp_state = {'scope': scope_key, 'headline': None, 'order': 'situation', 'pick': None,
+                'pick3': None}
     st.session_state['tp'] = tp_state
 
 
@@ -236,15 +237,12 @@ def _show(headline, path, order, filename, *, slot=None, selected=None, ranking=
         hk, sit, comp = ranking
         # Twenty rows fit a tall frame; the tile cannot hold a league.
         r_aspect = '9x16' if aspect == '9x8' else aspect
-        spec = tp.gauge(profile['cube'], profile['subject'], hk, sit, comp, profile['pool_mode'])
-        name = spec.label if not (comp == 'anchor' and sit == 'total') else tp.HEADLINES[hk].label
-        if comp == 'anchor' and sit != 'total':
-            name = tp.situation_label(tp.HEADLINES[hk], sit)
+        name = tp.cell_label(tp.HEADLINES[hk], sit, comp)
         with st.expander(f"League ranking: {name}"):
             r_args = (profile, scope_key, hk, sit, comp, r_aspect, competition)
             png = _ranking(*r_args, SCREEN_DPI)
             st.image(png, width=540 if r_aspect == '9x16' else 'stretch')
-            r_file = filename.replace('team_profile_', 'ranking_')
+            r_file = f"ranking_{safe}_{hk}_{sit}_{comp}{suffix}.png"
             st.download_button("Download ranking PNG (300 dpi)", lambda: _ranking(*r_args, FILE_DPI),
                                r_file, "image/png", key=f"dl_rank_{r_file}")
 
@@ -257,7 +255,7 @@ suffix = '' if aspect == 'default' else f"_{aspect}"
 st.subheader("Overview")
 clicked = _take_click('l1')
 if clicked:
-    _set(headline=clicked.split('.')[0], pick=None)
+    _set(headline=clicked.split('.')[0], pick=None, pick3=None)
 headline = tp_state.get('headline')
 _show(None, (), 'situation', f"team_profile_{safe}{suffix}.png", slot='l1',
       selected=f"{headline}.total.anchor" if headline else None)
@@ -293,7 +291,7 @@ if headline:
                  "other.")
         new_order = 'component' if order_label == split_options[1] else 'situation'
         if new_order != tp_state.get('order'):
-            _set(order=new_order, pick=None)
+            _set(order=new_order, pick=None, pick3=None)
         if new_order == 'situation':
             names = [tp.SITUATIONS[s] for s in tp.SITUATION_ORDER]
         else:
@@ -307,7 +305,7 @@ if headline:
         # By situation the frame's keys vary in the situation slot
         # ("gf.behind.anchor"); by component in the component slot
         # ("gf.total.shots"). The pick is whichever varies.
-        _set(pick=clicked.split('.')[1] if order == 'situation' else clicked.split('.')[2])
+        _set(pick=clicked.split('.')[1] if order == 'situation' else clicked.split('.')[2], pick3=None)
     pick = tp_state.get('pick')
     if pick:
         selected = f"{headline}.{pick}.anchor" if order == 'situation' else f"{headline}.total.{pick}"
@@ -319,7 +317,7 @@ if headline:
     # on_click runs before the script body, so the level closes in the same
     # run as the click - no st.rerun() and no second pass.
     st.button("Back to overview", key="back1", on_click=_set,
-              kwargs={'headline': None, 'pick': None})
+              kwargs={'headline': None, 'pick': None, 'pick3': None})
 
     # ── Level 3 ──────────────────────────────────────────────────────────────
 
@@ -330,8 +328,20 @@ if headline:
         else:
             crumb = f"{h.label} › {tp.component_label(h, pick)}"
         st.subheader(crumb)
+        # Level 3 is the end of the drill, so a click here chooses which
+        # dial's league ranking sits under the frame - a component inside
+        # a situation ("Set-Piece Goals Above xG") is reachable no other
+        # way. Until a click, the ranking is the frame's own anchor.
+        clicked3 = _take_click('l3')
+        if clicked3:
+            _set(pick3=clicked3)
+        anchor_key = (f"{headline}.{pick}.anchor" if order == 'situation'
+                      else f"{headline}.total.{pick}")
+        cell_key = tp_state.get('pick3') or anchor_key
+        hk3, sit3, comp3 = cell_key.split('.')
         _show(headline, (pick,), order,
               f"team_profile_{safe}_{headline}_{pick}{suffix}.png",
-              ranking=((headline, pick, 'anchor') if order == 'situation'
-                       else (headline, 'total', pick)))
-        st.button(f"Back to {h.label}", key="back2", on_click=_set, kwargs={'pick': None})
+              ranking=(hk3, sit3, comp3), slot='l3', selected=cell_key)
+        st.caption("Click a dial for its league ranking.")
+        st.button(f"Back to {h.label}", key="back2", on_click=_set,
+                  kwargs={'pick': None, 'pick3': None})

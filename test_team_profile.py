@@ -504,6 +504,19 @@ def test_format_helpers(cube):
     assert g.label == "Time Ahead" and g.direction == 0
 
 
+def test_cell_label_names_any_cell_with_its_situation():
+    h = tp.HEADLINES["xg"]
+    assert tp.cell_label(h, "total", "anchor") == "xG For"
+    assert tp.cell_label(h, "sp", "anchor") == "Set-Piece xG For"
+    assert tp.cell_label(h, "behind", "anchor") == "xG For When Behind"
+    assert tp.cell_label(h, "total", "gap") == "Goals Above xG"
+    assert tp.cell_label(h, "sp", "gap") == "Set-Piece Goals Above xG"
+    assert tp.cell_label(h, "op", "placement") == "Open-Play Shot Placement"
+    assert tp.cell_label(h, "level", "beat_keeper") == "Goals Above Post-Shot xG When Drawing"
+    ga = tp.HEADLINES["ga"]
+    assert tp.cell_label(ga, "sp", "missed_pct") == "Set-Piece Missed % Faced"
+
+
 def test_league_table_is_the_whole_pool_sorted_by_goodness(cube):
     """The ranking graphic: every team on ONE stat, best first. An against
     stat sorts lowest first because `direction` decides, not the caller;

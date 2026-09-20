@@ -351,6 +351,25 @@ def situation_label(headline: Headline, situation: str) -> str:
     return headline.label
 
 
+def cell_label(headline: Headline, situation: str, component: str, sep: str = " ") -> str:
+    """The situation-qualified name of ANY cell, for a ranking's title and the
+    page's expander: the headline itself, "Set-Piece xG For", "Goals Above
+    xG", "Set-Piece Goals Above xG", "Goals Above xG When Behind". One rule,
+    so a component ranked inside a situation says which situation - the
+    league ranking reaches every cell now, not only the ones a click opens."""
+    label = headline.label if component == "anchor" else component_label(headline, component, situation)
+    # `sep` marks the seam between qualifier and stat: a ranking title that
+    # must break breaks there ("SET-PIECE" / "GOALS ABOVE XG"), never
+    # inside the stat's name.
+    if situation == "op":
+        return f"Open-Play{sep}{label}"
+    if situation == "sp":
+        return f"Set-Piece{sep}{label}"
+    if situation in STATE_SITUATIONS:
+        return f"{label}{sep}{SITUATION_PHRASE[situation]}"
+    return label
+
+
 def components_of(headline: Headline) -> tuple:
     return COMPONENT_ORDER[headline.key]
 

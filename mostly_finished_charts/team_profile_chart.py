@@ -226,6 +226,23 @@ def _wrap_words(fig, text, size, max_frac, max_lines, floor, weight='bold'):
     typed. Shrink-to-fit alone left "WOLVERHAMPTON WANDERERS v BRIGHTON AND
     HOVE ALBION" off both edges of a 9in frame at the floor; break first.
     """
+    # A newline in the text marks the seam a break should use ("SET-PIECE"
+    # / "GOALS ABOVE XG"): one line when the whole fits, the two halves
+    # when they do, else the ordinary wrap of the joined text.
+    if "\n" in str(text):
+        halves = [h.strip() for h in str(text).split("\n") if h.strip()]
+        joined = " ".join(halves)
+        if _width_frac(fig, joined, float(size), weight) <= max_frac:
+            return [joined], float(size)
+        if 1 < len(halves) <= max_lines:
+            # the seam at size, then shrinking toward the floor - a break
+            # inside the stat's name is the last resort, not the second
+            pt = float(size)
+            while pt >= floor:
+                if all(_width_frac(fig, h, pt, weight) <= max_frac for h in halves):
+                    return halves, pt
+                pt = max(floor, pt - 1.0) if pt > floor else floor - 1
+        text = joined
     words = str(text).split()
     pt = float(size)
     while True:
@@ -239,6 +256,18 @@ def _wrap_words(fig, text, size, max_frac, max_lines, floor, weight='bold'):
                 cur = trial
         if cur:
             lines.append(cur)
+        if len(lines) == 2 and max_lines >= 2:
+            # Balanced, not greedy: the greedy fill left "SET-PIECE GOALS
+            # ABOVE" over an orphaned "XG"; the split with the narrowest
+            # widest line gives "SET-PIECE" / "GOALS ABOVE XG".
+            best = None
+            for k in range(1, len(words)):
+                a, b = ' '.join(words[:k]), ' '.join(words[k:])
+                w = max(_width_frac(fig, a, pt, weight), _width_frac(fig, b, pt, weight))
+                if w <= max_frac and (best is None or w < best[0]):
+                    best = (w, [a, b])
+            if best:
+                lines = best[1]
         if len(lines) <= max_lines and all(_width_frac(fig, ln, pt, weight) <= max_frac for ln in lines):
             return lines, pt
         if pt <= floor:
