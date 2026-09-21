@@ -45,7 +45,7 @@ from shared.colors import ensure_line_contrast
 from shared import team_profile as tp
 from matplotlib.lines import Line2D
 from mostly_finished_charts.team_profile_chart import (
-    _LAYOUTS as _FRAME_LAYOUTS, _header, _text, _ramp, _width_frac, SEP,
+    _LAYOUTS as _FRAME_LAYOUTS, _header, _text, _ramp, _width_frac, SEP, NP_PREFIX,
 )
 
 # The pool word for the kicker: "LIVERPOOL . BIG 5 RANKING". A league is a
@@ -176,8 +176,11 @@ def create_league_ranking(profile, *, headline, situation='total', component='an
         scope = [f"TOP {SHOW_MAX} OF {pool_n}", (profile.get('pool_label') or '').upper()]
     if custom_subtitle:
         scope = [custom_subtitle]
-    filter_line = 'PENALTIES EXCLUDED' if profile.get('exclude_penalties') else ''
-    title = custom_title or tp.cell_label(h, situation, component, sep="\n").upper()
+    filter_line = ''                     # the title carries it: NON-PENALTY XG FOR
+    label = tp.cell_label(h, situation, component, sep="\n")
+    if profile.get('exclude_penalties'):
+        label = f"{NP_PREFIX} {label}"       # "Non-Penalty Set-Piece\nGoals Above xG"
+    title = custom_title or label.upper()
     # The frame line names the frame this stat was clicked on, so a
     # ranking stands alone: "XG AGAINST . SHOT-STOPPING BREAKDOWN".
     # Provenance - the frame this stat was clicked on - in the note's

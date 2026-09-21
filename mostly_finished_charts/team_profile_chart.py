@@ -831,7 +831,10 @@ def _gauge(fig, box, spec, L, cell_w=None, leads=None):
 
 # -- The frame -----------------------------------------------------------------------
 
-def _frame_line(headline, path, order):
+NP_PREFIX = 'Non-Penalty'
+
+
+def _frame_line(headline, path, order, non_penalty=False):
     """Which slice of the cube the six gauges are - levels 2 and 3 only.
     The overview has none: its headline is the kicker, the club and the
     scope ("GOALS AND XG - FOR - AGAINST - DIFFERENCE" listed the page, and
@@ -841,7 +844,10 @@ def _frame_line(headline, path, order):
     if not headline:
         return []
     h = tp.HEADLINES[headline]
-    H = h.label.upper()
+    # Penalties excluded is part of the stat's NAME - NON-PENALTY XG FOR -
+    # not a second title-weight line under the frame line (which shrank the
+    # dials to pay for it; user: it hogs the subhead).
+    H = (f"{NP_PREFIX} {h.label}" if non_penalty else h.label).upper()
     if not path:
         return [H, tp.order_phrase(order, h).upper()]
     (pick,) = path
@@ -1128,7 +1134,10 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
         scope.append(f"PERCENTILES vs {profile.get('pool_label', '').upper()}")
     if custom_subtitle:
         scope = [custom_subtitle]
-    filter_line = 'PENALTIES EXCLUDED' if profile.get('exclude_penalties') else ''
+    # The overview has no frame line, so the one line sits in that slot;
+    # levels 2-3 carry it in the frame line's headline part instead.
+    non_penalty = bool(profile.get('exclude_penalties'))
+    filter_line = 'PENALTIES EXCLUDED' if non_penalty and headline is None else ''
 
     title = custom_title or (profile.get('team_name') or '').upper()
     # Two different notes. _shared_meaning REPLACES six identical
@@ -1143,7 +1152,8 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
                   _spine_note(profile, headline, tuple(path), order),
                   _own_goals_note(profile, headline, tuple(path), order)]
     bottom = _header(fig, L, kicker='TEAM PROFILE', title=title, accent=accent,
-                     scope_parts=scope, frame_line=_frame_line(headline, tuple(path), order),
+                     scope_parts=scope,
+                     frame_line=_frame_line(headline, tuple(path), order, non_penalty),
                      filter_line=filter_line, note=shared)
 
     # The bare unit only where the frame line names the situation (a
