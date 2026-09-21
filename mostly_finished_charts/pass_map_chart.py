@@ -1288,14 +1288,6 @@ def _leader_rows(shown, L, info, n_shown, players):
     return rows, coverage, matches_block, show_cmp
 
 
-def _of_what(info, players):
-    """What the big number counts, in words."""
-    return (('by this player' if len(players) == 1 else 'by these players')
-            if players
-            else 'in this match' if int(info.get('total_matches') or 0) == 1
-            else 'in these matches')
-
-
 def _body_landscape(fig, L, C):
     """16:9 - pitch on the left, the summary as a right-hand column."""
     shown, info = C['shown'], C['info']
@@ -1349,6 +1341,7 @@ def _body_landscape(fig, L, C):
     # failed. When nothing is cut there is no denominator to state, only a
     # population to name, which `of_what` does on the line below.
     right = px + pw
+    last = big                     # the hero's lowest line: the number, or the "of N" beneath it
     if n_shown < n_pop:
         # NOT accent. Moving the ratio out of a red banner and into a red
         # percentage moved the problem rather than fixing it: a cold viewer
@@ -1361,22 +1354,17 @@ def _body_landscape(fig, L, C):
         fig.canvas.draw()
         right -= (pct.get_window_extent(fig.canvas.get_renderer())
                   .transformed(fig.transFigure.inverted()).width + 0.014)
-        _text(fig, right, base,
-              f"of {n_pop:,} completed" if C.get('base_completed')
-              else f"of {n_pop:,}", L['value_size'],
-              TEXT_SECONDARY, ha='right', va='baseline')
-    # Rides UP to the number's own baseline when the "of N" line is absent.
-    # Unfiltered, it sat alone 19px below the figure with 235px of void to its
-    # left and nothing on the line above - an orphan rather than a qualifier.
-    tail = _text(fig, px + pw, base - (0.024 if n_shown < n_pop else 0.0),
-                 _of_what(info, players), L['cover_size'], TEXT_MUTED,
-                 ha='right', va='baseline')
-    # The rule hangs off the QUALIFIER, not off a fixed step from the number.
-    # A fixed step left 7px of clearance on one render and 2px on another - the
-    # qualifier's nearest neighbour became the rule rather than the figure it
-    # describes, so it read as captioning the rule. Measure and clear it.
+        last = _text(fig, right, base,
+                     f"of {n_pop:,} completed" if C.get('base_completed')
+                     else f"of {n_pop:,}", L['value_size'],
+                     TEXT_SECONDARY, ha='right', va='baseline')
+    # No "by this player" / "in these matches" under the number: the title
+    # names whose passes these are and the scope line says how many matches.
+    # A chart never restates its own subject under its own figure (user).
+    # The rule hangs off the hero's lowest line, measured - a fixed step
+    # left 7px of clearance on one render and 2px on another.
     fig.canvas.draw()
-    y = (tail.get_window_extent(fig.canvas.get_renderer())
+    y = (last.get_window_extent(fig.canvas.get_renderer())
          .transformed(fig.transFigure.inverted()).y0) - 0.022
     _rule(fig, px, px + pw, y)
 
@@ -1550,7 +1538,9 @@ def _body_stacked(fig, L, C):
         rule1_y = value_y + L['cell_gap']
     else:
         rule1_y = (note_y or rule2_y)
-    hero_base = rule1_y + L['hero_rule'] + L['hero_lead']
+    # The second hero line exists only when there is a denominator to state;
+    # unfiltered, the number sits on the rule's own clearance.
+    hero_base = rule1_y + L['hero_rule'] + (L['hero_lead'] if n_shown < n_pop else 0.0)
     # The numeral's cap height, derived from its own size rather than guessed -
     # it is what separates the hero's baseline from the strip above it.
     hero_top = hero_base + min(L['big_size'],
@@ -1612,7 +1602,7 @@ def _body_stacked(fig, L, C):
     # for the same reason - a ratio against itself reads like a filter that
     # failed. Unfiltered there is no denominator to state, only a population
     # to name.
-    sub = _of_what(info, players)
+    sub = ''
     if n_shown < n_pop:
         # A SENTENCE, and the same one at both vertical aspects. Two earlier
         # goes were worse: the dot-separated "of 21,950 · 11.0% · in these
@@ -1623,11 +1613,11 @@ def _body_stacked(fig, L, C):
         # and not the club's. The scope line cannot cover for it: it says
         # LIVERPOOL · 38 MATCHES, never whose passes these are.
         _base = f"{n_pop:,} completed" if C.get('base_completed') else f"{n_pop:,}"
-        sub = f"{100.0 * n_shown / n_pop:.1f}% of {_base} {sub}"
-    if L['hero_lead']:
+        sub = f"{100.0 * n_shown / n_pop:.1f}% of {_base}"
+    if sub and L['hero_lead']:
         _text(fig, lx, hero_base - L['hero_lead'], sub, L['value_size'],
               TEXT_SECONDARY, va='baseline')
-    else:
+    elif sub:
         # 9:8 runs the whole hero along one baseline. The second line costs
         # 45px there, and 45px of an 800px frame is 68px of pitch WIDTH once
         # the aspect lock has had its say.
