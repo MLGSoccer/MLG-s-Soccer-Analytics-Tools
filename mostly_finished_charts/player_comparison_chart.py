@@ -235,6 +235,13 @@ def footer_segments(position=None, pool_label=None):
     return '  •  '.join(scope), 'Data: Opta/STATS Perform'
 
 
+# GOALKEEPER IS DELIBERATELY ABSENT and must stay that way. The pools used to
+# exclude keepers at DOWNLOAD too, so this omission was belt and braces; since
+# 2026-09-23 the download takes them (they are wanted for minutes, nationality
+# and age lookups), and this map is the ONLY thing keeping them out of a peer
+# group. `load_player_data` drops every row whose position does not map, which
+# is what makes that safe. Adding a 'Goalkeeper' key here would silently put
+# keepers into an outfield peer set and move every percentile on the chart.
 POSITION_MAPPING = {
     # Center Back
     'Left Centre Back': 'Center Back',

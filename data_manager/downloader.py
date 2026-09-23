@@ -350,7 +350,24 @@ def probe_endpoint_health(session, sample_season_id):
 
 
 def build_player_pool_statement(season_ids):
-    """Build the SQL statement for a player pool download with today's date range."""
+    """Build the SQL statement for a player pool download with today's date range.
+
+    NO POSITION FILTER: goalkeepers are included. The statement used to keep
+    only Defender / Forward / Attacker / Midfielder, which left keepers absent
+    from the pools entirely - so any question about them needed a hand-made
+    cURL, twice in ten days (a per-team German-minutes share, where keepers are
+    9.1% of Bundesliga minutes and disproportionately German, and an earlier
+    two-season version of the same).
+
+    Keepers still never reach a comparison chart. `load_player_data` maps
+    `Position` through POSITION_MAPPING and drops every row that does not map;
+    no keeper position is in that map, and its comment now says so on purpose.
+    That drop is what makes taking them here safe - peer groups, percentiles
+    and the player picker are all downstream of it and see no new rows.
+
+    What this buys: minutes, nationality, age, height and weight for keepers
+    become a pool lookup instead of a bespoke download.
+    """
     today = date.today()
     start = today - timedelta(days=365)
     season_id_str = ",".join(f"'{s}'" for s in season_ids)
@@ -361,9 +378,6 @@ def build_player_pool_statement(season_ids):
         f"WHERE ((game.player)) AND "
         f"((game.gameDate >= '{start}') AND "
         f"(game.gameDate <= '{today} 23:59:59') AND "
-        f"((player.position='Defender') OR "
-        f"((player.position='Forward' OR player.position='Attacker')) OR "
-        f"(player.position='Midfielder')) AND "
         f"(season.seasonId IN ({season_id_str}))) "
         f"RANK order ORDER BY 'Min' DESC  LIMIT 100000 CALCULATE total average"
     )
