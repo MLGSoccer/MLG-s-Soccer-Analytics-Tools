@@ -231,8 +231,14 @@ def _show(headline, path, order, filename, *, slot=None, selected=None, ranking=
         st.image(png, width=max_width)
     else:
         st.image(png, width='stretch')
+    # The widget key carries the SLOT, not just the file. Two levels can name
+    # the same cell - drill into Total, or into the anchor dial, and level 3's
+    # ranking is the headline's own, which level 2 already hangs under its
+    # frame - and a key built from the filename alone then registers twice and
+    # Streamlit raises. The filename stays as it is: the same graphic downloads
+    # under the same name from either level.
     st.download_button("Download PNG (300 dpi)", lambda: _frame(*args, FILE_DPI)[0],
-                       filename, "image/png", key=f"dl_{filename}")
+                       filename, "image/png", key=f"dl_{slot or 'x'}_{filename}")
     if ranking:
         hk, sit, comp = ranking
         # Twenty rows fit a tall frame; the tile cannot hold a league.
@@ -244,7 +250,8 @@ def _show(headline, path, order, filename, *, slot=None, selected=None, ranking=
             st.image(png, width=540 if r_aspect == '9x16' else 'stretch')
             r_file = f"ranking_{safe}_{hk}_{sit}_{comp}{suffix}.png"
             st.download_button("Download ranking PNG (300 dpi)", lambda: _ranking(*r_args, FILE_DPI),
-                               r_file, "image/png", key=f"dl_rank_{r_file}")
+                               r_file, "image/png",
+                               key=f"dl_rank_{slot or 'x'}_{r_file}")
 
 
 safe = team['display_name'].replace(' ', '_').replace('/', '-')
@@ -326,7 +333,13 @@ if headline:
         if order == 'situation':
             crumb = f"{h.label} › {tp.SITUATION_PHRASE[pick]}"
         else:
-            crumb = f"{h.label} › {tp.component_label(h, pick)}"
+            # The anchor has no component name of its own - it IS the headline -
+            # so the crumb was "Goals For >" with nothing after the separator.
+            # The graphic calls that frame GOALS FOR . BY GAME SITUATION; the
+            # crumb says the same thing.
+            crumb = (f"{h.label} › {tp.component_label(h, pick)}"
+                     if pick != 'anchor' else
+                     f"{h.label} › {_sentence(tp.order_phrase('situation'))}")
         st.subheader(crumb)
         # Level 3 is the end of the drill, so a click here chooses which
         # dial's league ranking sits under the frame - a component inside
@@ -339,9 +352,15 @@ if headline:
                       else f"{headline}.total.{pick}")
         cell_key = tp_state.get('pick3') or anchor_key
         hk3, sit3, comp3 = cell_key.split('.')
+        # Drill into Total, or into the anchor dial, and this frame's own cell
+        # IS the headline - the ranking level 2 already hangs under its frame.
+        # One graphic, once: the ranking appears here when a dial names a
+        # different cell, and the caption says how to get one.
+        r3 = (hk3, sit3, comp3)
         _show(headline, (pick,), order,
               f"team_profile_{safe}_{headline}_{pick}{suffix}.png",
-              ranking=(hk3, sit3, comp3), slot='l3', selected=cell_key)
+              ranking=None if r3 == (headline, 'total', 'anchor') else r3,
+              slot='l3', selected=cell_key)
         st.caption("Click a dial for its league ranking.")
         st.button(f"Back to {h.label}", key="back2", on_click=_set,
                   kwargs={'pick': None, 'pick3': None})
