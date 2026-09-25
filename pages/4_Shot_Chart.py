@@ -772,15 +772,25 @@ if data_source == "Database":
                         if len(_ids) == 1:
                             selected_player_id = _ids[0]
 
-                    # For Shots For with no competition filter: load all shots for this player
-                    # across all teams to handle mid-season transfers.
-                    # When a season filter IS active, respect it and use shots_df only.
+                    # Shots For: the player's shots for EVERY club in the
+                    # ticked competitions, so a transfer inside the season
+                    # shows both halves - and nothing outside them. This used
+                    # to run only when every competition the club has was
+                    # ticked (the default), and then ran unscoped: a Denver
+                    # Summit map filtered to NWSL 2026 drew Janine Sonis's
+                    # Racing Louisville 2025 season too, 51 matches for a
+                    # club that had played 25 (user, 2026-09-25). Unticked
+                    # games stay out as well.
                     player_full_shots = None
                     player_full_info = None
-                    _no_filter = selected_season_id is None
-                    if selected_player and not shots_against and _no_filter:
+                    _picked = set(selected_game_ids)
+                    _scope = dict(
+                        season_ids=tuple(selected_season_ids),
+                        exclude_game_ids=tuple(g['game_id'] for g in filtered_games
+                                               if g['game_id'] not in _picked))
+                    if selected_player and not shots_against and selected_season_ids:
                         player_full_shots, player_full_info, _ = build_shots_for_player(
-                            selected_player, shooter_id=selected_player_id
+                            selected_player, shooter_id=selected_player_id, **_scope
                         )
                         if player_full_shots is not None and not player_full_shots.empty:
                             player_teams = sorted(player_full_shots['Team'].dropna().unique().tolist())
@@ -798,7 +808,8 @@ if data_source == "Database":
                                 )
                             elif len(player_teams) > 1:
                                 st.info(
-                                    f"**{selected_player}** has shots for multiple teams this season: "
+                                    f"**{selected_player}** has shots for more than one team in these "
+                                    f"competitions: "
                                     f"{', '.join(player_teams)}. Showing all."
                                 )
                             # Said out loud, because a career view that quietly
@@ -845,7 +856,8 @@ if data_source == "Database":
                             try:
                                 if player_full_shots is not None and not player_full_shots.empty:
                                     p_minutes, p_games = get_player_all_minutes(
-                                        selected_player, shooter_id=selected_player_id
+                                        selected_player, shooter_id=selected_player_id,
+                                        **_scope
                                     )
                                 else:
                                     p_minutes, p_games = get_player_total_minutes(

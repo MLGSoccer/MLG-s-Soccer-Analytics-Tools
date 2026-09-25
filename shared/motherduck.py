@@ -805,8 +805,19 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
 @st.cache_data(ttl=3600)
 def build_shots_for_player(shooter_name, shooter_id=None,
-                           include_international=False):
-    """Get all shots for one player across the entire database.
+                           include_international=False, season_ids=None,
+                           exclude_game_ids=()):
+    """Get all shots for one player across the entire database - or, with
+    `season_ids`, across those seasons only, for every club they played for
+    in them. `exclude_game_ids` drops games the caller unticked.
+
+    SEASON_IDS IS WHAT THE PAGE'S COMPETITION FILTER MEANS. Without it, a
+    Denver Summit map filtered to NWSL 2026 drew Janine Sonis's Racing
+    Louisville 2025 season too - 51 matches and 4,243 minutes under a Denver
+    header, for a club that had played 25 (user, 2026-09-25). The page used
+    to pass nothing whenever every competition the CLUB has was ticked,
+    which is the default, and nothing here meant everything in the database.
+    Scoped by season, a transfer inside the season still shows both clubs.
 
     Used when a player has transferred -- returns their complete shot record
     regardless of which team(s) they played for. That deliberate abandonment
@@ -875,6 +886,12 @@ def build_shots_for_player(shooter_name, shooter_id=None,
     intl_shots = sum(1 for r in rows if r[12] in intl)
     if intl:
         rows = [r for r in rows if r[12] not in intl]
+    if season_ids is not None:
+        keep = set(season_ids)
+        rows = [r for r in rows if r[12] in keep]
+    if exclude_game_ids:
+        drop = set(exclude_game_ids)
+        rows = [r for r in rows if r[0] not in drop]
 
     if not rows:
         return pd.DataFrame(), {}, '#888888'
@@ -1410,29 +1427,43 @@ def get_player_total_minutes(player_name, game_ids_tuple, shooter_id=None):
 
 @st.cache_data(ttl=3600)
 def get_player_all_minutes(player_name, shooter_id=None,
-                           include_international=False):
-    """Return (total_minutes, games_played) for a player across all games in the DB.
+                           include_international=False, season_ids=None,
+                           exclude_game_ids=()):
+    """Return (total_minutes, games_played) for a player across all games in the DB
+    - or across `season_ids` only, less `exclude_game_ids`.
 
     Used for multi-team players where the selected team's game_ids don't capture
     the player's full playing time (e.g. a mid-season transfer showing shots for
     both clubs). Matches the scope of build_shots_for_player() -- including its
     id, which matters here more than anywhere: this is unscoped by team AND by
     season, so a shared name gathers every namesake's minutes in the database.
+    Pass the same season_ids and exclude_game_ids as the shots, or the per-90
+    divides one scope's shots by another's minutes (see build_shots_for_player).
     """
     if not player_name and not shooter_id:
         return None, None
     con = get_connection()
     intl = () if include_international else tuple(international_season_ids())
-    excl = ""
+    excl, scope = "", []
     if intl:
         excl = ("AND pgm.gameId NOT IN (SELECT gameId FROM games WHERE seasonId "
                 "IN (" + ",".join("?" * len(intl)) + "))")
+        scope += list(intl)
+    if season_ids is not None:
+        if not season_ids:
+            return None, None
+        excl += (" AND pgm.gameId IN (SELECT gameId FROM games WHERE seasonId "
+                 "IN (" + ",".join("?" * len(season_ids)) + "))")
+        scope += list(season_ids)
+    if exclude_game_ids:
+        excl += " AND pgm.gameId NOT IN (" + ",".join("?" * len(exclude_game_ids)) + ")"
+        scope += list(exclude_game_ids)
     if shooter_id:
         row = con.execute(f"""
             SELECT SUM(pgm.minutes), COUNT(DISTINCT pgm.gameId)
             FROM player_game_minutes pgm
             WHERE pgm.playerId = ? {excl}
-        """, [shooter_id, *intl]).fetchone()
+        """, [shooter_id, *scope]).fetchone()
         if not row or not row[0]:
             return None, None
         return int(row[0]), int(row[1])
@@ -1445,7 +1476,7 @@ def get_player_all_minutes(player_name, shooter_id=None,
             WHERE shooter = ?
               AND shooterId IS NOT NULL
         ) {excl}
-    """, [player_name, *intl]).fetchone()
+    """, [player_name, *scope]).fetchone()
     if not row or not row[0]:
         return None, None
     return int(row[0]), int(row[1])
