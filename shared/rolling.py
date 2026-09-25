@@ -454,12 +454,77 @@ def draw_season_boundaries(ax, segments, y_pos="top", fontsize=11,
             # every vertical. Flip it to the inside of the rule instead.
             x0, x1 = ax.get_xlim()
             near_edge = (seg["start"] - 0.5 - x0) / max(x1 - x0, 1e-9) > 0.82
-            ax.annotate(
+            ann = ax.annotate(
                 f"{label} " if near_edge else f" {label}",
                 xy=(seg["start"] - 0.5, y),
                 xytext=(0, label_pad if va == "bottom" else -label_pad),
                 textcoords="offset points", color=color, fontsize=fontsize,
                 alpha=alpha, ha="right" if near_edge else "left", va=va)
+            # Tagged so place_season_labels can find it once the figure's
+            # other text exists - see there.
+            ann.set_gid(SEASON_LABEL_GID)
+
+
+SEASON_LABEL_GID = "season_label"
+
+
+def place_season_labels(fig):
+    """Move any season-break label that lands on other text INSIDE the plot.
+
+    A label sits above the axes, at the rule. Whether that space is free is
+    only knowable once the WHOLE figure is built - and the subtitle and panel
+    titles are drawn after the boundaries on every rolling chart - so this
+    runs last, just before the footer. Found by the user on the team chart:
+    a break falling under the subtitle printed "2025/26" over "10-GAME ROLLING
+    AVERAGE". A scan of both rolling charts at three break positions found the
+    same label on the 16:9 subtitles (team), on the four-panel titles (team
+    and player), and on EACH OTHER when two breaks fall close together
+    (team 9:16 and 9:8): 31 collisions.
+
+    A label that collides with nothing does not move. One that does drops
+    inside the top of the plot, stroked against the plot background so it
+    reads over a line (the "UNDER 10 GAMES" note's treatment), and steps down
+    a line at a time while that spot is still taken.
+    """
+    import matplotlib.patheffects as mpe
+    from matplotlib.text import Text
+    labels = [a for ax in fig.axes for a in ax.texts
+              if a.get_gid() == SEASON_LABEL_GID and a.get_visible()]
+    if not labels:
+        return
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    def others(lab):
+        return [t for t in fig.findobj(Text)
+                if t is not lab and t.get_visible() and t.get_text().strip()]
+
+    def clashes(lab):
+        box = lab.get_window_extent(renderer)
+        return any(box.overlaps(t.get_window_extent(renderer)) for t in others(lab))
+
+    # Per PANEL, not per label: if one label on an axes has to move inside,
+    # they all do, so a panel's season labels share one line instead of
+    # sitting at two heights.
+    by_axes = {}
+    for lab in labels:
+        by_axes.setdefault(id(lab.axes), []).append(lab)
+    for group in by_axes.values():
+        if not any(clashes(lab) for lab in group):
+            continue
+        for lab in group:
+            lab.set_va("top")
+            lab.set_path_effects([mpe.withStroke(
+                linewidth=3.0, foreground=lab.axes.get_facecolor())])
+            lab.xyann = (0, -4)
+        fig.canvas.draw()
+        for lab in group:
+            step = lab.get_fontsize() * 1.35
+            for k in range(1, 4):
+                if not clashes(lab):
+                    break
+                lab.xyann = (0, -4 - k * step)
+                fig.canvas.draw()
 
 
 def fill_signed(ax, x, series, color_positive, color_negative, baseline=0.0,

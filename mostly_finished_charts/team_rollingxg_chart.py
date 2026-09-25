@@ -33,7 +33,7 @@ from shared.file_utils import get_file_path, get_output_folder
 from shared.rolling import (
     find_season_segments, segment_starts, rolling_average,
     longest_usable_window,
-    partial_rolling_average, format_season_text, draw_season_boundaries,
+    partial_rolling_average, format_season_text, draw_season_boundaries, place_season_labels,
     fill_signed, InsufficientMatches,
 )
 
@@ -772,6 +772,7 @@ def create_rolling_charts(matches, team_name, team_color, output_path, window=10
     # Footer
     add_cbs_footer(fig, y=footer_y(fig))
 
+    place_season_labels(fig)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(output_path, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"\nSaved: {output_path}")
     plt.close()
@@ -853,6 +854,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path1 = os.path.join(output_folder, "rolling_xg_difference.png")
+    place_season_labels(fig1)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(path1, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path1}")
     plt.close()
@@ -895,6 +897,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path2 = os.path.join(output_folder, "rolling_xg_for_against.png")
+    place_season_labels(fig2)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(path2, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path2}")
     plt.close()
@@ -939,6 +942,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path3 = os.path.join(output_folder, "rolling_xg_combined.png")
+    place_season_labels(fig3)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(path3, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path3}")
     plt.close()
@@ -973,6 +977,7 @@ def create_individual_charts(matches, team_name, team_color, output_folder, wind
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.88])
     path4 = os.path.join(output_folder, "rolling_xg_cumulative.png")
+    place_season_labels(fig4)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(path4, dpi=300, facecolor=BG_COLOR, edgecolor='none')
     print(f"Saved: {path4}")
     plt.close()
@@ -1248,7 +1253,9 @@ def create_aspect_chart(matches, team_name, team_color, output_path, window=10,
             ax.plot([n[drawn[-1]]], [series[drawn[-1]]], 'o', color=col,
                     ms=L['endpoint_ms'], zorder=6)
 
+
     add_cbs_footer(fig, y=footer_y(fig))
+    place_season_labels(fig)   # LAST, after any tight_layout: it moves the axes and the labels with them
     plt.savefig(output_path, dpi=L['dpi'], facecolor=BG_COLOR, edgecolor='none')
     print(f'Saved: {output_path}')
     plt.close(fig)
