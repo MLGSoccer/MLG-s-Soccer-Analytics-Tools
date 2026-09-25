@@ -291,7 +291,17 @@ def make_pitch(ax, pad=4.0, vertical=False):
 
 # ── Summary of what is actually drawn ────────────────────────────────────────
 
-def summarise(shown):
+def _p90(count, minutes):
+    """A count per 90 on these minutes, as the chart prints it."""
+    return f"{count * 90.0 / minutes:.1f}"
+
+
+def _fmt_n(count):
+    """A table count: an int as "1,022", a per-90 rate as "54.1"."""
+    return f"{count:.1f}" if isinstance(count, float) else f"{count:,}"
+
+
+def summarise(shown, per90=None):
     """Headline numbers for the passes ON THE PITCH, not for the population.
 
     The panel describes the marks; the caption carries the denominator. Keeping
@@ -324,9 +334,12 @@ def summarise(shown):
         # reviewer misread - one of them five times over, as a rendering fault.
         # ENDING IN, not INTO - 26.3% of these were already in the box when
         # struck. Same correction as the filter phrases; see pass_filters.
-        ('ENDING IN BOX', box, f"{box:,}"),
-        ('PROGRESSIVE', prog, f"{prog:,}"),
-        ('FROM CORNERS', corners, f"{corners:,}"),
+        # Counts become rates under per 90; the percentages and the average
+        # already are rates and stay as they are.
+        ('ENDING IN BOX', box, _p90(box, per90['minutes']) if per90 else f"{box:,}"),
+        ('PROGRESSIVE', prog, _p90(prog, per90['minutes']) if per90 else f"{prog:,}"),
+        ('FROM CORNERS', corners,
+         _p90(corners, per90['minutes']) if per90 else f"{corners:,}"),
     ]
     # A stat the active filter has already forced is not a statistic. Under
     # "into the box", INTO THE BOX reads 100% of the shown set and the row is a
@@ -364,18 +377,24 @@ def top_matches(shown, limit=5):
     return rows[:limit]
 
 
-def player_detail(shown, name):
+def player_detail(shown, name, per90=None):
     """A second line for a named passer, when the list is short enough to
     afford one. Fills the column with information rather than air."""
     sub = shown[shown['passer'] == name]
     if sub.empty:
         return ''
-    return (f"{int(sub['dest_in_box'].sum())} ending in box  ·  "
-            f"{int(sub['progressive'].sum())} progressive  ·  "
+    mins = (per90 or {}).get('minutes_of', {}).get(name) if per90 else None
+    box, prog = int(sub['dest_in_box'].sum()), int(sub['progressive'].sum())
+    if mins:
+        return (f"{_p90(box, mins)} ending in box  ·  "
+                f"{_p90(prog, mins)} progressive  ·  "
+                f"{sub['length_m'].mean():.0f} m avg")
+    return (f"{box} ending in box  ·  "
+            f"{prog} progressive  ·  "
             f"{sub['length_m'].mean():.0f} m avg")
 
 
-def leaders(shown, limit=6):
+def leaders(shown, limit=6, per90=None):
     """Who played them, and how much of the total the list accounts for.
 
     A team-match has a median of 16 passers and this lists 6, covering about
@@ -387,6 +406,23 @@ def leaders(shown, limit=6):
     g = (shown.groupby('passer')
          .agg(n=('passer', 'size'), comp=('completed', 'mean'))
          .sort_values('n', ascending=False))
+    if per90:
+        # PER 90, each passer on HIS OWN minutes: a bench player's 40 passes
+        # and a starter's 900 only compare as rates. Under the floor a rate
+        # is noise - a 12-minute cameo with 3 passes is 22.5 per 90 and would
+        # top the table - so he leaves it, and the coverage line says so.
+        mins = per90.get('minutes_of') or {}
+        floor = per90.get('floor') or 0
+        g = g[[(mins.get(nm) or 0) > 0 and (mins.get(nm) or 0) >= floor
+               for nm in g.index]]
+        g = g.assign(n=[round(r.n * 90.0 / mins[nm], 1)
+                        for nm, r in g.iterrows()]).sort_values('n', ascending=False)
+        top = g.head(limit)
+        rows = [(name, float(r.n), r.comp * 100) for name, r in top.iterrows()]
+        tail = f" with {floor:,}+ min" if floor else ''
+        if len(g) <= limit:
+            return rows, (f"{len(g)} passers{tail}" if floor else '')
+        return rows, f"top {len(top)} of {len(g)} passers{tail}"
     top = g.head(limit)
     rows = [(name, int(r.n), r.comp * 100) for name, r in top.iterrows()]
     if len(g) <= limit:
@@ -1247,7 +1283,7 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
 
 
 
-def _leader_rows(shown, L, info, n_shown, players):
+def _leader_rows(shown, L, info, n_shown, players, per90=None):
     """Which ranking block the body should draw, and whether CMP earns a column.
 
     Returns (rows, coverage, matches_block, show_cmp). Shared by both bodies so
@@ -1258,14 +1294,17 @@ def _leader_rows(shown, L, info, n_shown, players):
         # asking leaders() for the top nothing, which returns a coverage line
         # reading "top 0 of 16 passers".
         return [], '', [], False
-    rows, coverage = leaders(shown, L['leaders_max'])
+    rows, coverage = leaders(shown, L['leaders_max'], per90=per90)
     # A one-row ranking of the player already named in the title is not a
     # ranking. Its count IS the figure at the top of the panel, and its detail
     # line restates AVG LENGTH, PROGRESSIVE and ENDING IN BOX from the rows
     # directly above. Same rule that drops a forced stat and a constant CMP
     # column: if the filter has already determined it, it is not a finding.
     matches_block = []
-    if len(rows) == 1 and rows[0][1] == n_shown:
+    # One passer in the drawn set - asked of the passes rather than of the
+    # row's count, which under per 90 is a rate and never equals n_shown.
+    if len(rows) == 1 and (int(shown['passer'].nunique()) == 1 if per90
+                           else rows[0][1] == n_shown):
         rows, coverage = [], ''
         # Only when there is more than one match to rank - a single-match scope
         # would produce a one-row table restating the figure above it, which is
@@ -1322,9 +1361,13 @@ def _body_landscape(fig, L, C):
     # -- right panel: what is on the pitch
     px, pw = L['panel_x'], L['panel_w']
     y = L['panel_top']
-    _text(fig, px, y, 'PASSES SHOWN', L['label_size'], TEXT_MUTED, spaced=1)
+    per90 = C.get('per90')
+    _text(fig, px, y, 'PASSES PER 90' if per90 else 'PASSES SHOWN',
+          L['label_size'], TEXT_MUTED, spaced=1)
     y -= 0.070
-    big = _text(fig, px, y, f"{n_shown:,}", L['big_size'], TEXT_PRIMARY, 'bold')
+    big = _text(fig, px, y,
+                _p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
+                L['big_size'], TEXT_PRIMARY, 'bold')
     # Sit the qualifier on the NUMERAL'S BASELINE, not on its optical centre.
     # Centring a 15pt string against a 42pt one hung "of 21,950" 15px below the
     # figure it qualifies, so the pair read as a separate row rather than as
@@ -1354,9 +1397,10 @@ def _body_landscape(fig, L, C):
         fig.canvas.draw()
         right -= (pct.get_window_extent(fig.canvas.get_renderer())
                   .transformed(fig.transFigure.inverted()).width + 0.014)
+        _pop = _p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
         last = _text(fig, right, base,
-                     f"of {n_pop:,} completed" if C.get('base_completed')
-                     else f"of {n_pop:,}", L['value_size'],
+                     f"of {_pop} completed" if C.get('base_completed')
+                     else f"of {_pop}", L['value_size'],
                      TEXT_SECONDARY, ha='right', va='baseline')
     # No "by this player" / "in these matches" under the number: the title
     # names whose passes these are and the scope line says how many matches.
@@ -1368,7 +1412,7 @@ def _body_landscape(fig, L, C):
          .transformed(fig.transFigure.inverted()).y0) - 0.022
     _rule(fig, px, px + pw, y)
 
-    for label, value in summarise(shown):
+    for label, value in summarise(shown, per90):
         y -= L['stat_step']
         _text(fig, px, y, label, L['label_size'], TEXT_MUTED, spaced=1)
         _text(fig, px + pw, y, value, L['value_size'], TEXT_PRIMARY, 'bold',
@@ -1388,7 +1432,7 @@ def _body_landscape(fig, L, C):
 
     swatch_of = C['swatch_colour']
     rows, coverage, matches_block, show_cmp = _leader_rows(
-        shown, L, info, n_shown, players)
+        shown, L, info, n_shown, players, per90)
     if rows:
         # BOTTOM-ANCHORED, and now actually so. The block used to flow down
         # from wherever the stat rows ended, so a selection that suppressed
@@ -1418,6 +1462,9 @@ def _body_landscape(fig, L, C):
         y -= 0.042
         _text(fig, px, y, 'LEADING PASSERS', L['head_size'], TEXT_MUTED,
               spaced=1)
+        if per90:
+            _text(fig, px + pw * (0.74 if show_cmp else 1.0), y, 'PER 90',
+                  L['head_size'], TEXT_MUTED, ha='right', spaced=1)
         if show_cmp:
             _text(fig, px + pw, y, 'CMP', L['head_size'], TEXT_MUTED,
                   ha='right', spaced=1)
@@ -1438,14 +1485,14 @@ def _body_landscape(fig, L, C):
                                       solid_capstyle='butt'))
                 name_x = px + SWATCH_W + 0.008
             _text(fig, name_x, y, str(name), L['row_size'], TEXT_PRIMARY)
-            _text(fig, px + pw * (0.74 if show_cmp else 1.0), y, f"{count:,}",
+            _text(fig, px + pw * (0.74 if show_cmp else 1.0), y, _fmt_n(count),
                   L['row_size'], TEXT_SECONDARY, ha='right')
             if show_cmp:
                 _text(fig, px + pw, y,
                       f"{min(round(comp), 99) if comp < 100 else 100}%",
                       L['row_size'], TEXT_SECONDARY, ha='right')
             if len(rows) <= 3:
-                detail = player_detail(shown, name)
+                detail = player_detail(shown, name, per90)
                 if detail:
                     y -= 0.026
                     _text(fig, name_x, y, detail, L['cover_size'], TEXT_MUTED)
@@ -1513,10 +1560,11 @@ def _body_stacked(fig, L, C):
     fw, fh = L['figsize']
 
     # -- what the band has to hold, before anything is placed
-    cells = summarise(shown)[:L['cells']]
+    per90 = C.get('per90')
+    cells = summarise(shown, per90)[:L['cells']]
     note = bool(receivers and len(shown))
     rows, coverage, matches_block, show_cmp = _leader_rows(
-        shown, L, info, n_shown, players)
+        shown, L, info, n_shown, players, per90)
     block = rows or matches_block
 
     # -- budget upwards from the foot. Every gap below is the same number the
@@ -1587,8 +1635,9 @@ def _body_stacked(fig, L, C):
     # own 42-against-30, which was reviewed three times and approved; this
     # only binds where the frame forces the title to shrink.
     big_size = min(L['big_size'], C['header_size'] * L['big_vs_title'])
-    big = _text(fig, x0, hero_base, f"{n_shown:,}", big_size,
-                TEXT_PRIMARY, 'bold', va='baseline')
+    big = _text(fig, x0, hero_base,
+                _p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
+                big_size, TEXT_PRIMARY, 'bold', va='baseline')
     fig.canvas.draw()
     lx = (big.get_window_extent(fig.canvas.get_renderer())
           .transformed(fig.transFigure.inverted()).x1) + L['hero_gap']
@@ -1596,8 +1645,8 @@ def _body_stacked(fig, L, C):
     # 16:9 panel learned this with its "of 21,950" line: a small string centred
     # against a 40pt one reads as a separate row rather than as part of the
     # number.
-    a = _text(fig, lx, hero_base, 'PASSES SHOWN', L['label_size'], TEXT_MUTED,
-              spaced=1, va='baseline')
+    a = _text(fig, lx, hero_base, 'PASSES PER 90' if per90 else 'PASSES SHOWN',
+              L['label_size'], TEXT_MUTED, spaced=1, va='baseline')
     # "554 of 554" is the noise pass_filters.caption() refuses to print, and
     # for the same reason - a ratio against itself reads like a filter that
     # failed. Unfiltered there is no denominator to state, only a population
@@ -1612,7 +1661,8 @@ def _body_stacked(fig, L, C):
         # on the one chart where the denominator is a single player's passes
         # and not the club's. The scope line cannot cover for it: it says
         # LIVERPOOL · 38 MATCHES, never whose passes these are.
-        _base = f"{n_pop:,} completed" if C.get('base_completed') else f"{n_pop:,}"
+        _pop = _p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
+        _base = f"{_pop} completed" if C.get('base_completed') else _pop
         sub = f"{100.0 * n_shown / n_pop:.1f}% of {_base}"
     if sub and L['hero_lead']:
         _text(fig, lx, hero_base - L['hero_lead'], sub, L['value_size'],
@@ -1701,8 +1751,8 @@ def _body_stacked(fig, L, C):
         # the number was wrong, recovering only by adding the column up; but
         # headed "PASSES SHOWN" it read as a second copy of the label it sums
         # to. This is the one word that is doing the work in either.
-        _text(fig, cnt_x, head_y, 'SHOWN', L['head_size'], TEXT_MUTED,
-              ha='right', spaced=1)
+        _text(fig, cnt_x, head_y, 'PER 90' if (per90 and rows) else 'SHOWN',
+              L['head_size'], TEXT_MUTED, ha='right', spaced=1)
         if rows and show_cmp:
             _text(fig, x1, head_y, 'CMP', L['head_size'], TEXT_MUTED,
                   ha='right', spaced=1)
@@ -1719,7 +1769,7 @@ def _body_stacked(fig, L, C):
                                       solid_capstyle='butt'))
                 name_x = x0 + SWATCH_W + 0.008
             _text(fig, name_x, ry, str(name), L['row_size'], TEXT_PRIMARY)
-            _text(fig, cnt_x, ry, f"{count:,}", L['row_size'],
+            _text(fig, cnt_x, ry, _fmt_n(count), L['row_size'],
                   TEXT_SECONDARY, ha='right')
             if rows and show_cmp:
                 _text(fig, x1, ry,
@@ -1744,7 +1794,8 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
                     base_completed=False,
                     caption_text='', filter_text=None, players=None,
                     receivers=None, player_labels=None, competition='',
-                    custom_title=None, custom_subtitle=None, aspect='default'):
+                    custom_title=None, custom_subtitle=None, aspect='default',
+                    per90=None):
     """Render the pass map.
 
     `shown` is the FILTERED frame - the numerator, already annotated by
@@ -1758,6 +1809,11 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     prefers `filter_text` because the counts belong in the panel.
 
     `aspect` is 'default' (16:9 editorial), '9x16' (portrait) or '9x8' (tile).
+
+    `per90` turns the counts into per-90 rates: {'minutes': the population's
+    minutes (a player's own, or matches x 90 for a team), 'minutes_of':
+    {passer: minutes} for the table, 'floor': the table's minimum minutes}.
+    The lines on the pitch, the shares and the averages do not change.
     """
     L = _LAYOUTS.get(aspect, _LAYOUTS['default'])
     n_shown = len(shown)
@@ -1802,6 +1858,11 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
     scope_lines = None
     if not custom_subtitle:
         lead, tail = _scope_line(shown, info, competition, players)
+        # The minutes behind a player's rate belong beside the match count:
+        # a per-90 figure off 305 minutes reads differently from one off
+        # 3,000, and nothing else on the frame says which.
+        if per90 and players and lead:
+            lead += f"  ·  {int(per90['minutes']):,} MIN"
         head = []
         # The club drops to the scope line whenever players own the title -
         # it is still the thing that makes the names mean something, but it is
@@ -1847,6 +1908,7 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
         'color_for': color_for, 'identity': bool(legend_entries),
         'swatch_colour': swatch_colour, 'accent': accent,
         'header_bottom': header_bottom, 'header_size': header_size,
+        'per90': per90 if per90 and per90.get('minutes') else None,
     }
     _BODIES.get(L.get('orient'), _body_landscape)(fig, L, ctx)
 

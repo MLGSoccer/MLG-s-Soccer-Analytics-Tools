@@ -26,6 +26,7 @@ from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, season_label, build_pass_map,
     season_competition, season_competitions, get_player_full_names,
+    get_minutes_by_player_id,
 )
 from shared import pass_filters as pf
 from mostly_finished_charts.pass_map_chart import create_pass_map, MAX_PLAYERS
@@ -237,6 +238,31 @@ filter_text = pf.filter_phrase(phrases, match_all,
                                skip=('receiver',) if receivers else ())
 
 st.sidebar.header("Chart")
+# PER 90 - more than one match only. A team plays 90 minutes in a match, so a
+# match map per 90 is the same number; a player's one match is a rate off one
+# sample. The divisor is the population's minutes: the named players' own, or
+# matches x 90 for the team (for or conceded alike). The table ranks each
+# passer on his own minutes, above a floor of half the minutes the scope made
+# available - the same fraction the per-90 leaderboards use.
+per90 = None
+if len(picked_games) > 1:
+    if st.sidebar.toggle("Per 90", value=False,
+                         help="Counts as per-90 rates. The lines on the pitch "
+                              "and the percentages do not change."):
+        _gids = tuple(g['game_id'] for g in picked_games)
+        _pid_of = {}
+        if 'passerId' in population:
+            _pairs = population[['passer', 'passerId']].dropna().drop_duplicates('passer')
+            _pid_of = dict(zip(_pairs['passer'], _pairs['passerId']))
+        _mins = get_minutes_by_player_id(tuple(_pid_of.values()), _gids)
+        _minutes_of = {n: _mins.get(i, 0) for n, i in _pid_of.items()}
+        _total = (sum(_minutes_of.get(p, 0) for p in players) if players
+                  else 90.0 * len(picked_games))
+        if _total:
+            per90 = {'minutes': _total, 'minutes_of': _minutes_of,
+                     'floor': 0 if players else int(len(picked_games) * 90 * 0.5)}
+        else:
+            st.sidebar.caption("No minutes recorded for these players here.")
 aspect_choice = st.sidebar.radio(
     "Aspect ratio",
     options=["Standard (16:9)", "Vertical (9:16)", "Tile (9:8)"],
@@ -278,7 +304,7 @@ fig = create_pass_map(shown, info, team_color, n_population=n_base,
                       players=players, receivers=receivers,
                       player_labels=player_labels, competition=competition,
                       custom_title=title, custom_subtitle=subtitle,
-                      aspect=aspect)
+                      aspect=aspect, per90=per90)
 # bbox_inches=None IS LOAD-BEARING. st.pyplot defaults to
 # {"bbox_inches": "tight", "dpi": 200} and passes them straight to savefig, so
 # the preview is a CROPPED figure, not this one: measured, the 16:9 arrives as

@@ -1342,6 +1342,29 @@ def get_players_with_minutes_for_team(team_id):
 
 
 @st.cache_data(ttl=3600)
+def get_minutes_by_player_id(player_ids_tuple, game_ids_tuple):
+    """{playerId: minutes} across these games, ONE query for every player.
+
+    For per-90 rates where each player needs his own divisor (the pass map's
+    passer table). Keyed on playerId, never the name - see
+    get_player_total_minutes for what summing by name did. Both arguments
+    must be tuples for cache hashability.
+    """
+    ids = [i for i in dict.fromkeys(player_ids_tuple) if isinstance(i, str) and i]
+    if not ids or not game_ids_tuple:
+        return {}
+    con = get_connection()
+    rows = con.execute(f"""
+        SELECT playerId, SUM(minutes)
+        FROM player_game_minutes
+        WHERE gameId IN ({",".join("?" * len(game_ids_tuple))})
+          AND playerId IN ({",".join("?" * len(ids))})
+        GROUP BY 1
+    """, list(game_ids_tuple) + ids).fetchall()
+    return {r[0]: float(r[1] or 0) for r in rows}
+
+
+@st.cache_data(ttl=3600)
 def get_player_total_minutes(player_name, game_ids_tuple, shooter_id=None):
     """Return (total_minutes, games_played) for a player across the specified games.
 
