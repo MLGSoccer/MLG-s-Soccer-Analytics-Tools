@@ -1,8 +1,8 @@
 """Pass-map filter definitions: one source for the predicate, the UI and the caption.
 
 A pass map is a lie without its denominator. Forty arrows on a pitch is
-uninterpretable unless the reader knows they are "completed passes into the box
-that led to a shot" - otherwise it reads as "this team barely had the ball". So
+uninterpretable unless the reader knows they are "completed shot sequence passes
+into the box" - otherwise it reads as "this team barely had the ball". So
 the active filter has to render as a sentence beside the marks, and that
 sentence has to be generated from the same object that did the filtering. Define
 a filter in two places and the caption drifts from the cut it describes without
@@ -443,15 +443,15 @@ FILTERS = [
                 'alone silently drops half the concept.'),
     Filter('assist', 'Assist', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'IsAssist'), phrase='assists'),
-    Filter('led_to_shot', 'Led to a shot', CONSEQUENCE, 'flag',
-           lambda d: d['led_to_shot'], phrase='that led to a shot',
+    Filter('led_to_shot', 'Shot sequence passes', CONSEQUENCE, 'flag',
+           lambda d: d['led_to_shot'], phrase='shot sequence passes',
            completed_only=True),
-    Filter('led_to_goal', 'Led to a goal', CONSEQUENCE, 'flag',
-           lambda d: _flag(d, 'SequenceScoredGoal'), phrase='that led to a goal'),
+    Filter('led_to_goal', 'Goal sequence passes', CONSEQUENCE, 'flag',
+           lambda d: _flag(d, 'SequenceScoredGoal'), phrase='goal sequence passes'),
     Filter('reached_box', 'Sequence reached the box', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'SequenceReachedBox'), phrase='in moves that reached the box'),
-    Filter('big_chance', 'Led to a big chance', CONSEQUENCE, 'flag',
-           lambda d: _flag(d, 'shot_q214'), phrase='that led to a big chance'),
+    Filter('big_chance', 'Big chance sequence passes', CONSEQUENCE, 'flag',
+           lambda d: _flag(d, 'shot_q214'), phrase='big chance sequence passes'),
     Filter('xa', 'Minimum xA', CONSEQUENCE, 'range', 'xA', phrase='xA {}+'),
 
     # -- Match context
