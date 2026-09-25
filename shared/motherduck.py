@@ -2364,6 +2364,147 @@ def build_pass_map(game_ids_tuple, team_id, against=False):
     return df, info, team_color
 
 
+
+# -- Touch Map: every touch a team (or one of its players) made ---------------
+#
+# WHAT A TOUCH IS: TruMedia's own Touches stat is count(event.toucher), so the
+# population is every event with a toucher - checked on production 2026-09-25:
+# 22 play types, the toucher always on the event's own team, coordinates
+# attack-normalised for every type. shared/touch_types.py splits it into
+# checkboxes. The rows WITHOUT a toucher that the opt-in extras need (ball
+# recoveries, aerials, keeper pick-ups and sweeps) come too, attributed by
+# primaryPlayerId, and are OFF until a reader ticks them.
+
+_TOUCH_CORE = [
+    'gameId', 'seasonId', 'teamId', 'gameEventIndex', 'Period', 'Date',
+    'playType', 'success', 'toucherId', 'toucher',
+    'EventXDecimal', 'EventYDecimal', 'homeTeam', 'awayTeam',
+]
+# Gated one by one, like the pass map's: a stale mirror serves what it has.
+_TOUCH_OPTIONAL = [
+    'primaryPlayerId', 'primaryPlayer', 'PassType', 'ShotPlayStyle',
+    'q5', 'q9', 'q279', 'CarryStartX', 'CarryStartY', 'CarryStartType',
+    'CarryLength',
+]
+
+
+@st.cache_data(ttl=3600)
+def build_touch_map(game_ids_tuple, team_id):
+    """Every touch the team made in the given games, one row per event.
+
+    Returns (df, info, team_color). `df` carries EventX/EventY (Opta units,
+    attack-normalised), `has_toucher` (a standard touch, or an extra's row),
+    `player_id` / `player` (the toucher, else the primary player), and the
+    fixture columns the chart's scope line reads (opponent_name, is_home,
+    team_score, opp_score). Pass it through shared.touch_types.annotate before
+    counting anything.
+
+    The page asks for the UNION of the scope's games and the comparison
+    window's, then splits them in pandas - one cached read serves both panels.
+    """
+    import pandas as pd
+    from shared.touch_types import EXTRA_PLAY_TYPES
+    if not game_ids_tuple:
+        return pd.DataFrame(), {}, '#888888'
+
+    con = get_connection()
+    cols = list(_TOUCH_CORE) + [c for c in _TOUCH_OPTIONAL if _events_has(con, c)]
+    select = ', '.join(f'e."{c}"' for c in cols)
+    placeholders = ','.join('?' for _ in game_ids_tuple)
+    extras = ''
+    if 'primaryPlayerId' in cols:
+        extras = ("OR e.playType IN ("
+                  + ", ".join(f"'{t}'" for t in EXTRA_PLAY_TYPES) + ")")
+    df = con.execute(f"""
+        SELECT {select},
+               g.homeTeamId, g.awayTeamId, g.homeFinalScore, g.awayFinalScore
+        FROM events e
+        JOIN games g ON g.gameId = e.gameId
+        WHERE e.gameId IN ({placeholders})
+          AND e.teamId = ?
+          AND (e.toucherId IS NOT NULL {extras})
+        ORDER BY e.Date, e.gameId, e.gameEventIndex
+    """, list(game_ids_tuple) + [team_id]).df()
+    if df.empty:
+        return pd.DataFrame(), {}, '#888888'
+
+    df = df.rename(columns={'EventXDecimal': 'EventX', 'EventYDecimal': 'EventY'})
+    df = df[df['EventX'].notna() & df['EventY'].notna()].reset_index(drop=True)
+    df['has_toucher'] = df['toucherId'].notna()
+    if 'primaryPlayerId' in df:
+        df['player_id'] = df['toucherId'].fillna(df['primaryPlayerId'])
+        df['player'] = df['toucher'].fillna(df.get('primaryPlayer'))
+    else:
+        df['player_id'], df['player'] = df['toucherId'], df['toucher']
+
+    df['is_home'] = df['teamId'] == df['homeTeamId']
+    _opp_id = df['awayTeamId'].where(df['is_home'], df['homeTeamId'])
+    _opp_nm = df['awayTeam'].where(df['is_home'], df['homeTeam'])
+    _seen = {}
+    df['opponent_name'] = [
+        _seen.setdefault((i, n), team_label(i, n) or n)
+        for i, n in zip(_opp_id, _opp_nm)]
+    df['team_score'] = df['homeFinalScore'].where(df['is_home'], df['awayFinalScore'])
+    df['opp_score'] = df['awayFinalScore'].where(df['is_home'], df['homeFinalScore'])
+
+    # Identity from the SUBJECT team, never the result set.
+    own = con.execute(
+        "SELECT teamFullName, newestTeamColor FROM events "
+        "WHERE teamId = ? AND teamFullName IS NOT NULL "
+        "ORDER BY newestTeamColor IS NULL LIMIT 1", [team_id]).fetchone()
+    team_name = team_label(team_id, own[0] or '') if own else ''
+    team_color = _profile_colour(team_name, team_id, own[1] if own else None)
+
+    info = touch_map_info(df, team_name)
+    return df, info, team_color
+
+
+def touch_map_info(df, team_name):
+    """The header facts for a subset of build_touch_map's rows - the page
+    calls it again for the scope and the baseline once it has split them."""
+    dates = df['Date'].dropna().sort_values() if 'Date' in df else []
+    date_range = ''
+    if len(dates):
+        try:
+            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
+            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            date_range = last if dates.iloc[0] == dates.iloc[-1] else f"{first} - {last}"
+        except Exception:
+            pass
+    return {
+        'team_name': team_name,
+        'date_range': date_range,
+        'total_matches': int(df['gameId'].nunique()) if 'gameId' in df else 0,
+        'season_span': season_span_label(df['seasonId'].dropna()) if 'seasonId' in df else '',
+    }
+
+
+_WOMENS_WORDS = ('women', 'frauen', 'nwsl', 'wsl', 'feminin', 'liga f')
+
+
+def is_womens_competition(season_ids, team_name=''):
+    """Whether a chart about ONE player should say "her" rather than "his".
+
+    Three signals, any one enough: the club's name ends in " Women" (the
+    registry's convention); the season is in config's women's player pool
+    (NWSL, WSL, Premiere Ligue, Frauen-Bundesliga); or the league's name says
+    so. NWSL clubs carry no suffix - "Orlando Pride" - which is why the name
+    alone is not enough. Config only; no query."""
+    import unicodedata
+    if str(team_name or '').endswith(' Women'):
+        return True
+    cfg = _load_config()
+    pool = set(((cfg.get('player_pools') or {}).get('womens') or {}).get('seasons') or [])
+    leagues = _season_leagues()
+    for sid in season_ids or ():
+        if sid in pool:
+            return True
+        name = unicodedata.normalize('NFKD', str(leagues.get(sid) or '')).encode(
+            'ascii', 'ignore').decode().lower()
+        if any(w in name for w in _WOMENS_WORDS):
+            return True
+    return False
+
 # -- Team Profile: one team against a pool ----------------------------------------
 #
 # The chart is a cube (shared/team_profile.py) built from three small frames.
