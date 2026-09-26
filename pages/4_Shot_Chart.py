@@ -306,7 +306,7 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
                                  competition, selected_player, exclude_penalties,
                                  highlight_mode, shots_against=False,
                                  custom_title=None, custom_subtitle=None,
-                                 minutes=None, aspect='default'):
+                                 minutes=None, aspect='default', per90=True):
     """Generate multi-match shot chart and return (img_bytes, filename, caption)."""
     with tempfile.TemporaryDirectory() as tmp_dir:
         fig = create_multi_match_shot_chart(
@@ -316,7 +316,7 @@ def _generate_multi_match_chart(chart_shots, team_name, team_color, chart_info,
             highlight_mode=highlight_mode,
             shots_against=shots_against,
             custom_title=custom_title, custom_subtitle=custom_subtitle,
-            minutes=minutes, aspect=aspect,
+            minutes=minutes, aspect=aspect, per90=per90,
         )
 
         name_part = team_name.replace(' ', '_').replace('/', '-')
@@ -883,13 +883,21 @@ if data_source == "Database":
                             pc3.metric("xG", f"{p_xg:.2f}")
                             pc4.metric("Goals", p_goals)
 
+                    # Which set is the headline: the rates, or the season's
+                    # count (user, 2026-09-25). Only where there are minutes
+                    # to divide by; the other set goes on the line beneath.
+                    per90 = True
+                    if selected_player and p_minutes:
+                        per90 = st.radio("Numbers", ["Per 90", "Totals"],
+                                         horizontal=True) == "Per 90"
+
                     if st.button("Generate Shot Map", type="primary", key="db_season_gen"):
                         st.session_state["multi_shot_chart"] = None
                         with st.spinner("Generating shot map..."):
                             chart_info = dict(multi_match_info)
 
                             if selected_player and player_full_shots is not None and not player_full_shots.empty:
-                                # No competition filter active: use full cross-team shot data
+                                # Every club the player shot for in the ticked competitions
                                 chart_shots = player_full_shots.copy()
                                 chart_info = dict(player_full_info)
                             elif selected_player:
@@ -915,7 +923,7 @@ if data_source == "Database":
                                     custom_title=custom_title_db_season,
                                     custom_subtitle=custom_subtitle_db_season,
                                     minutes=p_minutes if selected_player else None,
-                                    aspect=aspect_param,
+                                    aspect=aspect_param, per90=per90,
                                 )
                                 st.session_state["multi_shot_chart"] = {
                                     "img": img_bytes, "filename": filename, "caption": caption,

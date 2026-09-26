@@ -689,7 +689,9 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId, shooterId, teamId
+               ShotPlayStyle, shooter, seasonId, shooterId, teamId,
+               teamId = (SELECT g.homeTeamId FROM games g
+                         WHERE g.gameId = events.gameId) AS shooter_home
         FROM events
         WHERE gameId IN ({placeholders})
           AND {team_clause}
@@ -702,7 +704,7 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id, shooter_id, team_id) in rows:
+         away, shot_style, shooter, season_id, shooter_id, team_id, shooter_home) in rows:
         # teamId is appended LAST in both SELECTs on purpose: build_shots_for
         # _player filters international shots positionally (r[12] is seasonId),
         # so inserting a column mid-list would shift that test onto the wrong
@@ -724,6 +726,11 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
             'shooter': shooter,
             'shooterId': shooter_id,
             'seasonId': season_id,
+            # Whether the SHOOTER's team was at home, by id. The season
+            # block names each match's opponent from this: comparing the
+            # display name ("Bayern Munich") with the feed's homeTeam
+            # ("Bayern Munchen") failed and named the club its own opponent.
+            'shooterHome': shooter_home,
         })
 
     shots_df = pd.DataFrame(data)
@@ -877,7 +884,9 @@ def build_shots_for_player(shooter_name, shooter_id=None,
     rows = con.execute(f"""
         SELECT gameId, EventXDecimal, EventYDecimal, xG, playType,
                teamFullName, newestTeamColor, Date, homeTeam, awayTeam,
-               ShotPlayStyle, shooter, seasonId, shooterId, teamId
+               ShotPlayStyle, shooter, seasonId, shooterId, teamId,
+               teamId = (SELECT g.homeTeamId FROM games g
+                         WHERE g.gameId = events.gameId) AS shooter_home
         FROM events
         WHERE {key_col} = ?
           AND playType IN ('Goal', 'PenaltyGoal', 'AttemptSaved', 'Miss', 'Post')
@@ -898,7 +907,7 @@ def build_shots_for_player(shooter_name, shooter_id=None,
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id, shooter_id, team_id) in rows:
+         away, shot_style, shooter, season_id, shooter_id, team_id, shooter_home) in rows:
         # teamId is appended LAST in both SELECTs on purpose: build_shots_for
         # _player filters international shots positionally (r[12] is seasonId),
         # so inserting a column mid-list would shift that test onto the wrong
@@ -920,6 +929,11 @@ def build_shots_for_player(shooter_name, shooter_id=None,
             'shooter': shooter,
             'shooterId': shooter_id,
             'seasonId': season_id,
+            # Whether the SHOOTER's team was at home, by id. The season
+            # block names each match's opponent from this: comparing the
+            # display name ("Bayern Munich") with the feed's homeTeam
+            # ("Bayern Munchen") failed and named the club its own opponent.
+            'shooterHome': shooter_home,
         })
 
     shots_df = pd.DataFrame(data)

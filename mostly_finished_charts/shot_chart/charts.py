@@ -630,8 +630,11 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
                                    exclude_penalties=False, highlight_mode='All',
                                    shots_against=False,
                                    custom_title=None, custom_subtitle=None,
-                                   minutes=None, aspect='default'):
+                                   minutes=None, aspect='default', per90=True):
     """Create a multi-match shot chart for one team or player on a half pitch.
+
+    per90: on a player map with minutes, whether the big numbers are the
+    per-90 rates (default) or the totals; the line beneath carries the other.
 
     Marker style:
         - Non-goals: black fill, white edge, circle
@@ -843,7 +846,23 @@ def create_multi_match_shot_chart(shots_df, team_name, team_color, multi_match_i
     # because "GOALS" under Sunderland branding read as goals Sunderland
     # scored - the single most misread thing on the chart in a cold review.
     goal_label = "CONCEDED" if shots_against else "GOALS"
-    if minutes and player_name:
+    if minutes and player_name and not per90:
+        # TOTALS in the big row (user, 2026-09-25: a player map should be
+        # able to publish the season's count). The rates move to the line
+        # beneath - the tile, which has no line, then carries totals only.
+        shots_90 = total_shots / minutes * 90
+        xg_90 = total_xg / minutes * 90
+        goals_90 = goals / minutes * 90
+        stat_cols = [
+            (0.25, str(total_shots), "SHOTS"),
+            (0.50, f"{total_xg:.1f}", "xG"),
+            (0.75, str(goals), goal_label),
+        ]
+        dot = f"  {chr(0xB7)}  "
+        context_text = dot.join([
+            f"{shots_90:.2f} shots/90", f"{xg_90:.2f} xG/90", f"{goals_90:.2f} goals/90",
+            f"{total_matches} matches", f"{minutes} minutes"])
+    elif minutes and player_name:
         shots_90 = total_shots / minutes * 90
         xg_90 = total_xg / minutes * 90
         goals_90 = goals / minutes * 90
@@ -964,23 +983,29 @@ def _block_rows_by_player(shots_df, accent, limit):
             for _, r in g.iterrows()]
 
 
-def _block_rows_by_match(shots_df, accent, limit, team_name):
+def _block_rows_by_match(shots_df, accent, limit, team_name, shots_against=False):
     """Top matches by xG: one row per game, labelled by opponent.
 
     The opponent is derived per match rather than stored: `homeTeam` and
     `awayTeam` are on every row, so whichever of the two is not the subject
-    team is the opponent. In shots-AGAINST mode the `Team` column holds the
-    opponents' values, which is why the subject is passed in explicitly
-    instead of being read off the frame.
+    team is the opponent. Which one that is comes from `shooterHome` - the
+    shooter's team is at home, by id - where the loader supplies it: the
+    subject is the shooter on a FOR map and the shooter's opponent on an
+    AGAINST map. Comparing names instead failed wherever the display name
+    differs from the feed's ("Bayern Munich" / "Bayern Munchen"), and Harry
+    Kane's top matches all read "@ BAYERN MUNCHEN". The name test is kept
+    only for input without the flag (CSV).
     """
     if shots_df.empty or '_match_id' not in shots_df.columns:
         return []
     have_teams = {'homeTeam', 'awayTeam'}.issubset(shots_df.columns)
+    have_flag = 'shooterHome' in shots_df.columns
     g = (shots_df.assign(_g=shots_df['playType'].isin(GOAL_TYPES).astype(int))
          .groupby('_match_id', as_index=False)
          .agg(shots=('xG', 'size'), xg=('xG', 'sum'), goals=('_g', 'sum'),
               home=('homeTeam', 'first') if have_teams else ('xG', 'size'),
               away=('awayTeam', 'first') if have_teams else ('xG', 'size'),
+              shooter_home=('shooterHome', 'first') if have_flag else ('xG', 'size'),
               date=('Date', 'first') if 'Date' in shots_df.columns
                    else ('xG', 'size'))
          .sort_values(['xg', 'goals'], ascending=False)
@@ -989,7 +1014,11 @@ def _block_rows_by_match(shots_df, accent, limit, team_name):
     rows = []
     for _, r in g.iterrows():
         if have_teams:
-            home_is_subject = str(r['home']) == str(team_name)
+            flag = r['shooter_home'] if have_flag else None
+            if flag is None or pd.isna(flag):
+                home_is_subject = str(r['home']) == str(team_name)
+            else:
+                home_is_subject = bool(flag) != bool(shots_against)
             opp = r['away'] if home_is_subject else r['home']
             label = f"{'v' if home_is_subject else '@'} {str(opp).upper()}"
         else:
@@ -1177,7 +1206,8 @@ def _season_block(fig, layout, shots_df, accent, team_name, player_name,
         # A leaderboard of one is nonsense; this player's biggest games are not.
         return _draw_stat_block(
             fig, layout, 'TOP MATCHES BY xG', ('SHOTS', 'xG'),
-            _block_rows_by_match(shots_df, accent, n, team_name),
+            _block_rows_by_match(shots_df, accent, n, team_name,
+                                 shots_against=shots_against),
             goal_glyph=_SEASON_GOAL_GLYPH)
     if shots_against:
         # "Squad leaders" here would list opposition players, which across a
@@ -1185,7 +1215,7 @@ def _season_block(fig, layout, shots_df, accent, team_name, player_name,
         # question a shots-against map is actually being asked.
         return _draw_stat_block(
             fig, layout, 'MOST xG CONCEDED', ('SHOTS', 'xG'),
-            _block_rows_by_match(shots_df, accent, n, team_name),
+            _block_rows_by_match(shots_df, accent, n, team_name, shots_against=True),
             goal_glyph=_SEASON_GOAL_GLYPH)
     return _draw_stat_block(
         fig, layout, _BLOCK_LEADERS, ('SHOTS', 'xG'),
