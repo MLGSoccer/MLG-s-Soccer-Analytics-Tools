@@ -187,3 +187,89 @@ def own_goals_sidebar(home_team, away_team, auto_ogs, key_prefix, game_id=None):
                           "period": og_period, "player": og_player})
         st.sidebar.caption(f"Goal credited to {credited_team}")
     return own_goals
+
+
+# -- The match scope row: Season / Matches / Date range --------------------------
+
+SCOPE_MODES = ["Season", "Matches", "Date range"]
+
+
+def match_scope(games, mode, seasons, *, default_seasons, is_league):
+    """The scope row the Pass Map and the Touch Map share.
+
+    SEASON, MATCHES or a DATE RANGE. "Last N matches" is gone (user,
+    2026-09-25): it reached only a consecutive run ending at the latest match,
+    so "all of last April", or three chosen matches, could not be drawn.
+    MATCHES is any set - one of them is the old single match. A DATE RANGE can
+    cross seasons, so it takes a league-only / other-competitions switch in
+    place of the season picker.
+
+    The widgets are deliberately UNKEYED, as before: their identity follows
+    their options, so a new team resets them rather than carrying the last
+    team's seasons into a list that no longer holds them.
+
+    `games` are get_games_for_team() rows (newest first); `seasons` maps
+    season id -> label. Returns (picked_games, season_ids, in_season), where
+    in_season is every game of the seasons the pick touches - or None, having
+    told the user what to choose.
+    """
+    import datetime as _dt
+
+    def _day(g):
+        try:
+            return _dt.date.fromisoformat(str(g.get('date'))[:10])
+        except (TypeError, ValueError):
+            return None
+
+    s1, s2 = st.columns([2, 3])
+    if mode == "Date range":
+        days = [d for d in (_day(g) for g in games) if d]
+        if not days:
+            st.info("No dated matches for this team.")
+            return None
+        last = max(days)
+        with s1:
+            span = st.date_input("From - to", value=(last - _dt.timedelta(days=30), last),
+                                 min_value=min(days), max_value=last)
+        with s2:
+            others = st.checkbox(
+                "Include other competitions", value=False,
+                help="League matches only by default. Tick to add the cups "
+                     "played in the same dates.")
+        if not isinstance(span, (list, tuple)) or len(span) != 2:
+            st.info("Pick an end date.")
+            return None
+        lo, hi = span
+        picked = [g for g in games
+                  if _day(g) and lo <= _day(g) <= hi
+                  and (others or is_league(g.get('season_id')))]
+        if not picked:
+            st.info("No matches in those dates.")
+            return None
+        season_ids = list(dict.fromkeys(g['season_id'] for g in picked if g.get('season_id')))
+        in_season = [g for g in games if g.get('season_id') in season_ids]
+        return picked, season_ids, in_season
+
+    labels = list(seasons.values())
+    with s1:
+        chosen = st.multiselect(
+            "Season / competition", options=labels,
+            default=[seasons[s] for s in default_seasons if s in seasons],
+            help="Pick more than one to put concurrent competitions on one "
+                 "chart - the league and a cup from the same season, say.")
+    season_ids = [k for k, v in seasons.items() if v in chosen]
+    if not season_ids:
+        st.info("Pick at least one season.")
+        return None
+    in_season = [g for g in games if g.get('season_id') in season_ids]
+    if mode == "Matches":
+        by_id = {g['game_id']: g['label'] for g in in_season}
+        with s2:
+            ids = st.multiselect("Matches", options=list(by_id), format_func=by_id.get,
+                                 placeholder="Pick one or more")
+        picked = [g for g in in_season if g['game_id'] in set(ids)]
+        if not picked:
+            st.info("Pick one or more matches.")
+            return None
+        return picked, season_ids, in_season
+    return in_season, season_ids, in_season

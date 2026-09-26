@@ -26,11 +26,11 @@ from shared.styles import BG_COLOR
 from shared.motherduck import (
     get_teams_by_league, get_games_for_team, season_label, build_pass_map,
     season_competition, season_competitions, get_player_full_names,
-    get_minutes_by_player_id,
+    get_minutes_by_player_id, is_league_season,
 )
 from shared import pass_filters as pf
 from mostly_finished_charts.pass_map_chart import create_pass_map, MAX_PLAYERS
-from pages.streamlit_utils import custom_title_inputs
+from pages.streamlit_utils import custom_title_inputs, match_scope, SCOPE_MODES
 
 st.set_page_config(page_title="Pass Map", page_icon="🎯", layout="wide")
 st.title("Pass Map")
@@ -57,8 +57,7 @@ with c2:
         st.selectbox("Team", options=[], disabled=True)
         team = None
 with c3:
-    mode = st.selectbox("Scope", options=["Single match", "Season", "Last N matches"],
-                        disabled=not team)
+    mode = st.selectbox("Scope", options=SCOPE_MODES, disabled=not team)
 
 if not team:
     st.info("Pick a league and a team to begin.")
@@ -71,46 +70,13 @@ if not games:
 
 seasons = {g['season_id']: season_label(g['season_id'], g.get('season_name'))
            for g in games if g.get('season_id')}
-s1, s2 = st.columns([2, 3])
-with s1:
-    # ONE OR MORE. A club's season is not one competition: Liverpool's
-    # 2025/26 is 38 Premier League matches AND 12 Champions League ones, and
-    # a single selectbox could only ever draw one of them. A multiselect
-    # defaults to the most recent season (the games arrive newest-first, so
-    # the dict does too) and lets the user add the concurrent cup beside it.
-    # Nothing downstream changes shape - build_pass_map takes game ids, the
-    # season span is read off the drawn rows, and the header's competition is
-    # every competition picked, in the order they were picked.
-    season_ids: list = []
-    if seasons:
-        labels = list(seasons.values())
-        picked = st.multiselect(
-            "Season / competition", options=labels, default=labels[:1],
-            help="Pick more than one to put concurrent competitions on one "
-                 "chart - the Premier League and the Champions League from "
-                 "the same season, say.")
-        season_ids = [k for k, v in seasons.items() if v in picked]
-        if not season_ids:
-            st.info("Pick at least one season.")
-            st.stop()
-in_season = ([g for g in games if g.get('season_id') in season_ids]
-             if season_ids else games)
-
-if mode == "Single match":
-    with s2:
-        label = st.selectbox("Match", options=[""] + [g['label'] for g in in_season])
-    picked_games = [g for g in in_season if g['label'] == label]
-elif mode == "Last N matches":
-    with s2:
-        n_last = st.slider("How many of the most recent matches", 1,
-                           max(len(in_season), 1), min(5, len(in_season)))
-    picked_games = in_season[:n_last]
-else:
-    picked_games = in_season
-
-if not picked_games:
-    st.info("Pick a match.")
+# The newest season by default (the games arrive newest first). Season /
+# Matches / Date range come from the row the Touch Map shares - see match_scope.
+_scope = match_scope(games, mode, seasons, default_seasons=list(seasons)[:1],
+                     is_league=is_league_season)
+if _scope is None:
     st.stop()
+picked_games, season_ids, in_season = _scope
 
 against = st.toggle(
     "Passes conceded (the opponents' passes in these games)", value=False,
@@ -149,6 +115,20 @@ if players:
         st.stop()
 
 # ── Filters: the numerator ───────────────────────────────────────────────────
+
+# A RENDER NEVER STARTS FILTERED (user, 2026-09-25). The filter widgets are
+# keyed, so their values used to carry over from the previous view: change the
+# team or the match and the new pass map opened already cut by filters set on
+# another one. Filters belong to the view they were set on - when the subject
+# changes, every filter is cleared BEFORE it is drawn, so it draws at its
+# default. The aspect and the title inputs do not count as a new subject.
+_subject = (team['team_id'], tuple(sorted(g['game_id'] for g in picked_games)),
+            bool(against), tuple(sorted(players)))
+if st.session_state.get('pm_subject') != _subject:
+    for _k in [k for k in st.session_state.keys()
+               if str(k).startswith('pm_') and k != 'pm_subject']:
+        del st.session_state[_k]
+    st.session_state['pm_subject'] = _subject
 
 st.sidebar.header("Filters")
 match_all = st.sidebar.radio(

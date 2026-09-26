@@ -334,48 +334,33 @@ def _swatches(fig, x0, y, cols, sw, sh):
                                      edgecolor=GROUND_EDGE, linewidth=0.6, figure=fig))
 
 
-def _key(fig, L, y, cols, noun, x_centre=0.5):
-    """Nine swatches and one sentence. Returns (x0, x1) of what was drawn.
+def _key(fig, L, y, cols, x_centre=0.5):
+    """FEWER [ten swatches] MORE, one row at every aspect. Returns (x0, x1).
 
-    One line at 16:9. In portrait and at tile size the line does not fit a 9in
-    frame at the 16pt floor - "EACH SHADE [nine swatches] a tenth of their
-    touches" measured wider than the canvas - so the swatches take a row of
-    their own and the words sit centred beneath them."""
+    The key says which end is more and nothing else. It used to read "EACH
+    SHADE - a tenth of his touches": the first two words named what the
+    swatches visibly are and the rest described how the bands were BUILT
+    (user: "what does 'each shade' add to this chart?"). The unpainted ground
+    swatch sits at the FEWER end, so a blank pitch reads as least, not none."""
     n = len(cols) + 1                       # + the ground
     sw, sh = L['swatch_w'], L['swatch_h']
-    r = None
-    if L.get('flow'):
-        _swatches(fig, x_centre - n * sw / 2, y, cols, sw, sh)
-        ty = y - L['key_row']
-        lab = _text(fig, 0, ty, 'EACH SHADE', L['key_size'], TEXT_SECONDARY,
-                    'bold', ha='left', va='center')
-        sub = _text(fig, 0, ty, f"  a tenth of {noun}",
-                    L['key_label_size'], TEXT_SECONDARY, ha='left', va='center')
-        fig.canvas.draw()
-        r = fig.canvas.get_renderer()
-        inv = fig.transFigure.inverted()
-        wl = lab.get_window_extent(r).transformed(inv).width
-        ws = sub.get_window_extent(r).transformed(inv).width
-        x0 = x_centre - (wl + ws) / 2
-        lab.set_x(x0)
-        sub.set_x(x0 + wl)
-        return min(x0, x_centre - n * sw / 2), max(x0 + wl + ws, x_centre + n * sw / 2)
-    lab = _text(fig, 0, y, 'EACH SHADE', L['key_size'], TEXT_SECONDARY, 'bold',
-                ha='left', va='center', spaced=1)
-    sub = _text(fig, 0, y, f"a tenth of {noun}", L['key_label_size'],
-                TEXT_SECONDARY, ha='left', va='center')
+    spaced = 0 if L.get('flow') else 1
+    lo = _text(fig, 0, y, 'FEWER', L['key_size'], TEXT_SECONDARY, 'bold',
+               ha='left', va='center', spaced=spaced)
+    hi = _text(fig, 0, y, 'MORE', L['key_size'], TEXT_SECONDARY, 'bold',
+               ha='left', va='center', spaced=spaced)
     fig.canvas.draw()
     r = fig.canvas.get_renderer()
     inv = fig.transFigure.inverted()
-    wl = lab.get_window_extent(r).transformed(inv).width
-    ws = sub.get_window_extent(r).transformed(inv).width
+    wl = lo.get_window_extent(r).transformed(inv).width
+    wh = hi.get_window_extent(r).transformed(inv).width
     gap = 0.012
-    total = wl + gap + n * sw + gap + ws
+    total = wl + gap + n * sw + gap + wh
     x0 = x_centre - total / 2
-    lab.set_x(x0)
+    lo.set_x(x0)
     sx = x0 + wl + gap
     _swatches(fig, sx, y, cols, sw, sh)
-    sub.set_x(sx + n * sw + gap)
+    hi.set_x(sx + n * sw + gap)
     return x0, x0 + total
 
 
@@ -614,7 +599,7 @@ def create_touch_map(touches, info, team_color, *, view='field', baseline=None,
         label_h = rows + L['panel_label_gap']
 
     # The strip under the pitch: arrow, then (field) the swatches and words.
-    key_rows = 0 if view == 'marks' else (2 if L.get('flow') else 0)
+    key_rows = 0 if view == 'marks' else (1 if L.get('flow') else 0)
     row = L.get('strip_rows', 0.0)
     strip_h = L['strip_gap'] + (key_rows * row if L.get('flow') else 0.0) + 0.012
 
@@ -658,10 +643,6 @@ def create_touch_map(touches, info, team_color, *, view='field', baseline=None,
             _text(fig, cx, y - i * line1, t, ns, name_colour, 'bold',
                   ha='center', va='center')
 
-    # The key's noun. With an extra ticked the field is touches AND carry
-    # starts (or recoveries...), so "a tenth of his touches" would be false.
-    noun = (f"{pronoun} touches"
-            if not any(_extras_in(f) for f in frames) else "the total")
     # The strip, hung from the pitch it describes. One row at 16:9. In portrait
     # and at tile size the arrow comes first - directly under the pitch, the
     # thing it describes - then the swatches, then the words.
@@ -671,7 +652,7 @@ def create_touch_map(touches, info, team_color, *, view='field', baseline=None,
     if L.get('flow'):
         _arrow(fig, L, y, vertical, x_centre=0.5)
         if view != 'marks':
-            _key(fig, L, y - row, band_colours(team_color), noun)
+            _key(fig, L, y - row, band_colours(team_color))
     elif view == 'marks':
         _arrow(fig, L, y, vertical, x_centre=0.5)
     else:
@@ -681,13 +662,13 @@ def create_touch_map(touches, info, team_color, *, view='field', baseline=None,
         n = N_BANDS + 1
         aw = L['arrow_len'] + 0.012 + _width(fig, 'ATTACKING DIRECTION',
                                              L['key_size'], 'bold', spaced=1)
-        kw = (_width(fig, 'EACH SHADE', L['key_size'], 'bold', spaced=1) + 0.012
+        kw = (_width(fig, 'FEWER', L['key_size'], 'bold', spaced=1) + 0.012
               + n * L['swatch_w'] + 0.012
-              + _width(fig, f"a tenth of {noun}", L['key_label_size']))
+              + _width(fig, 'MORE', L['key_size'], 'bold', spaced=1))
         gap = 0.05
         x0 = 0.5 - (aw + gap + kw) / 2
         _arrow(fig, L, y, vertical, x=x0)
-        _key(fig, L, y, band_colours(team_color), noun, x_centre=x0 + aw + gap + kw / 2)
+        _key(fig, L, y, band_colours(team_color), x_centre=x0 + aw + gap + kw / 2)
 
     add_cbs_footer(fig, x0=m, x1=1.0 - m, y=L.get('footer_y', 0.01))
     return fig

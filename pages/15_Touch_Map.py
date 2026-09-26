@@ -29,7 +29,7 @@ from shared.motherduck import (
 )
 from shared import touch_types as tt
 from mostly_finished_charts.touch_map_chart import create_touch_map
-from pages.streamlit_utils import custom_title_inputs
+from pages.streamlit_utils import custom_title_inputs, match_scope, SCOPE_MODES
 
 st.set_page_config(page_title="Touch Map", page_icon=":material/sports_soccer:",
                    layout="wide")
@@ -73,8 +73,7 @@ with c2:
         st.selectbox("Team", options=[], disabled=True)
         team = None
 with c3:
-    mode = st.selectbox("Scope", options=["Season", "Single match", "Last N matches"],
-                        disabled=not team)
+    mode = st.selectbox("Scope", options=SCOPE_MODES, disabled=not team)
 
 if not team:
     st.info("Pick a league and a team to begin.")
@@ -87,46 +86,25 @@ if not games:
 
 seasons = {g['season_id']: season_label(g['season_id'], g.get('season_name'))
            for g in games if g.get('season_id')}
-labels = list(seasons.values())
 # The DOMESTIC LEAGUE by default (user, 2026-09-25). The games arrive newest
 # first, so the pass map's default - the newest season - is a cup whenever the
 # club's last match was one. Cups are one click away.
 league_first = [sid for sid in seasons if is_league_season(sid)]
-default = [seasons[league_first[0]]] if league_first else labels[:1]
-s1, s2 = st.columns([2, 3])
-with s1:
-    picked = st.multiselect(
-        "Season / competition", options=labels, default=default,
-        help="The domestic league by default. Add a cup to put its matches on "
-             "the same map.")
-season_ids = [k for k, v in seasons.items() if v in picked]
-if not season_ids:
-    st.info("Pick at least one season.")
+_scope = match_scope(games, mode, seasons,
+                     default_seasons=league_first[:1] or list(seasons)[:1],
+                     is_league=is_league_season)
+if _scope is None:
     st.stop()
-in_season = [g for g in games if g.get('season_id') in season_ids]
-
-if mode == "Single match":
-    with s2:
-        label = st.selectbox("Match", options=[""] + [g['label'] for g in in_season])
-    scope_games = [g for g in in_season if g['label'] == label]
-elif mode == "Last N matches":
-    with s2:
-        n_last = st.slider("How many of the most recent matches", 1,
-                           max(len(in_season), 1), min(5, len(in_season)))
-    scope_games = in_season[:n_last]
-else:
-    scope_games = in_season
-if not scope_games:
-    st.info("Pick a match.")
-    st.stop()
+scope_games, season_ids, in_season = _scope
 scope_ids = {g['game_id'] for g in scope_games}
 
 # -- View and the comparison window ----------------------------------------------
 
 st.sidebar.header("View")
-view = st.sidebar.radio("Show", ["Field", "Marks"], horizontal=True,
-                        help="Field: nine shades, each holding a tenth of the "
-                             "touches. Marks: one dot per touch.")
+_VIEWS = {"Heat map": "field", "Events": "marks"}
+view = _VIEWS[st.sidebar.radio("Show", list(_VIEWS), horizontal=True,
+                               help="Heat map: nine shades, each holding a tenth "
+                                    "of the touches. Events: one dot per touch.")]
 compare = st.sidebar.toggle("Compare with the other matches", value=False)
 
 season_days = [d for d in (_day(g['date']) for g in in_season) if d]
@@ -189,30 +167,66 @@ st.sidebar.header("Touches")
 present = set(scope_rows['touch_type']) | set(base_rows['touch_type'])
 n_now = tt.counts(scope_rows)
 
+# PICK TO INCLUDE, the pass map's way (user, 2026-09-25: "when we select
+# something it limits to just that and then we can select multiple things to
+# be included, but we don't have to start by UNSELECTING everything"). Nothing
+# picked is every touch - TruMedia's standard count. Picking narrows to the
+# union of what is picked; a group picks all of its types. The extras ADD
+# rather than narrow, so they take a picker of their own: one control cannot
+# mean both "only this" and "this as well".
+#
+# A RENDER NEVER STARTS FILTERED (user, same day). Both pickers clear when the
+# team, the matches or the player changes; aspect, view and the comparison
+# redraw the same subject and keep them.
+_subject = (team['team_id'], tuple(sorted(scope_ids)), pid)
+if st.session_state.get('tm_subject') != _subject:
+    st.session_state['tm_subject'] = _subject
+    for _k in ('tm_pick', 'tm_add'):
+        st.session_state.pop(_k, None)
 
-def _set_group(members, key):
-    on = st.session_state[key]
-    for tid in members:
-        st.session_state[f"tm_t_{tid}"] = on
-
-
-for t in tt.TYPES:
-    st.session_state.setdefault(f"tm_t_{t.id}", t.default)
+_GROUP = 'group:'
+_order = {t.id: i for i, t in enumerate(tt.TYPES)}
+_std = [t for t in tt.TYPES if t.default]
+options = []
 for g in tt.GROUPS:
-    members = [t for t in tt.TYPES if t.group == g
-               and (t.id in present or (g == tt.EXTRAS and t.id != 'other'))]
-    if not members:
-        continue
-    with st.sidebar.expander(g, expanded=False):
-        gkey = f"tm_grp_{g}"
-        st.session_state[gkey] = all(st.session_state[f"tm_t_{t.id}"] for t in members)
-        st.checkbox(f"All {g.lower()}", key=gkey, on_change=_set_group,
-                    args=([t.id for t in members], gkey))
-        for t in members:
-            st.checkbox(f"{t.label} ({n_now.get(t.id, 0):,})", key=f"tm_t_{t.id}",
-                        help=t.note)
+    members = [t for t in _std if t.group == g and t.id in present]
+    if len(members) > 1:
+        options.append(_GROUP + g)
+    options += [t.id for t in members]
+# anything already picked stays offered, so turning the comparison off (which
+# can drop a type from `present`) never orphans a pick
+options += [o for o in st.session_state.get('tm_pick', []) if o not in options]
 
-chosen = [t.id for t in tt.TYPES if st.session_state.get(f"tm_t_{t.id}")]
+
+def _fmt(o):
+    if o.startswith(_GROUP):
+        g = o[len(_GROUP):]
+        n = sum(n_now.get(t.id, 0) for t in _std if t.group == g)
+        return f"All {g.lower()} ({n:,})"
+    return f"{tt.BY_ID[o].label} ({n_now.get(o, 0):,})"
+
+
+picked = st.sidebar.multiselect(
+    "Touch types", options=options, format_func=_fmt, key='tm_pick',
+    placeholder="All touches",
+    help="Empty shows every touch - TruMedia's standard count. Pick one or "
+         "more to show only those; a group picks all of its types.")
+added = st.sidebar.multiselect(
+    "Also show", options=[t.id for t in tt.TYPES if t.group == tt.EXTRAS],
+    format_func=_fmt, key='tm_add', placeholder="Nothing extra",
+    help="Events the standard count leaves out: carry starts, ball "
+         "recoveries, aerials won, keeper pick-ups and sweeps.")
+
+if picked:
+    _base = set()
+    for o in picked:
+        if o.startswith(_GROUP):
+            _base |= {t.id for t in _std if t.group == o[len(_GROUP):]}
+        else:
+            _base.add(o)
+else:
+    _base = {t.id for t in _std}
+chosen = sorted(_base | set(added), key=_order.get)
 _present = set(scope_rows['touch_type'])
 st.sidebar.caption(tt.describe(chosen, present=_present) or "TruMedia's standard touch count.")
 # The chart's deck: exclusions only - the count already names any extras.
@@ -261,7 +275,7 @@ title, subtitle = custom_title_inputs(
     "touch_map", (subject_name or team_name).upper(), "")
 
 info = touch_map_info(shown, team_name)
-fig = create_touch_map(shown, info, team_color, view=view.lower(), baseline=baseline,
+fig = create_touch_map(shown, info, team_color, view=view, baseline=baseline,
                        baseline_name=baseline_name, subject_name=subject_name,
                        pronoun=pronoun, competition=competition,
                        filter_text=filter_text, custom_title=title,
