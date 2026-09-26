@@ -472,9 +472,10 @@ def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_li
     parts = ([str(x) for x in (note if isinstance(note, (list, tuple)) else [note]) if x]
              if note else [])
     if parts:
-        # The notes under the scope: the frame's SPINE (what the six dials
-        # add up to), the exposure caveat, the own goals - or a
-        # component-first level 3's one shared definition. Packed to the
+        # The note under the scope: the exposure caveat (time in state, or
+        # the set-piece supply) or a component-first level 3's one shared
+        # definition. (The spine and the own goals are the footnote now.)
+        # Packed to the
         # measure part by part, a long part broken on words, and only then
         # shrunk: at 9:16 "371 set pieces ... - no own goals scored for
         # them" had shrunk to 11pt to stay on one line, under the phone
@@ -498,6 +499,34 @@ def _header(fig, L, *, kicker, title, accent, scope_parts, frame_line, filter_li
         fig.canvas.draw()
         bottom = _low(fig, a)
     return bottom
+
+
+def _footnote(fig, L, parts, m, fy):
+    """How the dials add up, set as a footnote over the CBS footer: left on
+    the grid's edge, muted, at the unit's size (the smallest type the page
+    already carries, so never under the delivery floor). Packed part by
+    part to the grid's width, a long part broken balanced. Returns the y of
+    its top - the grid ends a gap above it - or, with nothing to say, the
+    y that leaves the layout's own grid bottom."""
+    parts = [str(p) for p in parts if p]
+    if not parts:
+        return L['grid_bottom'] - L['grid_gap']
+    size = float(L['unit_size'])
+    frac = 1.0 - 2 * m
+    lines = []
+    for chunk in _pack(fig, parts, size, frac, 0):
+        lines.extend(_break_balanced(fig, chunk, size, frac))
+    px = fig.dpi / 72.0 / fig.bbox.height          # points -> figure fraction
+    lead = size * 1.30 * px
+    # The last line sits a line's lead above the footer's cap height.
+    y = fy + 11 * 0.72 * px + lead
+    arts = [_text(fig, m, y + (len(lines) - 1 - i) * lead, ln, size, TEXT_MUTED,
+                  ha='left', va='baseline')
+            for i, ln in enumerate(lines)]
+    fig.canvas.draw()
+    r = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+    return max(a.get_window_extent(r).transformed(inv).y1 for a in arts)
 
 
 # -- The gauge ---------------------------------------------------------------------
@@ -537,7 +566,27 @@ def _label_plan(fig, spec, L, cell_w):
     lab = spec.label.upper()
     lab_px = cell_w * fig.bbox.width * 0.92
     meaning, meaning_pt, inline_ok = '', 0.0, True
-    if spec.meaning and L.get('meaning', True):
+    # A state cell beside other situations names its minutes in the slot
+    # under its name - the exposure its per-90 figure rests on. Short
+    # enough for the tile, which otherwise drops the slot.
+    exposure = (L.get('exposure') and spec.situation in tp.STATE_SITUATIONS
+                and spec.minutes is not None and spec.component != 'minutes_pct')
+    if exposure:
+        # "for": a bare "1,052 minutes" under AHEAD read as a second stat
+        # to a cold viewer; with it the line reads on from the name, in the
+        # header's own words on a state's level 3.
+        text = f"for {spec.minutes:,.0f} minutes"
+        # A per-shot dial (a share of shots, xG per shot, distance) rests
+        # on shots, not minutes (user, 2026-09-25): name the shots. A
+        # difference frame has no one shot count, so it keeps the minutes.
+        if spec.unit in ('of shots', 'per shot', 'metres') and spec.n_shots is not None:
+            n = int(round(spec.n_shots))
+            text = f"from {n:,} {'shot' if n == 1 else 'shots'}"
+        for pt in (L.get('meaning_size', L['unit_size']), L['unit_size'], L['type_floor']):
+            if _width_frac(fig, text, pt) * fig.bbox.width <= lab_px:
+                meaning, meaning_pt = text, pt
+                break
+    elif spec.meaning and L.get('meaning', True):
         text = f"({spec.meaning})"
         for pt in (L.get('meaning_size', L['unit_size']), L['unit_size'], L['type_floor']):
             if _width_frac(fig, text, pt) * fig.bbox.width <= lab_px:
@@ -953,23 +1002,22 @@ def _own_goals_note(profile, headline, path, order):
     if og is None:
         return ''
     og_f, og_a, per90 = og
-    if path and og_f == 0 and og_a == 0:
-        return ''        # a zero is worth a line on the season frame, not on a situation's
+    # A zero closes nothing, so it says nothing: "no own goals" under the
+    # header was a line about an absence (user, 2026-09-25: "incredibly
+    # superfluous").
+    if h.side == 'for' and og_f == 0 or h.side == 'against' and og_a == 0:
+        return ''
+    if og_f == 0 and og_a == 0:
+        return ''
     plural = lambda n: 'own goal' if n == 1 else 'own goals'
     # "2 own goals for them" read either way (a cold analyst took it as
     # own goals BY the team until another frame corrected him).
     if h.side == 'for':
-        if og_f == 0:
-            return 'no opposition own goals'
         return (f"Goals For includes {int(og_f)} opposition {plural(og_f)} "
                 f"({tp.format_number('goals', per90(og_f))} per 90)")
     if h.side == 'against':
-        if og_a == 0:
-            return 'no own goals conceded'
         return (f"Goals Against includes {int(og_a)} {plural(og_a)} conceded "
                 f"({tp.format_number('goals', per90(og_a))} per 90)")
-    if og_f == 0 and og_a == 0:
-        return 'no own goals, for or against'
     return (f"own goals: {int(og_f)} for, {int(og_a)} against "
             f"({tp.format_number('signed', per90(og_f - og_a))} per 90 to the difference)")
 
@@ -1140,17 +1188,21 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     filter_line = 'PENALTIES EXCLUDED' if non_penalty and headline is None else ''
 
     title = custom_title or (profile.get('team_name') or '').upper()
-    # Two different notes. _shared_meaning REPLACES six identical
-    # parentheticals, so it silences them; _situation_note is the
+    # Two different notes under the header. _shared_meaning REPLACES six
+    # identical parentheticals, so it silences them; _situation_note is the
     # exposure caveat for a state (or the set-piece supply) and says
     # nothing about the stats, so the cells keep their own meanings.
     shared = _shared_meaning(specs, headline, tuple(path), order)
     if shared:
         specs = [replace(s, meaning='') for s in specs]
     else:
-        shared = [_situation_note(profile, headline, tuple(path), order),
-                  _spine_note(profile, headline, tuple(path), order),
-                  _own_goals_note(profile, headline, tuple(path), order)]
+        shared = _situation_note(profile, headline, tuple(path), order)
+    # How the dials add up is a FOOTNOTE (user, 2026-09-25). The spine and
+    # the own goals close the arithmetic for a reader who checks it; under
+    # the header, in the scope's colour, they sat level with the one note a
+    # reader needs to read the dials - the time in state.
+    footnote = [_spine_note(profile, headline, tuple(path), order),
+                _own_goals_note(profile, headline, tuple(path), order)]
     bottom = _header(fig, L, kicker='TEAM PROFILE', title=title, accent=accent,
                      scope_parts=scope,
                      frame_line=_frame_line(headline, tuple(path), order, non_penalty),
@@ -1159,10 +1211,16 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     # The bare unit only where the frame line names the situation (a
     # situation's level 3); the by-situation frame keeps "per 90 min ahead".
     L = dict(L, unit_bare=bool(L.get('short_unit') and path and order == 'situation'))
-    # The grid takes what the header leaves.
+    # Where states sit side by side (by situation, or one component across
+    # the situations) each state cell names its minutes: a per-90-in-state
+    # dial on 400 minutes looks as solid as one on 2,000. A state's own
+    # level 3 says it once in the header instead.
+    L = dict(L, exposure=bool(headline) and not (path and order == 'situation'))
     m = L['margin']
+    fy = footer_y(fig, at_least=L.get('footer_y', 0.0))
+    # The grid takes what the header and the footnote leave.
     top = bottom - L['grid_gap']
-    gb = L['grid_bottom']
+    gb = max(L['grid_bottom'], _footnote(fig, L, footnote, m, fy) + L['grid_gap'])
     cols, rows = L['cols'], L['rows']
     cw = (1.0 - 2 * m) / cols
     ch = (top - gb) / rows
@@ -1204,5 +1262,5 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     fig.tp_specs = specs
     _group_dividers(fig, L, headline, tuple(path), order, cols, rows, m, cw, ch, top, gb)
 
-    add_cbs_footer(fig, x0=m, x1=1.0 - m, y=footer_y(fig, at_least=L.get('footer_y', 0.0)))
+    add_cbs_footer(fig, x0=m, x1=1.0 - m, y=fy)
     return fig
