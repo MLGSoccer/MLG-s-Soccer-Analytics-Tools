@@ -81,7 +81,7 @@ if not team:
 
 games = get_games_for_team(team['team_id'])
 if not games:
-    st.warning("No games found for this team.")
+    st.warning("No matches for this team.")
     st.stop()
 
 seasons = {g['season_id']: season_label(g['season_id'], g.get('season_name'))
@@ -103,8 +103,8 @@ scope_ids = {g['game_id'] for g in scope_games}
 st.sidebar.header("View")
 _VIEWS = {"Heat map": "field", "Events": "marks"}
 view = _VIEWS[st.sidebar.radio("Show", list(_VIEWS), horizontal=True,
-                               help="Heat map: nine shades, each holding a tenth "
-                                    "of the touches. Events: one dot per touch.")]
+                               help="Heat map: each shade holds a tenth of the "
+                                    "touches. Events: one dot per touch.")]
 compare = st.sidebar.toggle("Compare with the other matches", value=False)
 
 season_days = [d for d in (_day(g['date']) for g in in_season) if d]
@@ -113,8 +113,7 @@ include_others = False
 dated = False
 if compare:
     basis = st.sidebar.radio("Other matches from", ["The rest of the season", "Choose dates"],
-                             help="The rest of the season by default. Dates can "
-                                  "span more than one season.")
+                             help="Dates can span more than one season.")
     if basis == "Choose dates":
         dated = True
         all_days = [d for d in (_day(g['date']) for g in games) if d]
@@ -124,8 +123,7 @@ if compare:
             window = tuple(picked_dates)
     include_others = st.sidebar.checkbox(
         "Include other competitions", value=False,
-        help="League matches only by default. Tick to add the cups in the same "
-             "window.")
+        help="Adds cup matches from the same dates.")
 
 base_games = []
 if compare and window[0]:
@@ -153,7 +151,8 @@ for (pid, pname), n in by_player.items():
     label = pname if pname not in ids else f"{pname} ({n:,})"
     names.append(label)
     ids[label] = pid
-player = st.selectbox("Player (leave empty for the whole team)", options=[""] + names)
+player = st.selectbox("Player", options=names, index=None,
+                      placeholder="Whole team")
 pid = ids.get(player)
 
 scope_rows = scope_all if pid is None else scope_all[scope_all['player_id'] == pid]
@@ -209,13 +208,13 @@ def _fmt(o):
 picked = st.sidebar.multiselect(
     "Touch types", options=options, format_func=_fmt, key='tm_pick',
     placeholder="All touches",
-    help="Empty shows every touch - TruMedia's standard count. Pick one or "
-         "more to show only those; a group picks all of its types.")
+    help="Empty shows every touch. Pick one or more to show only those; a "
+         "group picks all of its types.")
 added = st.sidebar.multiselect(
     "Also show", options=[t.id for t in tt.TYPES if t.group == tt.EXTRAS],
     format_func=_fmt, key='tm_add', placeholder="Nothing extra",
-    help="Events the standard count leaves out: carry starts, ball "
-         "recoveries, aerials won, keeper pick-ups and sweeps.")
+    help="Not counted as touches: carry starts, ball recoveries, aerials "
+         "won, keeper pick-ups and sweeps.")
 
 if picked:
     _base = set()
@@ -228,7 +227,7 @@ else:
     _base = {t.id for t in _std}
 chosen = sorted(_base | set(added), key=_order.get)
 _present = set(scope_rows['touch_type'])
-st.sidebar.caption(tt.describe(chosen, present=_present) or "TruMedia's standard touch count.")
+st.sidebar.caption(tt.describe(chosen, present=_present) or "All touches.")
 # The chart's deck: exclusions only - the count already names any extras.
 filter_text = tt.describe(chosen, present=_present, extras=False)
 
@@ -243,18 +242,16 @@ if compare:
                 f"the comparison needs {MIN_BASELINE_MATCHES}.")
     else:
         baseline = base_shown
-        who = 'THEIR' if pid is None else (
-            'HER' if is_womens_competition(season_ids, team_name) else 'HIS')
         suffix = []
         if dated:
             suffix.append(f"{window[0]:%b %Y} - {window[1]:%b %Y}".upper())
         if include_others:
             suffix.append("ALL COMPETITIONS")
         if suffix:
-            baseline_name = f"{who} OTHER {n_base} MATCHES, " + ", ".join(suffix)
+            baseline_name = f"OTHER {n_base} MATCHES, " + ", ".join(suffix)
 
 if shown.empty:
-    st.warning("No touches of those kinds in this scope.")
+    st.warning("No touches of those types in this scope.")
     st.stop()
 
 # -- Chart -------------------------------------------------------------------------

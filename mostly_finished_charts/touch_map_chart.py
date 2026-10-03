@@ -428,7 +428,7 @@ def _scope_lines(fig, L, touches, info, competition, title_is_player,
     counts belong to each panel's own label; in the header they described the
     left panel alone and the right one's label repeated them.
     """
-    lead, tail = _scope_line(touches, info, competition)
+    lead, tail = _scope_line(touches, info, competition, result=True)
     if compare:
         # the fixture's date belongs to the left panel's label - drop it BEFORE
         # packing, or the packer drops the season for a date that then goes too
@@ -493,16 +493,18 @@ def panel_labels_for(touches, baseline, info, competition, pronoun='his',
     from the frames themselves so a label cannot disagree with its pitch.
 
     The scope panel is named the way the scope line names a fixture ("v
-    MANCHESTER CITY (H)  1-2") or by its match count; the baseline is "HIS
-    OTHER 35 MATCHES" unless the page names a date window. The detail line is
-    the date (single match) and the touch count."""
-    lead, tail = _scope_line(touches, info, competition)
+    MANCHESTER CITY (H)  1-2") or by its match count; the baseline is "OTHER
+    35 MATCHES" unless the page names a date window - no pronoun, so no guess
+    at anyone's gender and one form for a team (label editor, 2026-09-29). The
+    detail line is the date (single match) and the touch count."""
+    lead, tail = _scope_line(touches, info, competition, result=True)
     date = next((t for k, t in tail if k == 'date'), '')
+    # Touches, then the date - the single-match map's order (user, 2026-10-03).
     left = (lead or f"{int(info.get('total_matches') or 0)} MATCHES",
-            SEP.join(x for x in (date, _count(touches), _rate(touches)) if x))
+            SEP.join(x for x in (_count(touches), _rate(touches), date) if x))
     n_other = int(baseline['gameId'].nunique()) if 'gameId' in baseline else 0
     plural = 'ES' if n_other != 1 else ''
-    name = baseline_name or f"{pronoun.upper()} OTHER {n_other} MATCH{plural}"
+    name = baseline_name or f"OTHER {n_other} MATCH{plural}"
     return left, (name, SEP.join(x for x in (_count(baseline), _rate(baseline)) if x))
 
 
@@ -553,7 +555,7 @@ def create_touch_map(touches, info, team_color, *, view='field', baseline=None,
     view: 'field' (the nine bands) or 'marks' (one dot per touch).
     baseline: the subject's other matches, drawn beside the scope in the same
     treatment. baseline_name names a date window ("OTHER MATCHES, AUG 2025 -
-    MAY 2026"); otherwise the panel is "HIS OTHER N MATCHES". panel_labels
+    MAY 2026"); otherwise the panel is "OTHER N MATCHES". panel_labels
     overrides both labels outright (tests, custom exports).
     subject_name: a player's full name (the title), or None for the team.
     filter_text: the touch-type registry's exclusion phrase, set as the deck.

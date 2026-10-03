@@ -40,16 +40,18 @@ def _frame():
         _row('Aerial', touch=False, success=True), _row('Aerial', touch=False, success=False),
         _row('Pickup', touch=False), _row('Sweeper', touch=False),
         _row('Pass', CarryStartX=40.0, CarryStartY=20.0),
+        _row('BallTouch', success=True),       # the ball hit him: not a miscontrol
     ]
     return pd.DataFrame(rows)
 
 
 EXPECT = ['pass', 'kickoff', 'corner', 'throw_in', 'goal_kick', 'free_kick', 'free_kick',
-          'offside_pass', 'ball_touch', 'take_on', 'take_on', 'dispossessed', 'skill',
+          'offside_pass', 'miscontrol', 'take_on', 'take_on', 'dispossessed', 'skill',
           'goal', 'goal', 'free_kick', 'penalty', 'penalty', 'saved_shot', 'miss', 'woodwork',
           'own_goal', 'tackle', 'interception', 'clearance', 'block', 'save', 'save',
           'claim', 'punch', 'smother', 'drop', 'foul_won', 'foul_won',
-          'recovery', 'aerial_won', 'drop_row', 'pickup', 'sweeper', 'pass']
+          'recovery', 'aerial_won', 'drop_row', 'pickup', 'sweeper', 'pass',
+          'ball_hit_player']
 
 
 def test_every_row_gets_exactly_the_right_type():

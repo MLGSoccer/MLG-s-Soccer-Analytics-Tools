@@ -67,9 +67,15 @@ class TouchType:
 TYPES = [
     TouchType('pass', 'Open-play passes', ON_THE_BALL, phrase='open-play passes'),
     TouchType('offside_pass', 'Offside passes', ON_THE_BALL),
-    TouchType('ball_touch', 'Ball touches', ON_THE_BALL,
-              note="Opta's BallTouch: a touch that does not keep the ball - a "
-                   "miscontrol, or the ball striking the player."),
+    # Opta's BallTouch is two things, split by its outcome (user, 2026-10-03:
+    # call it failed only where it is): the player tried to control the ball
+    # and failed (outcome 0, 46%), or the ball struck him unintentionally
+    # (outcome 1, 54%).
+    TouchType('miscontrol', 'Miscontrols', ON_THE_BALL,
+              note='Tried to control the ball and lost it.'),
+    TouchType('ball_hit_player', 'Ball hit player', ON_THE_BALL,
+              phrase='balls that hit the player',
+              note='The ball struck the player unintentionally.'),
     TouchType('take_on', 'Take-ons', ON_THE_BALL,
               note='Every attempt to beat a man, won or lost.'),
     TouchType('dispossessed', 'Dispossessed', ON_THE_BALL,
@@ -117,7 +123,7 @@ BY_ID = {t.id: t for t in TYPES}
 STANDARD = [t.id for t in TYPES if t.default]
 
 _BY_PLAY_TYPE = {
-    'Pass': 'pass', 'OffsidePass': 'offside_pass', 'BallTouch': 'ball_touch',
+    'Pass': 'pass', 'OffsidePass': 'offside_pass', 'BallTouch': 'miscontrol',
     'TakeOn': 'take_on', 'Dispossessed': 'dispossessed', 'GoodSkill': 'skill',
     'Goal': 'goal', 'AttemptSaved': 'saved_shot', 'Miss': 'miss', 'Post': 'woodwork',
     'OwnGoal': 'own_goal', 'PenaltyGoal': 'penalty',
@@ -153,6 +159,8 @@ def classify(df):
 
     mapped = pt.map(_BY_PLAY_TYPE)
     out[touch & mapped.notna()] = mapped[touch & mapped.notna()]
+    # A successful BallTouch is the ball hitting the player, not a miscontrol.
+    out[touch & pt.eq('BallTouch') & _flag(df, 'success')] = 'ball_hit_player'
 
     # Carve-outs, applied lowest precedence first so the strongest writes last.
     is_pass = pt.isin(['Pass', 'OffsidePass'])

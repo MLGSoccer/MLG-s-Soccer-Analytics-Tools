@@ -124,7 +124,7 @@ COUNTERPART = {"gf": "xg", "xg": "gf", "ga": "xga", "xga": "ga", "gd": "xgd", "x
 SITUATIONS = {
     "total":  "Total",
     "op":     "Open Play",
-    "sp":     "Set Piece",
+    "sp":     "Set Pieces",
     "ahead":  "Ahead",
     "level":  "Drawing",
     "behind": "Behind",
@@ -201,7 +201,7 @@ COMPONENT_LABELS = {
     "stopping": "Goals Prevented",
     "set_pieces": "Set Pieces Taken",
     # the goals frames: the shot-outcome partition, in plain counts
-    "shot_dist": "Average Shot Distance",
+    "shot_dist": "Shot Distance",
     "on_target_pct": "On Target %",
     "blocked_pct": "Blocked %",
     "missed_pct": "Missed %",
@@ -209,7 +209,7 @@ COMPONENT_LABELS = {
     # the difference frames address ONE end explicitly - netting these
     # would fuse two capabilities into a number nobody asks for
     "on_target_pct_faced": "On Target % Faced",
-    "shot_dist_faced": "Average Distance Faced",
+    "shot_dist_faced": "Shot Distance Faced",
     "placement_faced": "Placement Faced",
     # difference headlines: the same chain, NET of both ends. The first
     # build showed GF, GA, GD and xGD under Goal Difference - four of six
@@ -224,31 +224,22 @@ COMPONENT_LABELS = {
 # What the name means, or the stat behind a name - whichever the name
 # does not already say. Drawn beside/under the name in parentheses, at a
 # size that can be read.
+# Glosses that only restated or loosened the name ("chance quality" under
+# xG per Shot, "over or underperformance" under Goals Above xG) are gone:
+# a label names, and the audience knows the terms (label editor, approved
+# 2026-09-29).
 COMPONENT_MEANING = {
-    "xg_per_shot": "chance quality",
-    "placement": "post-shot xG \u2212 xG",
-    "beat_keeper": "beating keepers",
-    "stopping": "post-shot xGA \u2212 goals against",
     "set_pieces": "corners, free kicks, throw-ins, pens",
-    "shots_diff": "shots \u2212 shots faced",
     # "net": the difference frame's own word (SHOOTING AND FINISHING, NET)
     "xg_per_shot_diff": "xG per shot, net",
     "placement_diff": "post-shot xG \u2212 xG, net",
     "keeper_diff": "goals prevented, net",
-    "net": "over or underperformance",
     "minutes_pct": "share of minutes",
-    "gap": "over or underperformance",
     "on_target_pct": "",
-    "blocked_pct": "stopped by a defender",
-    "missed_pct": "wide, over or the woodwork",
     "on_target_pct_faced": "",
-    "placement_faced": "post-shot xGA \u2212 xGA",
 }
 COMPONENT_MEANING_AGAINST = {
-    "xg_per_shot": "chance quality faced",
-    "placement": "post-shot xGA \u2212 xGA",
-    "blocked_pct": "blocked by the defence",
-    "missed_pct": "wide, over or the woodwork",
+    "placement": "",
     "on_target_pct": "",
 }
 
@@ -261,9 +252,9 @@ COMPONENT_LABELS_AGAINST = {
     "xg_per_shot": "xGA per Shot",
     "placement": "Placement Faced",
     "set_pieces": "Set Pieces Faced",
-    "shot_dist": "Average Distance Faced",
+    "shot_dist": "Shot Distance Faced",
     "on_target_pct": "On Target % Faced",
-    "blocked_pct": "Blocks %",         # on this side a block is a thing the team DOES
+    "blocked_pct": "Blocked % Faced",  # the opponents' shots the team blocked
     "missed_pct": "Missed % Faced",    # the same words as the FOR frame read as the team's own misses
     "gap": "Goals Above xGA",
 }
@@ -1210,8 +1201,11 @@ def view(cube: Cube, subject, headline: str | None, path: tuple = (),
     (pick,) = path
     if order == "situation":
         sit = pick
+        # The anchor is the bare stat: the frame line above already names
+        # the situation ("GOALS FOR", not "GOALS FOR WHEN AHEAD" - label
+        # editor, approved 2026-09-29).
         return [gauge(cube, subject, headline, sit, c, mode,
-                      situation_label(h, sit) if c == "anchor" else None) for c in comps]
+                      h.label if c == "anchor" else None) for c in comps]
     comp = resolve_component("total", pick, h.side)
     return [gauge(cube, subject, headline, sit, comp, mode, SITUATIONS[sit])
             for sit in SITUATION_ORDER]

@@ -371,32 +371,32 @@ def test_rank_and_percentile(cube):
 def test_labels_are_names_and_carry_the_side(cube):
     against = [(g.label, g.meaning) for g in tp.view(cube, (S, A), "xga", (), "component")]
     assert against == [("xG Against", ""), ("Goals Against", ""),
-                       ("Goals Above xGA", "over or underperformance"),
-                       ("Placement Faced", f"post-shot xGA {M} xGA"),
-                       ("Goals Prevented", f"post-shot xGA {M} goals against"),
-                       ("xGA per Shot", "chance quality faced")]
+                       ("Goals Above xGA", ""),
+                       ("Placement Faced", ""),
+                       ("Goals Prevented", ""),
+                       ("xGA per Shot", "")]
     for_side = [(g.label, g.meaning) for g in tp.view(cube, (S, A), "xg", (), "component")]
     assert for_side == [("xG For", ""), ("Goals For", ""),
-                        ("Goals Above xG", "over or underperformance"),
-                        ("Shot Placement", f"post-shot xG {M} xG"),
-                        ("Goals Above Post-Shot xG", "beating keepers"),
-                        ("xG per Shot", "chance quality")]
+                        ("Goals Above xG", ""),
+                        ("Shot Placement", ""),
+                        ("Goals Above Post-Shot xG", ""),
+                        ("xG per Shot", "")]
     goals = [(g.label, g.unit) for g in tp.view(cube, (S, A), "gf", (), "component")]
     assert goals == [("Goals For", "per 90 min"), ("Shots", "per 90 min"),
-                     ("Average Shot Distance", "metres"), ("On Target %", "of shots"),
+                     ("Shot Distance", "metres"), ("On Target %", "of shots"),
                      ("Blocked %", "of shots"), ("Missed %", "of shots")]
     # the against side renames what it must: a block is something you DO
     ga = [g.label for g in tp.view(cube, (S, A), "ga", (), "component")]
-    assert ga[1:4] == ["Shots Faced", "Average Distance Faced", "On Target % Faced"]
-    assert ga[4] == "Blocks %"
+    assert ga[1:4] == ["Shots Faced", "Shot Distance Faced", "On Target % Faced"]
+    assert ga[4] == "Blocked % Faced"
     # every share on the against side carries its side: "Missed %" alone
     # read as the team's own misses beside the GOALS FOR frame's
     assert ga[5] == "Missed % Faced"
+    # a label names: no gloss restating the name (user, 2026-09-29)
     ga_m = [g.meaning for g in tp.view(cube, (S, A), "ga", (), "component")]
-    assert ga_m[4] == "blocked by the defence"       # third person, like the rest
-    # a net dial's meaning never says "overperformance" over a minus
+    assert ga_m[4] == ""
     net = [g for g in tp.view(cube, (S, A), "xgd", (), "component") if g.component == "net"][0]
-    assert net.meaning == "over or underperformance"
+    assert net.meaning == ""
     g = tp.gauge(cube, (S, A), "gf", "total", "on_target_pct", "rank")
     assert g.fmt == "pct" and g.unit == "of shots" and g.total is None
     g = tp.gauge(cube, (S, A), "gf", "total", "shot_dist", "rank")
@@ -457,7 +457,7 @@ def test_format_helpers(cube):
     assert tp.format_value(g) == "1.89" and tp.format_total(g) == "2 in 1"
     assert g.unit == "per 90 min"
     g = tp.gauge(cube, (S, A), "xg", "total", "xg_per_shot", "rank")
-    assert tp.format_value(g) == "0.380" and g.unit == "per shot" and g.meaning == "chance quality"
+    assert tp.format_value(g) == "0.380" and g.unit == "per shot" and g.meaning == ""
     g = tp.gauge(cube, (S, A), "gd", "total", "xg_per_shot_diff", "rank")
     assert g.fmt == "signed3" and g.unit == "per shot" and tp.format_value(g).startswith("+0.")
     assert tp.format_number("signed3", -0.0125) == "\u22120.013"

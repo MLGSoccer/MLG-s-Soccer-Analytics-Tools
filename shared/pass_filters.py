@@ -308,7 +308,7 @@ def _or_list(vals):
 OUTCOME = 'Outcome'
 ORIGIN = 'Origin'
 DESTINATION = 'Destination'
-VECTOR = 'Vector'
+VECTOR = 'Direction and length'
 ATTRIBUTES = 'Pass type'
 CONSEQUENCE = 'Consequence'
 CONTEXT = 'Match context'
@@ -352,8 +352,8 @@ FILTERS = [
     # 26.3%. A cold analyst caught it from the chart alone, reasoning that
     # FORWARD 70% leaves 30% that cannot have crossed a vertical boundary, and
     # that 104 corners start beyond it by definition.
-    Filter('dest_box', 'Ends in the box', DESTINATION, 'flag',
-           lambda d: d['dest_in_box'], phrase='ending in the box'),
+    Filter('dest_box', 'Ending in box', DESTINATION, 'flag',
+           lambda d: d['dest_in_box'], phrase='ending in box'),
     Filter('dest_third', 'Destination third', DESTINATION, 'multi',
            lambda d: d['dest_third'], _THIRDS, phrase='ending in the {} third'),
     Filter('dest_channel', 'Destination channel', DESTINATION, 'multi',
@@ -443,15 +443,15 @@ FILTERS = [
                 'alone silently drops half the concept.'),
     Filter('assist', 'Assist', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'IsAssist'), phrase='assists'),
-    Filter('led_to_shot', 'Shot sequence passes', CONSEQUENCE, 'flag',
-           lambda d: d['led_to_shot'], phrase='shot sequence passes',
+    Filter('led_to_shot', 'Shot sequence', CONSEQUENCE, 'flag',
+           lambda d: d['led_to_shot'], phrase='shot sequence',
            completed_only=True),
-    Filter('led_to_goal', 'Goal sequence passes', CONSEQUENCE, 'flag',
-           lambda d: _flag(d, 'SequenceScoredGoal'), phrase='goal sequence passes'),
+    Filter('led_to_goal', 'Goal sequence', CONSEQUENCE, 'flag',
+           lambda d: _flag(d, 'SequenceScoredGoal'), phrase='goal sequence'),
     Filter('reached_box', 'Sequence reached the box', CONSEQUENCE, 'flag',
            lambda d: _flag(d, 'SequenceReachedBox'), phrase='in moves that reached the box'),
-    Filter('big_chance', 'Big chance sequence passes', CONSEQUENCE, 'flag',
-           lambda d: _flag(d, 'shot_q214'), phrase='big chance sequence passes'),
+    Filter('big_chance', 'Big chance sequence', CONSEQUENCE, 'flag',
+           lambda d: _flag(d, 'shot_q214'), phrase='big chance sequence'),
     Filter('xa', 'Minimum xA', CONSEQUENCE, 'range', 'xA', phrase='xA {}+'),
 
     # -- Match context
@@ -556,14 +556,13 @@ def filter_phrase(phrases, match_all=True, skip=()):
     """
     phrases = _texts(phrases, skip)
     if not phrases:
-        # Sentence case, like every other phrase this returns. In caps it was
-        # the only subhead on the family set out differently, and a cold viewer
-        # read the inconsistency as "two different people built these".
-        return 'All passes'
-    if len(phrases) == 1:
-        return phrases[0]
-    body = SEP.join(phrases)
-    return body if match_all else f"ANY OF: {body}"
+        # Nothing to say. "All passes" over an unfiltered map named the
+        # absence of a filter (label editor, user-approved 2026-09-29).
+        return ''
+    # The connective in words: "Progressive and ending in box", "... or ..."
+    # under Match any. A dot between clauses read as a list, not as AND / OR
+    # (label editor, user-approved 2026-10-03).
+    return (' and ' if match_all else ' or ').join(phrases)
 
 
 def implies_completion(selections) -> bool:

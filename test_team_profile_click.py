@@ -183,29 +183,73 @@ def _joined(fig):
 
 
 def test_the_spine_says_what_the_dials_add_up_to():
-    """The identity under the scope, in the dials' own names, with the
-    own-goal term folded in on the xG frames; nothing on the shot
-    comparison, nothing on a six-situation frame."""
+    """The identity in the footnote, in the dials' own names, with the
+    own-goal term folded in on the xG frames; nothing on the goals frames
+    (three shares side by side say they split the shots - user,
+    2026-09-29), nothing on the shot comparison or a six-situation frame."""
     prof = _profile()
     fig = create_team_profile(prof, headline="gf", path=(), order="component")
-    assert "On Target %, Blocked % and Missed % split every shot" in _joined(fig)
+    assert "split every shot" not in _joined(fig) and "own goal" not in _joined(fig)
     plt.close(fig)
     fig = create_team_profile(prof, headline="ga", path=(), order="component")
-    assert "On Target % Faced, Blocks % and Missed % Faced split every shot faced" in _joined(fig)
+    assert "split every shot" not in _joined(fig)
     plt.close(fig)
     fig = create_team_profile(prof, headline="xg", path=(), order="component")
     j = _joined(fig)
-    assert "Goals Above xG = Shot Placement + Goals Above Post-Shot xG + opposition own goals (" in j
+    assert "Goals Above xG = Shot Placement + Goals Above Post-Shot xG" in j
+    # a zero own-goal term is not printed (user, 2026-10-03)
+    assert "(none)" not in j
     assert "own goals for them" not in j
     plt.close(fig)
     fig = create_team_profile(prof, headline="xgd", path=(), order="component")
     j = _joined(fig)
     assert "Goal Difference Above xGD = Shot Placement" in j
-    assert "Placement Faced + Goals Above Post-Shot xG + Goals Prevented + own goals" in j
+    assert "Placement Faced + Goals Above Post-Shot xG + Goals Prevented" in j
     plt.close(fig)
     fig = create_team_profile(prof, headline="gd", path=(), order="component")
     assert " = " not in _joined(fig)
     plt.close(fig)
     fig = create_team_profile(prof, headline="gf", path=(), order="situation")
     assert "split every shot" not in _joined(fig)
+    plt.close(fig)
+
+
+def test_the_season_minutes_are_said_once():
+    """The season's minutes sit in the scope line on a six-situation frame;
+    only the three states name their own minutes under their names (user,
+    2026-09-29). A component breakdown carries neither."""
+    prof = _profile()
+    fig = create_team_profile(prof, headline="gf", path=(), order="situation")
+    texts = [t.replace(chr(0x200a), '').replace(' ', '') for t in _texts(fig)]
+    assert any("MINUTES" in t for t in texts)
+    import matplotlib.text
+    every = [t.get_text() for t in fig.findobj(matplotlib.text.Text)]
+    under = [t for t in every if t.endswith(" minutes") and t.split(" ")[0].replace(",", "").isdigit()]
+    assert len(under) == 3
+    plt.close(fig)
+    fig = create_team_profile(prof, headline="gf", path=(), order="component")
+    texts = [t.replace(chr(0x200a), '').replace(' ', '') for t in _texts(fig)]
+    assert not any("MINUTES" in t for t in texts)
+    assert not any(t.endswith(" minutes") and t.split(" ")[0].replace(",", "").isdigit()
+                   for t in _texts(fig))
+    plt.close(fig)
+
+
+def test_a_per_shot_frame_names_its_shots_on_every_cell():
+    """One share of shots across the situations rests on shots: all six
+    cells say "N shots" (no "from"), the three states add their minutes,
+    and the scope carries no minutes."""
+    prof = _profile()
+    fig = create_team_profile(prof, headline="gf", path=("on_target_pct",), order="component")
+    texts = _texts(fig)
+    flat = [t.replace(chr(0x200a), '').replace(' ', '') for t in texts]
+    assert not any("MINUTES" in t for t in flat)
+    import matplotlib.text
+    every = [t.get_text() for t in fig.findobj(matplotlib.text.Text)]
+    shots = [t for t in every if t.split(" ")[0].replace(",", "").isdigit()
+             and t.split(" ")[1] in ("shot", "shots")]
+    assert len(shots) == 6
+    # the three states keep their time beside their shots
+    assert sum(t.endswith(" min") for t in shots) == 3
+    assert not any("from " in t for t in every)
     plt.close(fig)

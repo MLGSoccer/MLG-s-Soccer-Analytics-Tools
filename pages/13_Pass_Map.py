@@ -34,8 +34,6 @@ from pages.streamlit_utils import custom_title_inputs, match_scope, SCOPE_MODES
 
 st.set_page_config(page_title="Pass Map", page_icon="🎯", layout="wide")
 st.title("Pass Map")
-st.caption("Every pass as a line, from where it started to where it ended. "
-           "Scope sets the denominator; filters cut within it.")
 
 # ── Scope: which games, whose passes ─────────────────────────────────────────
 
@@ -65,7 +63,7 @@ if not team:
 
 games = get_games_for_team(team['team_id'])
 if not games:
-    st.warning("No games found for this team.")
+    st.warning("No matches for this team.")
     st.stop()
 
 seasons = {g['season_id']: season_label(g['season_id'], g.get('season_name'))
@@ -79,9 +77,8 @@ if _scope is None:
 picked_games, season_ids, in_season = _scope
 
 against = st.toggle(
-    "Passes conceded (the opponents' passes in these games)", value=False,
-    help="Same games, the other side of the ball. Not mirrored - both views "
-         "stay in the same frame so they can be compared.")
+    "Passes allowed", value=False,
+    help="The opponents' passes in these games.")
 
 with st.spinner("Loading passes..."):
     population, info, team_color = build_pass_map(
@@ -95,18 +92,14 @@ population = pf.annotate_passes(population)
 # ── Passers: the player mode, one code path rather than two ──────────────────
 
 names = sorted({p for p in population['passer'].dropna().unique()})
+# The limit is a measurement: every pair of passers separates on colour
+# alone (line style is spent on completion), and the best fourth colour is
+# below the threshold most people can tell from the third.
 players = st.multiselect(
-    "Passers (leave empty for the whole team)", options=names,
-    help=f"Up to {MAX_PLAYERS}. Colour means player identity on this chart, and "
-         f"a fourth colour cannot be told apart from the other three.")
+    "Passers", options=names,
+    help=f"Up to {MAX_PLAYERS}. Leave empty for the whole team.")
 if len(players) > MAX_PLAYERS:
-    st.error(
-        f"{MAX_PLAYERS} passers is the limit, and it is a measurement rather "
-        f"than a preference. Any two players' lines can cross anywhere on the "
-        f"pitch, so every pair has to separate on colour alone - line style is "
-        f"already spent on completion and a 1px line cannot carry texture. The "
-        f"best available fourth colour sits below the threshold where most "
-        f"people can reliably tell it from the third. Drop one.")
+    st.error(f"Up to {MAX_PLAYERS} passers. Remove one.")
     st.stop()
 if players:
     population = population[population['passer'].isin(players)]
@@ -133,8 +126,7 @@ if st.session_state.get('pm_subject') != _subject:
 st.sidebar.header("Filters")
 match_all = st.sidebar.radio(
     "Combine filters with", ["Match all", "Match any"], horizontal=True,
-    help="Within one filter the choices are always OR - a pass cannot start in "
-         "two thirds at once. This joins the filters to each other.",
+    help="Choices inside one filter always match any.",
 ) == "Match all"
 
 selections = {}
@@ -247,12 +239,7 @@ aspect_choice = st.sidebar.radio(
     "Aspect ratio",
     options=["Standard (16:9)", "Vertical (9:16)", "Tile (9:8)"],
     index=0,
-    help="16:9 is the editorial chart. 9:16 rotates the pitch to attack up "
-         "the frame and moves the summary into bands beneath it - a rotated "
-         "pitch is the only way 500-odd passes stay individually traceable in "
-         "a portrait frame. 9:8 keeps the pitch horizontal and carries the "
-         "same furniture at tile size, minus the leading-passers table, which "
-         "does not fit.",
+    help="9:8 drops the leading-passers table.",
 )
 aspect = {"Vertical (9:16)": "9x16", "Tile (9:8)": "9x8"}.get(
     aspect_choice, "default")

@@ -46,6 +46,7 @@ contract). Layout is a per-aspect dict - adding a variant is adding a key.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import replace
 
 import numpy as np
@@ -203,8 +204,18 @@ _LAYOUTS = {
 
 # -- Text helpers ----------------------------------------------------------------
 
+_XG_WORD = re.compile(r'\bXG(A|D)?\b')
+
+
+def house_caps(s):
+    """xG keeps its lower-case x in an all-caps line too: "xG FOR", "xGA PER
+    SHOT", never "XG" (house style; label editor, approved 2026-09-29)."""
+    return _XG_WORD.sub(lambda m: 'xG' + (m.group(1) or ''), str(s))
+
+
 def _text(fig, x, y, s, size, color=TEXT_PRIMARY, weight='normal',
           ha='center', va='center', spaced=0, **kw):
+    s = house_caps(s)
     if spaced:
         s = track(s, spaced)
     return fig.text(x, y, s, fontsize=size, color=color, fontweight=weight,
@@ -316,8 +327,9 @@ def _break_balanced(fig, text, size, max_frac):
     """Word wrap at one size with a parenthetical kept as one unit when it
     fits a line; a two-line result is split where the widest line is
     narrowest (a width-only wrap left "box, penalties)" as a centred orphan
-    under "throw-ins near the"). Never drops a word."""
-    words = str(text).split()
+    under "throw-ins near the"). Never drops a word. Splits on ordinary
+    spaces only, so a no-break space holds "(+0.05 per 90)" together."""
+    words = [w for w in str(text).split(' ') if w]
     units, cur = [], []
     for w in words:                        # "(corners, ... penalties)" is one unit
         if cur or w.startswith('('):
@@ -357,7 +369,7 @@ def _break_words(fig, text, size, max_frac):
     """Greedy word wrap at ONE size, never dropping a word; a single word
     wider than the measure stands alone (the shrink step handles it)."""
     lines, cur = [], ''
-    for w in str(text).split():
+    for w in [w for w in str(text).split(' ') if w]:   # a no-break space holds
         trial = f"{cur} {w}".strip()
         if cur and _width_frac(fig, trial, size) > max_frac:
             lines.append(cur)
@@ -549,6 +561,16 @@ def _fill_colour(needle):
     return ensure_line_contrast(_ramp(needle), BG_COLOR, FILL_MIN_CONTRAST)
 
 
+_DOT = ' ' + chr(0xB7) + ' '
+
+
+def _per_shot(spec):
+    """Does this cell's number rest on shots rather than minutes? A share of
+    shots, xG per shot, distance - when the cell has one shot count. A
+    difference frame has none, so it keeps the minutes."""
+    return spec.unit in ('of shots', 'per shot', 'metres') and spec.n_shots is not None
+
+
 def _label_plan(fig, spec, L, cell_w):
     """A gauge's label block, decided per cell and applied per FRAME.
 
@@ -563,25 +585,35 @@ def _label_plan(fig, spec, L, cell_w):
     build set a formula at the floor size under the name: smaller than the
     line the user had already called unreadable.)
     Returns dict(lines, pt, meaning, meaning_pt, inline_ok)."""
-    lab = spec.label.upper()
+    lab = house_caps(spec.label.upper())
     lab_px = cell_w * fig.bbox.width * 0.92
     meaning, meaning_pt, inline_ok = '', 0.0, True
     # A state cell beside other situations names its minutes in the slot
     # under its name - the exposure its per-90 figure rests on. Short
     # enough for the tile, which otherwise drops the slot.
-    exposure = (L.get('exposure') and spec.situation in tp.STATE_SITUATIONS
-                and spec.minutes is not None and spec.component != 'minutes_pct')
-    if exposure:
-        # "for": a bare "1,052 minutes" under AHEAD read as a second stat
-        # to a cold viewer; with it the line reads on from the name, in the
-        # header's own words on a state's level 3.
-        text = f"for {spec.minutes:,.0f} minutes"
-        # A per-shot dial (a share of shots, xG per shot, distance) rests
-        # on shots, not minutes (user, 2026-09-25): name the shots. A
-        # difference frame has no one shot count, so it keeps the minutes.
-        if spec.unit in ('of shots', 'per shot', 'metres') and spec.n_shots is not None:
-            n = int(round(spec.n_shots))
-            text = f"from {n:,} {'shot' if n == 1 else 'shots'}"
+    # The base a cell's number rests on, where situations sit side by side.
+    # Minutes: the three states only - Total, Open Play and Set Pieces all
+    # rest on the season's minutes, which the scope line states once (user,
+    # 2026-09-29: "say the season once, and then the breakdown in the three
+    # states"). Shots: all six on a per-shot frame, where each cell's count
+    # differs and the season's minutes are not the base (user, same day).
+    text = ''
+    if L.get('exposure') and spec.component != 'minutes_pct':
+        if _per_shot(spec):
+            if spec.situation in tp.STATE_SITUATIONS or L.get('shots_frame'):
+                n = int(round(spec.n_shots))
+                # "130 shots", not "from 130 shots" (user, 2026-09-29).
+                text = f"{n:,} {'shot' if n == 1 else 'shots'}"
+                # A state keeps its time too: the shots are the base, but how
+                # long the team was ahead is the context the user will not
+                # lose (user, 2026-09-29).
+                if spec.situation in tp.STATE_SITUATIONS and spec.minutes is not None:
+                    text += f"{_DOT}{spec.minutes:,.0f} min"
+        elif spec.situation in tp.STATE_SITUATIONS and spec.minutes is not None:
+            # "1,052 minutes", no "for" - the base names itself, like
+            # "130 shots" (user, 2026-09-29).
+            text = f"{spec.minutes:,.0f} minutes"
+    if text:
         for pt in (L.get('meaning_size', L['unit_size']), L['unit_size'], L['type_floor']):
             if _width_frac(fig, text, pt) * fig.bbox.width <= lab_px:
                 meaning, meaning_pt = text, pt
@@ -854,7 +886,9 @@ def _gauge(fig, box, spec, L, cell_w=None, leads=None):
     elif L.get('short_unit'):
         # the narrow column drops "when" but keeps the state: on the
         # by-situation frame "1.63 per 90 min" under AHEAD read as a share
-        # of the season's 1.48 (two cold readers added the three states)
+        # of the season's 1.48 (two cold readers added the three states).
+        # One form per frame: "when drawing" does not fit a 9:16 cell, and
+        # letting each cell fit its own mixed "when ahead" with "drawing".
         unit_cands = [u for u in unit_cands if ' when ' not in u]
     unit_cands = list(dict.fromkeys(unit_cands))
     y_val = y_read - (pt_u(L['readout_size']) * 0.28 + px_u(6) + pt_u(L['value_size']) * CAP)
@@ -883,6 +917,9 @@ def _gauge(fig, box, spec, L, cell_w=None, leads=None):
 NP_PREFIX = 'Non-Penalty'
 
 
+_SIDE_WORD = re.compile(r'(?i)\b(for|against|faced|xga)\b')
+
+
 def _frame_line(headline, path, order, non_penalty=False):
     """Which slice of the cube the six gauges are - levels 2 and 3 only.
     The overview has none: its headline is the kicker, the club and the
@@ -901,13 +938,22 @@ def _frame_line(headline, path, order, non_penalty=False):
         return [H, tp.order_phrase(order, h).upper()]
     (pick,) = path
     if order == 'situation':
+        if pick == 'total':
+            # "ALL SITUATIONS" names nothing a breakdown does not already
+            # cover (user-approved 2026-10-03).
+            return [H, tp.order_phrase('component', h).upper()]
         return [H, tp.SITUATION_PHRASE[pick].upper(), tp.order_phrase('component', h).upper()]
     comp = tp.resolve_component('total', pick, h.side)
     if comp == 'anchor':
         return [H, tp.order_phrase('situation').upper()]
-    # The headline in front: "SHOT-STOPPING - BY SITUATION" alone read as a
-    # level-2 frame with no parent.
-    return [H, tp.component_label(h, comp, 'total').upper(), tp.order_phrase('situation').upper()]
+    stat = tp.component_label(h, comp, 'total')
+    # The parent goes when the stat's own name carries its side ("GOALS
+    # AGAINST", "SHOTS FACED", "xGA PER SHOT"); it stays when it does not,
+    # since "SHOT-STOPPING - BY SITUATION" alone read as a level-2 frame with
+    # no parent (user-approved 2026-10-03: drop the path unless needed).
+    if _SIDE_WORD.search(stat):
+        return [stat.upper(), tp.order_phrase('situation').upper()]
+    return [H, stat.upper(), tp.order_phrase('situation').upper()]
 
 
 def _is_tail(part):
@@ -956,70 +1002,30 @@ def _spine_note(profile, headline, path, order):
     h = tp.HEADLINES[headline]
     sit = path[0] if path else 'total'
     lab = lambda comp: tp.component_label(h, comp, sit)
-    if headline == 'gf':
-        return f"{lab('on_target_pct')}, {lab('blocked_pct')} and {lab('missed_pct')} split every shot"
-    if headline == 'ga':
-        return f"{lab('on_target_pct')}, {lab('blocked_pct')} and {lab('missed_pct')} split every shot faced"
+    if headline in ('gf', 'ga'):
+        # "On Target %, Blocked % and Missed % split every shot" said what
+        # three percentages beside each other already show (user,
+        # 2026-09-29).
+        return ''
     og = _og_terms(profile, sit)
     if og is None:
         return ''
     og_f, og_a, per90 = og
     signed = lambda n: tp.format_number('signed', per90(n))
+    # The own-goal term only when there is one, as a rate: "(+0.05 per 90)",
+    # not "(none)" or "(2 = +0.05 per 90)" (user-approved 2026-10-03).
+    # NB: a no-break space inside the brackets, so a wrapped footnote never
+    # strands "90)" on a line of its own.
+    nb = chr(0xA0)
     if headline == 'xg':
-        term = 'none' if og_f == 0 else f"{int(og_f)} = {signed(og_f)} per 90"
-        return (f"{lab('gap')} = {lab('placement')} + {lab('beat_keeper')} "
-                f"+ opposition own goals ({term})")
+        og = f" + opposition own goals ({signed(og_f)}{nb}per{nb}90)" if og_f else ''
+        return f"{lab('gap')} = {lab('placement')} + {lab('beat_keeper')}{og}"
     if headline == 'xga':
-        term = 'none' if og_a == 0 else f"{int(og_a)} = {signed(og_a)} per 90"
-        return (f"{lab('gap')} = {lab('placement')} {_MINUS} {lab('stopping')} "
-                f"+ own goals conceded ({term})")
-    term = ('none' if og_f == 0 and og_a == 0
-            else f"{int(og_f)} for, {int(og_a)} against = {signed(og_f - og_a)} per 90")
+        og = f" + own goals conceded ({signed(og_a)}{nb}per{nb}90)" if og_a else ''
+        return f"{lab('gap')} = {lab('placement')} {_MINUS} {lab('stopping')}{og}"
+    og = f" + own goals ({signed(og_f - og_a)}{nb}per{nb}90)" if (og_f or og_a) else ''
     return (f"{lab('net')} = {lab('placement')} {_MINUS} {lab('placement_faced')} "
-            f"+ {lab('beat_keeper')} + {lab('stopping')} + own goals ({term})")
-
-
-def _own_goals_note(profile, headline, path, order):
-    """Own goals, said once under the header - never a dial.
-
-    On an xG frame they are the term that CLOSES the gap the frame states:
-    Goals Above xG = placement + beating keepers + own goals, exactly. Two
-    dials that visibly do not sum to the third is a frame a reader stops
-    trusting. On a goals frame they are the goals the shot partition cannot
-    account for (no shot, so no outcome). Situation-first frames read them
-    from that situation's cells; the overview and the component-first
-    level 3 say nothing (one stat in six situations has its own note).
-    """
-    if not headline or order != 'situation' and path:
-        return ''
-    if headline is None:
-        return ''
-    if headline in _SPINES and headline not in ('gf', 'ga') and _shows_components(headline, path, order):
-        return ''            # the spine carries the own-goal term on the xG frames
-    h = tp.HEADLINES[headline]
-    sit = path[0] if path else 'total'
-    og = _og_terms(profile, sit)
-    if og is None:
-        return ''
-    og_f, og_a, per90 = og
-    # A zero closes nothing, so it says nothing: "no own goals" under the
-    # header was a line about an absence (user, 2026-09-25: "incredibly
-    # superfluous").
-    if h.side == 'for' and og_f == 0 or h.side == 'against' and og_a == 0:
-        return ''
-    if og_f == 0 and og_a == 0:
-        return ''
-    plural = lambda n: 'own goal' if n == 1 else 'own goals'
-    # "2 own goals for them" read either way (a cold analyst took it as
-    # own goals BY the team until another frame corrected him).
-    if h.side == 'for':
-        return (f"Goals For includes {int(og_f)} opposition {plural(og_f)} "
-                f"({tp.format_number('goals', per90(og_f))} per 90)")
-    if h.side == 'against':
-        return (f"Goals Against includes {int(og_a)} {plural(og_a)} conceded "
-                f"({tp.format_number('goals', per90(og_a))} per 90)")
-    return (f"own goals: {int(og_f)} for, {int(og_a)} against "
-            f"({tp.format_number('signed', per90(og_f - og_a))} per 90 to the difference)")
+            f"+ {lab('beat_keeper')} + {lab('stopping')}{og}")
 
 
 def _situation_note(profile, headline, path, order):
@@ -1052,7 +1058,6 @@ def _situation_note(profile, headline, path, order):
         # alone read as every restart (371 in 38 matches is fewer than a
         # side's throw-ins). A difference frame gives both ends.
         h = tp.HEADLINES[headline]
-        what = 'corners, free kicks, throw-ins near the box, penalties'
         vals = {}
         for col in ('sp_for', 'sp_against'):
             n = t.get(col)
@@ -1060,13 +1065,12 @@ def _situation_note(profile, headline, path, order):
         if h.side == 'diff':
             if vals['sp_for'] is None or vals['sp_against'] is None:
                 return ''
-            return (f"final-third set pieces: {vals['sp_for']:,} taken, {vals['sp_against']:,} faced "
-                    f"({what})")
+            return f"final-third set pieces: {vals['sp_for']:,} taken, {vals['sp_against']:,} faced"
         n = vals['sp_against' if h.side == 'against' else 'sp_for']
         if n is None:
             return ''
         word = 'faced' if h.side == 'against' else 'taken'
-        return f"{n:,} final-third set pieces {word} ({what})"
+        return f"{n:,} final-third set pieces {word}"
     return ''
 
 
@@ -1177,7 +1181,21 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     # ("RANKED AMONG 20 TEAMS - 1ST = BEST") and the minutes were boilerplate
     # the user struck; the readouts say "/20" and the colour says which way
     # is up. A wider pool still names itself, since the readout does not.
-    scope = [f"{gp} MATCHES", f"{comp} {years}".strip()]
+    # Where the six cells are six situations, the states name their own
+    # minutes under their names, so the season's minutes - the base Total,
+    # Open Play and Set Pieces share - are said once, here.
+    by_situation = bool(headline) and ((not path and order == 'situation')
+                                       or (bool(path) and order == 'component'))
+    # A per-shot frame (one share of shots across the situations) rests on
+    # shots, which every cell names; the season's minutes would be the wrong
+    # base there, so they are not said.
+    shots_frame = by_situation and bool(specs) and all(_per_shot(sp) for sp in specs)
+    season_min = (float(cube.teams.loc[subject, 'total_s']) / 60.0
+                  if by_situation and not shots_frame and subject in cube.index else 0.0)
+    scope = [f"{gp} MATCHES"]
+    if season_min > 0:
+        scope.append(f"{season_min:,.0f} MINUTES")
+    scope.append(f"{comp} {years}".strip())
     if mode != 'rank':
         scope.append(f"PERCENTILES vs {profile.get('pool_label', '').upper()}")
     if custom_subtitle:
@@ -1201,8 +1219,9 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     # the own goals close the arithmetic for a reader who checks it; under
     # the header, in the scope's colour, they sat level with the one note a
     # reader needs to read the dials - the time in state.
-    footnote = [_spine_note(profile, headline, tuple(path), order),
-                _own_goals_note(profile, headline, tuple(path), order)]
+    # The own-goal line is gone from every frame (user, 2026-09-29); the xG
+    # equations still carry the term that closes them.
+    footnote = [_spine_note(profile, headline, tuple(path), order)]
     bottom = _header(fig, L, kicker='TEAM PROFILE', title=title, accent=accent,
                      scope_parts=scope,
                      frame_line=_frame_line(headline, tuple(path), order, non_penalty),
@@ -1215,7 +1234,9 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     # the situations) each state cell names its minutes: a per-90-in-state
     # dial on 400 minutes looks as solid as one on 2,000. A state's own
     # level 3 says it once in the header instead.
-    L = dict(L, exposure=bool(headline) and not (path and order == 'situation'))
+    # Only there: the frames whose six cells are six situations (the
+    # by-situation level 2, a component-first level 3).
+    L = dict(L, exposure=by_situation, shots_frame=shots_frame)
     m = L['margin']
     fy = footer_y(fig, at_least=L.get('footer_y', 0.0))
     # The grid takes what the header and the footnote leave.
@@ -1231,7 +1252,7 @@ def create_team_profile(profile, *, headline=None, path=(), order='situation',
     label_track = L['label_track']
     if label_track:
         for spec in specs[:cols * rows]:
-            lab = track(spec.label.upper(), label_track)
+            lab = track(house_caps(spec.label.upper()), label_track)
             if _width_frac(fig, lab, L['label_size'], 'bold') * fig.bbox.width > cell_px * 0.92 / 0.96:
                 label_track = 0
                 break

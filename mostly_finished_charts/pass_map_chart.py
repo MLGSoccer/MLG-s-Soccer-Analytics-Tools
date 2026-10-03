@@ -296,6 +296,14 @@ def _p90(count, minutes):
     return f"{count * 90.0 / minutes:.1f}"
 
 
+def _hero_p90(count, minutes):
+    """The hero's per-90 figure: whole numbers from 100 up, where a decimal
+    is noise ("578", not "577.6" - label editor, 2026-09-29); one place
+    below, where "3.4" and "3" are different claims."""
+    v = count * 90.0 / minutes
+    return f"{v:,.0f}" if v >= 100 else f"{v:.1f}"
+
+
 def _fmt_n(count):
     """A table count: an int as "1,022", a per-90 rate as "54.1"."""
     return f"{count:.1f}" if isinstance(count, float) else f"{count:,}"
@@ -802,7 +810,9 @@ def _title_runs(players, receivers, swatch_colour, team, labels=None):
         out = []
         for i, n in enumerate(names):
             if i:
-                out.append(('  ·  ', TEXT_MUTED))
+                # "+", as the stacked portrait headline already says it: one
+                # pool of passes, combined (label editor, 2026-09-29).
+                out.append(('  +  ', TEXT_MUTED))
             c = swatch_colour.get(n, TEXT_PRIMARY) if colour else TEXT_PRIMARY
             out.append((show(n), c))
         return out
@@ -824,7 +834,7 @@ def _title_runs(players, receivers, swatch_colour, team, labels=None):
     return side(players)
 
 
-def _scope_line(shown, info, competition, players=None):
+def _scope_line(shown, info, competition, players=None, result=False):
     """HOW MUCH FOOTBALL this is, then the admin that qualifies it.
 
     Returns (lead, tail). The split is the whole point. As one even grey run
@@ -849,7 +859,12 @@ def _scope_line(shown, info, competition, players=None):
         side = '(H)' if bool(r.get('is_home')) else '(A)'
         lead = f"v {str(opp).upper()} {side}".strip()
         try:
-            lead += f"  {int(r['team_score'])}-{int(r['opp_score'])}"
+            ts, os_ = int(r['team_score']), int(r['opp_score'])
+            # `result`: "v CHELSEA (A) L 1-2". Subject-first scores read
+            # backwards to anyone used to home-first; the letter settles it
+            # (Touch Map, user-approved 2026-10-03).
+            res = ('W ' if ts > os_ else 'L ' if ts < os_ else 'D ') if result else ''
+            lead += f"  {res}{ts}-{os_}"
         except (KeyError, TypeError, ValueError):
             pass
         if info.get('date_range'):
@@ -890,7 +905,7 @@ def _title_lines(runs, k):
     """
     items, cur = [], []
     for text, colour in runs:
-        if text.strip() in ('·', '→'):
+        if text.strip() in ('·', '+', '→'):
             if cur:
                 items.append(cur)
             cur = [(text, colour)] if text.strip() == '→' else []
@@ -928,7 +943,7 @@ def _title_lines(runs, k):
         line.append(('+  ', TEXT_MUTED if out else BG_COLOR))
         for j, item in enumerate(group):
             if j and not item[0][0].strip() == '→':
-                line.append(('  ·  ', TEXT_MUTED))
+                line.append(('  +  ', TEXT_MUTED))
             line.extend(item)
         out.append(line)
         i += n
@@ -1142,7 +1157,8 @@ def _header(fig, L, *, kicker, title_runs, accent, swatch_colour,
     return bottom, size
 
 
-def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
+def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False,
+           info=None):
     """The band under the pitch: completion key and attacking direction.
 
     `x0`/`x1` are the rail it hangs off. At 16:9 that is the PITCH PANEL, which
@@ -1216,7 +1232,19 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
     # TEXT_SECONDARY, not muted. This is the only element orienting the entire
     # pitch, and a cold viewer said they nearly missed it every time and on two
     # renders could not tell which way the team was attacking.
-    lab = _text(fig, 0.5, sy, 'ATTACKING DIRECTION', L['legend_size'],
+    # On the allowed view the arrow is the OPPONENT's attack (user-approved
+    # 2026-10-03): BRENTFORD ATTACKING, OPPONENTS ATTACKING when there are
+    # several or the name would overrun the rail.
+    info = info or {}
+    direction = 'ATTACKING DIRECTION'
+    if info.get('against'):
+        who = _whose(info, shown)
+        direction = 'OPPONENTS ATTACKING'
+        if who is not None:
+            direction = _fit_head(fig, f"{who} ATTACKING", direction, L['legend_size'],
+                                  max(0.0, x1 - legend_x1 - 0.030 - L['arrow_w']
+                                      - L['arrow_gap'] - 0.01), spaced=sp)
+    lab = _text(fig, 0.5, sy, direction, L['legend_size'],
                 TEXT_SECONDARY, spaced=sp)
     fig.canvas.draw()
     lw_ = _w(lab).width
@@ -1281,6 +1309,50 @@ def _strip(fig, ax, L, *, shown, n_shown, identity, accent, x0, x1, up=False):
         warnings.warn(f"pass map: direction arrow within {_gap_px:.1f}px of "
                       f"its label", stacklevel=2)
 
+
+
+def _whose(info, shown):
+    """On the allowed view the passes are the OPPONENT's: their name in
+    capitals when every pass is one club's, else None (several opponents)."""
+    if not info.get('against') or shown.empty or 'opponent_name' not in shown:
+        return None
+    names = shown['opponent_name'].dropna().unique()
+    return str(names[0]).upper() if len(names) == 1 else None
+
+
+def _fit_head(fig, text, fallback, size, avail, spaced=1):
+    """`text` if it fits `avail` (figure fraction) at `size`, else `fallback`.
+    A long club name ("BRIGHTON & HOVE ALBION PASSERS") must not run into the
+    column heads beside it."""
+    t = _text(fig, 0.0, 0.5, text, size, TEXT_MUTED, spaced=spaced)
+    fig.canvas.draw()
+    w = (t.get_window_extent(fig.canvas.get_renderer())
+         .transformed(fig.transFigure.inverted()).width)
+    t.remove()
+    return text if w <= avail else fallback
+
+
+def _passers_head(fig, info, shown, size, avail, spaced=1):
+    """LEADING PASSERS, or on the allowed view whose passers they are
+    (user-approved 2026-10-03). `avail` is MEASURED - from the rail to the
+    count column's own head - and the longest form that fits wins: BRENTFORD
+    PASSERS, then BRENTFORD alone (the column heads beside it say the rest),
+    then OPPONENTS. Several opponents: OPPONENT PASSERS, or OPPONENTS."""
+    if not info.get('against'):
+        return 'LEADING PASSERS'
+    who = _whose(info, shown)
+    cands = ([f"{who} PASSERS", who] if who else []) + ['OPPONENT PASSERS', 'OPPONENTS']
+    for text in cands[:-1]:
+        if _fit_head(fig, text, None, size, avail, spaced):
+            return text
+    return cands[-1]
+
+
+def _left_of(fig, art):
+    """An artist's left edge in figure fraction."""
+    fig.canvas.draw()
+    return (art.get_window_extent(fig.canvas.get_renderer())
+            .transformed(fig.transFigure.inverted()).x0)
 
 
 def _leader_rows(shown, L, info, n_shown, players, per90=None):
@@ -1356,17 +1428,17 @@ def _body_landscape(fig, L, C):
     # the time this runs, which is what makes the axes box the honest measure.
     pan = ax.get_window_extent().transformed(inv)
     _strip(fig, ax, L, shown=shown, n_shown=n_shown, identity=C['identity'],
-           accent=C['accent'], x0=pan.x0, x1=pan.x1)
+           accent=C['accent'], x0=pan.x0, x1=pan.x1, info=info)
 
     # -- right panel: what is on the pitch
     px, pw = L['panel_x'], L['panel_w']
     y = L['panel_top']
     per90 = C.get('per90')
-    _text(fig, px, y, 'PASSES PER 90' if per90 else 'PASSES SHOWN',
+    _text(fig, px, y, 'PASSES PER 90' if per90 else 'PASSES',
           L['label_size'], TEXT_MUTED, spaced=1)
     y -= 0.070
     big = _text(fig, px, y,
-                _p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
+                _hero_p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
                 L['big_size'], TEXT_PRIMARY, 'bold')
     # Sit the qualifier on the NUMERAL'S BASELINE, not on its optical centre.
     # Centring a 15pt string against a 42pt one hung "of 21,950" 15px below the
@@ -1391,17 +1463,20 @@ def _body_landscape(fig, L, C):
         # said "red = something's wrong to me... every time I saw it I braced
         # for bad news and it was just a share of the total". The accent on
         # this chart belongs to the pass lines and the title rule.
-        pct = _text(fig, right, base, f"{100.0 * n_shown / n_pop:.1f}%",
-                    L['value_size'], TEXT_PRIMARY, 'bold', ha='right',
-                    va='baseline')
-        fig.canvas.draw()
-        right -= (pct.get_window_extent(fig.canvas.get_renderer())
-                  .transformed(fig.transFigure.inverted()).width + 0.014)
-        _pop = _p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
+        # "2.8% of 460 completed", in that order, as the portrait frames
+        # read it: set right to left, the base first (label editor,
+        # 2026-09-29).
+        _pop = _hero_p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
         last = _text(fig, right, base,
                      f"of {_pop} completed" if C.get('base_completed')
                      else f"of {_pop}", L['value_size'],
                      TEXT_SECONDARY, ha='right', va='baseline')
+        fig.canvas.draw()
+        right -= (last.get_window_extent(fig.canvas.get_renderer())
+                  .transformed(fig.transFigure.inverted()).width + 0.010)
+        _text(fig, right, base, f"{100.0 * n_shown / n_pop:.1f}%",
+              L['value_size'], TEXT_PRIMARY, 'bold', ha='right',
+              va='baseline')
     # No "by this player" / "in these matches" under the number: the title
     # names whose passes these are and the scope line says how many matches.
     # A chart never restates its own subject under its own figure (user).
@@ -1460,13 +1535,16 @@ def _body_landscape(fig, L, C):
         y -= 0.046
         _rule(fig, px, px + pw, y)
         y -= 0.042
-        _text(fig, px, y, 'LEADING PASSERS', L['head_size'], TEXT_MUTED,
-              spaced=1)
-        if per90:
-            _text(fig, px + pw * (0.74 if show_cmp else 1.0), y, 'PER 90',
-                  L['head_size'], TEXT_MUTED, ha='right', spaced=1)
+        # The count head first, so the name head is measured against it.
+        cnt_head = _text(fig, px + pw * (0.74 if show_cmp else 1.0), y,
+                         'PER 90' if per90 else 'PASSES',
+                         L['head_size'], TEXT_MUTED, ha='right', spaced=1)
+        _text(fig, px, y,
+              _passers_head(fig, info, shown, L['head_size'],
+                            _left_of(fig, cnt_head) - px - 0.018),
+              L['head_size'], TEXT_MUTED, spaced=1)
         if show_cmp:
-            _text(fig, px + pw, y, 'CMP', L['head_size'], TEXT_MUTED,
+            _text(fig, px + pw, y, 'CMP%', L['head_size'], TEXT_MUTED,
                   ha='right', spaced=1)
         # ONE leading value, not a distributed one. Distributing swung the
         # step 29->40px across the family for identical text, and short lists
@@ -1620,7 +1698,7 @@ def _body_stacked(fig, L, C):
                 vertical=vert)
     _strip(fig, ax, dict(L, strip_y=strip_y),
            shown=shown, n_shown=n_shown, identity=C['identity'],
-           accent=C['accent'], x0=x0, x1=x1, up=vert)
+           accent=C['accent'], x0=x0, x1=x1, up=vert, info=info)
 
     # -- the hero, laid out ACROSS rather than stacked. At 16:9 the count gets
     # a label above it and two lines below; in portrait that block costs 110px
@@ -1636,7 +1714,7 @@ def _body_stacked(fig, L, C):
     # only binds where the frame forces the title to shrink.
     big_size = min(L['big_size'], C['header_size'] * L['big_vs_title'])
     big = _text(fig, x0, hero_base,
-                _p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
+                _hero_p90(n_shown, per90['minutes']) if per90 else f"{n_shown:,}",
                 big_size, TEXT_PRIMARY, 'bold', va='baseline')
     fig.canvas.draw()
     lx = (big.get_window_extent(fig.canvas.get_renderer())
@@ -1645,7 +1723,7 @@ def _body_stacked(fig, L, C):
     # 16:9 panel learned this with its "of 21,950" line: a small string centred
     # against a 40pt one reads as a separate row rather than as part of the
     # number.
-    a = _text(fig, lx, hero_base, 'PASSES PER 90' if per90 else 'PASSES SHOWN',
+    a = _text(fig, lx, hero_base, 'PASSES PER 90' if per90 else 'PASSES',
               L['label_size'], TEXT_MUTED, spaced=1, va='baseline')
     # "554 of 554" is the noise pass_filters.caption() refuses to print, and
     # for the same reason - a ratio against itself reads like a filter that
@@ -1661,7 +1739,7 @@ def _body_stacked(fig, L, C):
         # on the one chart where the denominator is a single player's passes
         # and not the club's. The scope line cannot cover for it: it says
         # LIVERPOOL · 38 MATCHES, never whose passes these are.
-        _pop = _p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
+        _pop = _hero_p90(n_pop, per90['minutes']) if per90 else f"{n_pop:,}"
         _base = f"{_pop} completed" if C.get('base_completed') else _pop
         sub = f"{100.0 * n_shown / n_pop:.1f}% of {_base}"
     if sub and L['hero_lead']:
@@ -1740,8 +1818,6 @@ def _body_stacked(fig, L, C):
         _rule(fig, x0, x1, rule2_y)
 
     if block:
-        _text(fig, x0, head_y, 'LEADING PASSERS' if rows else 'BUSIEST MATCHES',
-              L['head_size'], TEXT_MUTED, spaced=1)
         cnt_x = x0 + (x1 - x0) * (0.86 if (rows and show_cmp) else 1.0)
         # The counts had no header of their own, so the row read as two
         # columns over a three-column body and the numbers sat under nothing.
@@ -1751,10 +1827,16 @@ def _body_stacked(fig, L, C):
         # the number was wrong, recovering only by adding the column up; but
         # headed "PASSES SHOWN" it read as a second copy of the label it sums
         # to. This is the one word that is doing the work in either.
-        _text(fig, cnt_x, head_y, 'PER 90' if (per90 and rows) else 'SHOWN',
-              L['head_size'], TEXT_MUTED, ha='right', spaced=1)
+        cnt_head = _text(fig, cnt_x, head_y, 'PER 90' if (per90 and rows) else 'PASSES',
+                         L['head_size'], TEXT_MUTED, ha='right', spaced=1)
+        # The name head after it, measured against it (see the landscape body).
+        _text(fig, x0, head_y,
+              (_passers_head(fig, info, shown, L['head_size'],
+                             _left_of(fig, cnt_head) - x0 - 0.03)
+               if rows else 'BUSIEST MATCHES'),
+              L['head_size'], TEXT_MUTED, spaced=1)
         if rows and show_cmp:
-            _text(fig, x1, head_y, 'CMP', L['head_size'], TEXT_MUTED,
+            _text(fig, x1, head_y, 'CMP%', L['head_size'], TEXT_MUTED,
                   ha='right', spaced=1)
         swatch_of = C['swatch_colour']
         for ry, row in zip(row_y, block):
@@ -1863,6 +1945,10 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
         # 3,000, and nothing else on the frame says which.
         if per90 and players and lead:
             lead += f"  ·  {int(per90['minutes']):,} MIN"
+        # The stat rows' rates carry no unit of their own; the scope says it
+        # once for the frame (user-approved 2026-10-03).
+        if per90 and lead:
+            lead += "  ·  PER 90"
         head = []
         # The club drops to the scope line whenever players own the title -
         # it is still the thing that makes the names mean something, but it is
@@ -1885,6 +1971,10 @@ def create_pass_map(shown, info, team_color, *, n_population=None,
                                      L['scope_frac'],
                                      L.get('scope_track', 1))
         else:
+            # The season goes when a single match carries its date, as it
+            # already does in portrait (label editor, 2026-09-29).
+            if any(k == 'date' for k, _ in tail):
+                tail = [(k, t) for k, t in tail if k != 'season']
             if tail:
                 head.append((('  ·  ' if head else '')
                              + '  ·  '.join(t for _, t in tail), TEXT_MUTED))

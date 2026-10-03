@@ -95,8 +95,9 @@ def test_compare_labels_come_from_each_panels_own_data():
     info = dict(INFO, total_matches=1, date_range="FEB 08, 2026")
     (lname, ldetail), (rname, rdetail) = tm.panel_labels_for(scope, other, info, "Premier League")
     assert "MANCHESTER CITY" in lname and "1-2" in lname
-    assert ldetail.endswith(f"{len(scope):,} TOUCHES") and "FEB 08, 2026" in ldetail
-    assert rname == f"HIS OTHER {other.gameId.nunique()} MATCHES"
+    # touches, then the date (user, 2026-10-03)
+    assert ldetail.startswith(f"{len(scope):,} TOUCHES") and ldetail.endswith("FEB 08, 2026")
+    assert rname == f"OTHER {other.gameId.nunique()} MATCHES"   # no pronoun
     # the count, then the RATE: each panel is shaded against its own total, so
     # the rate is what lets a reader compare volume across the two
     rate = round(len(other) / other.gameId.nunique())

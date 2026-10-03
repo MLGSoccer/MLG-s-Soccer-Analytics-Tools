@@ -38,9 +38,7 @@ from pages.streamlit_utils import custom_title_inputs
 
 st.set_page_config(page_title="Team Profile", page_icon="🎯", layout="wide")
 st.title("Team Profile")
-st.caption("Six gauges: where one team stands against its league (rank) or the "
-           "wider pool (percentile). Click a gauge to open it; click a gauge on "
-           "the frame that appears to go one layer further.")
+st.caption("Click a gauge to break it down; click again to go one level deeper.")
 
 # ── Scope: which team, which league season, against whom ─────────────────────
 
@@ -91,14 +89,15 @@ with p1:
     pool_options = ["League"] + ([pool_info['label']] if pool_info else [])
     pool_choice = st.radio(
         "Compare against", options=pool_options, horizontal=True,
-        help="League: rank among the teams in this season. The wider pool: "
-             "percentile among every club in those leagues this campaign.")
+        help=("League: rank among this season's teams."
+              + (f" {pool_info['label']}: percentile among every club in those "
+                 "leagues." if pool_info else "")))
     pool = "pool" if (pool_info and pool_choice == pool_info['label']) else "league"
 with p2:
     exclude_penalties = st.toggle(
         "Exclude penalties", value=False,
-        help="Drops penalty goals, xG and shots from every level. Game state "
-             "still counts them - a penalty still put the team ahead.")
+        help="Removes penalty goals, xG and shots. A penalty still counts "
+             "toward whether the team was ahead, drawing or behind.")
 
 # ── Sidebar: chart controls ───────────────────────────────────────────────────
 
@@ -106,9 +105,8 @@ st.sidebar.header("Chart")
 aspect_choice = st.sidebar.radio(
     "Aspect ratio",
     options=["Standard (16:9)", "Vertical (9:16)", "Tile (9:8)"], index=0,
-    help="16:9 is the editorial chart, three gauges by two. 9:16 stacks them "
-         "two by three. 9:8 keeps three by two at tile size, with labels set "
-         "solid and the pool median dropped to fit.")
+    help="16:9: three gauges by two. 9:16: two by three. 9:8: three by two, "
+         "without the pool median.")
 aspect = {"Vertical (9:16)": "9x16", "Tile (9:8)": "9x8"}.get(aspect_choice, "default")
 competition = st.sidebar.text_input(
     "Competition name", value=season_competition([season_id]) or league or "")
@@ -127,10 +125,10 @@ with st.spinner("Loading the pool..."):
 checks = profile.get('checks') or {}
 if checks and not (checks.get('gf_ok', True) and checks.get('ga_ok', True)):
     st.warning(
-        f"Goal events do not reconcile with the scoreline for this team "
-        f"(scoreline {checks.get('gf')}-{checks.get('ga')}, events "
-        f"{checks.get('gf_events')}-{checks.get('ga_events')}). The headline "
-        f"uses the scoreline; the situation splits use the events.")
+        f"Goals in the event data don't match the scoreline (scoreline "
+        f"{checks.get('gf')}-{checks.get('ga')}, events "
+        f"{checks.get('gf_events')}-{checks.get('ga_events')}). Totals use the "
+        f"scoreline; the situation gauges use the events.")
 if profile['pool_n'] < 2:
     st.warning("Only one team in this pool - nothing to rank against.")
     st.stop()
@@ -284,18 +282,9 @@ if headline:
             "Split by", options=split_options, horizontal=True,
             index=0 if tp_state.get('order') == 'situation' else 1,
             key=f"order_{scope_key}_{headline}",
-            help="Game situation: the same number in each part of the game - "
-                 "open play, set pieces, and with the team ahead, drawing or "
-                 "behind. The other split takes the number apart, and what it "
-                 "shows depends on which one you opened. A goals headline "
-                 "stays clear of xG: how many shots, from how far out, and how "
-                 "they ended - on target, blocked, or missed. An xG headline "
-                 "walks the chain: the goals beside the xG, the gap between "
-                 "them, and the two things that make the gap - where the shots "
-                 "were placed and what beat the keeper. A difference compares "
-                 "the two ends of the game, netting only what can honestly be "
-                 "netted. Whichever you open first, the next click opens the "
-                 "other.")
+            help="Game situation: the number in open play, set pieces, and "
+                 "when ahead, drawing or behind. The other option breaks it "
+                 "into the stats behind it. The next click opens the other.")
         new_order = 'component' if order_label == split_options[1] else 'situation'
         if new_order != tp_state.get('order'):
             _set(order=new_order, pick=None, pick3=None)
@@ -361,6 +350,6 @@ if headline:
               f"team_profile_{safe}_{headline}_{pick}{suffix}.png",
               ranking=None if r3 == (headline, 'total', 'anchor') else r3,
               slot='l3', selected=cell_key)
-        st.caption("Click a dial for its league ranking.")
+        st.caption("Click a gauge for its league ranking.")
         st.button(f"Back to {h.label}", key="back2", on_click=_set,
                   kwargs={'pick': None, 'pick3': None})

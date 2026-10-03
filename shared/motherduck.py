@@ -2320,7 +2320,12 @@ def build_pass_map(game_ids_tuple, team_id, against=False):
         return pd.DataFrame(), {}, '#888888'
     df = df.rename(columns=_PASS_RENAME)
 
-    df['is_home'] = df['teamId'] == df['homeTeamId']
+    # The fixture from the SUBJECT's side, in both modes. In against mode the
+    # rows are the opponents' passes, and reading home/away and the opponent
+    # off the passer printed "v LIVERPOOL (A)" under a LIVERPOOL headline
+    # (label editor, 2026-09-29). The Home / away filter reads this too, so
+    # "Home" now means the subject's home games in both views.
+    df['is_home'] = df['homeTeamId'].astype(str) == str(team_id)
     _opp_id = df['awayTeamId'].where(df['is_home'], df['homeTeamId'])
     _opp_nm = df['awayTeam'].where(df['is_home'], df['homeTeam'])
     _seen = {}
@@ -2359,8 +2364,11 @@ def build_pass_map(game_ids_tuple, team_id, against=False):
     date_range = ''
     if len(dates):
         try:
-            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
-            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            # "OCT 4", not "OCT 04", as the Touch Map (user-approved 2026-10-03).
+            d0 = datetime.strptime(dates.iloc[0], '%Y-%m-%d')
+            d1 = datetime.strptime(dates.iloc[-1], '%Y-%m-%d')
+            first = f"{d0:%b} {d0.day}".upper()
+            last = f"{d1:%b} {d1.day}, {d1.year}".upper()
             date_range = last if dates.iloc[0] == dates.iloc[-1] else f"{first} - {last}"
         except Exception:
             pass
@@ -2480,8 +2488,11 @@ def touch_map_info(df, team_name):
     date_range = ''
     if len(dates):
         try:
-            first = datetime.strptime(dates.iloc[0], '%Y-%m-%d').strftime('%b %d').upper()
-            last = datetime.strptime(dates.iloc[-1], '%Y-%m-%d').strftime('%b %d, %Y').upper()
+            # "OCT 4", not "OCT 04" (label editor, 2026-09-29).
+            d0 = datetime.strptime(dates.iloc[0], '%Y-%m-%d')
+            d1 = datetime.strptime(dates.iloc[-1], '%Y-%m-%d')
+            first = f"{d0:%b} {d0.day}".upper()
+            last = f"{d1:%b} {d1.day}, {d1.year}".upper()
             date_range = last if dates.iloc[0] == dates.iloc[-1] else f"{first} - {last}"
         except Exception:
             pass
