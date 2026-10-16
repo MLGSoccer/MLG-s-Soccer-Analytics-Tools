@@ -704,13 +704,19 @@ def build_shot_chart_multi(game_ids_tuple, team_id, against=False):
 
     data = []
     for (game_id, ex, ey, xg, play_type, team_full, color, date, home,
-         away, shot_style, shooter, season_id, shooter_id, team_id, shooter_home) in rows:
+         away, shot_style, shooter, season_id, shooter_id, row_team_id, shooter_home) in rows:
         # teamId is appended LAST in both SELECTs on purpose: build_shots_for
         # _player filters international shots positionally (r[12] is seasonId),
         # so inserting a column mid-list would shift that test onto the wrong
         # field. In shots-against mode this id is the OPPONENT's, which is
         # correct - those shots are theirs.
-        team_display = team_label(team_id, team_full)
+        # `row_team_id`, NOT `team_id`: that is this function's parameter, the
+        # SUBJECT, and the name lookup and the own-goal split below read it
+        # after the loop. Unpacking into it left it holding the last row's
+        # team, so every season shots-against map took the name and colour of
+        # the subject's last opponent - Gotham's read "Angel City" (user,
+        # 2026-10-16). test_no_loop_overwrites_a_parameter guards the class.
+        team_display = team_label(row_team_id, team_full)
         data.append({
             'gameId': game_id,
             'EventX': float(ex) if ex is not None else 50.0,
