@@ -17,12 +17,13 @@ from shared.season_to_league import SEASON_TO_LEAGUE as _SEASON_TO_LEAGUE
 
 # _SEASON_TO_LEAGUE is the single-source-of-truth mapping in
 # shared/season_to_league.py. Imported above as `_SEASON_TO_LEAGUE` to
-# preserve the existing private-name reference used by _get_team_league.
+# preserve the existing private-name reference used by _get_team_leagues.
 # LEAGUE_ORDER below remains the Streamlit-side curated UI bucket list -
 # season IDs in _SEASON_TO_LEAGUE but not in LEAGUE_ORDER fall through
 # to the "Other" bucket.
 
-# Priority order -- first match wins for each team
+# The League dropdown, in this order. A club is listed under every bucket it
+# has a season in.
 # Note: WC bucket is year-tagged (not just "World Cup") because the
 # tournament is quadrennial; a future "World Cup 2030" gets its own
 # bucket rather than merging with 2026.
@@ -161,18 +162,18 @@ def season_label(season_id, season_name=None):
     return f"Unlabelled season ({season_id[:8]})"
 
 
-def _get_team_league(season_ids):
-    """Return the highest-priority league bucket for a list of season IDs."""
+def _get_team_leagues(season_ids):
+    """Every league bucket a club has a season in, in LEAGUE_ORDER.
+
+    "Other" only when none of its seasons belongs to a named bucket. This used
+    to return ONE bucket, the highest-priority, which hid a club from every
+    other competition it played in: Hull City (Championship 2025/26, Premier
+    League 2026/27) could not be picked under the Championship, and nor could
+    the clubs relegated alongside them.
+    """
     season_leagues = _season_leagues()
-    matched = set()
-    for sid in season_ids:
-        league = season_leagues.get(sid)
-        if league:
-            matched.add(league)
-    for league in LEAGUE_ORDER:
-        if league in matched:
-            return league
-    return "Other"
+    matched = {season_leagues.get(sid) for sid in season_ids}
+    return [lg for lg in LEAGUE_ORDER if lg in matched] or ["Other"]
 
 
 # -- Connection ----------------------------------------------------------------
@@ -232,7 +233,7 @@ def get_teams_by_league():
 
     Each team dict has: team_id, display_name, abbrev.
     Built entirely from config.json (no DB query) so the initial page load is fast.
-    Teams are assigned to exactly one league bucket by priority order.
+    A club appears under every league bucket it has a season in.
     Result is cached for 1 hour.
     """
     # Aliased: the local variable below is called `display_name`, and the
@@ -255,7 +256,6 @@ def get_teams_by_league():
         team_id = team.get('team_id')
         if not team_id:
             continue
-        league = _get_team_league(team.get('season_ids', []))
         # Resolved on team_id. This used to fuzzy-match the club's name against
         # TEAM_COLORS, which guessed - and on clubs with no entry of their own
         # it guessed badly: AZ was offered as Cruz Azul, KA as Kansas City
@@ -274,11 +274,12 @@ def get_teams_by_league():
                 and display_name.endswith(' Women')
                 and team['name'] not in needs_women):
             display_name = display_name[:-6]
-        league_teams[league].append({
-            'team_id': team_id,
-            'display_name': display_name,
-            'abbrev': team.get('abbrev', ''),
-        })
+        for league in _get_team_leagues(team.get('season_ids', [])):
+            league_teams[league].append({
+                'team_id': team_id,
+                'display_name': display_name,
+                'abbrev': team.get('abbrev', ''),
+            })
 
     result = {}
     for league in LEAGUE_ORDER:
