@@ -46,4 +46,14 @@ pg = st.navigation({
     ],
 })
 
+# Every database read is cached for an hour, so a match downloaded while the
+# app is open stays invisible until that runs out. This empties the cache for
+# the whole app (on Cloud, every user's) and the page reruns on fresh reads.
+# st.cache_data only: the connection is a cache_resource and stays open.
+with st.sidebar:
+    if st.button("Refresh data", help="Load the newest matches now rather than "
+                                      "waiting up to an hour."):
+        st.cache_data.clear()
+        st.toast("Data refreshed")
+
 pg.run()
