@@ -245,11 +245,17 @@ def parse_cookies_from_curl(curl_string):
     curl_string = curl_string.replace('^%', '%')
     curl_string = curl_string.replace('^', '')
 
-    match = re.search(r'-b\s+"([^"]*)"', curl_string) or re.search(r"-b\s+'([^']*)'", curl_string)
+    # Two places a browser puts the cookies. Chrome and its relatives (Edge,
+    # Brave, Arc) write `-b '...'`; Safari and Firefox write them as a header,
+    # `-H 'Cookie: ...'`. Either quote style, either flag spelling.
+    match = (re.search(r'(?:-b|--cookie)\s+"([^"]*)"', curl_string)
+             or re.search(r"(?:-b|--cookie)\s+'([^']*)'", curl_string)
+             or re.search(r'(?:-H|--header)\s+"[Cc]ookie:\s*([^"]*)"', curl_string)
+             or re.search(r"(?:-H|--header)\s+'[Cc]ookie:\s*([^']*)'", curl_string))
     if not match:
         raise ValueError(
             "Could not find cookie string in cURL.\n"
-            "Make sure you right-clicked the dp-proxy-export request and chose 'Copy as cURL'."
+            "Make sure you right-clicked a dp-proxy request and chose 'Copy as cURL'."
         )
 
     cookie_string = match.group(1)

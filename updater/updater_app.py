@@ -129,12 +129,28 @@ season_ids = list(config.get("seasons", {}))
 # -- 1. Log in ----------------------------------------------------------------
 st.header("1 · Log in to TruMedia")
 with st.expander("How to copy the cURL", expanded="cookies" not in st.session_state):
-    st.markdown(
-        "1. Log in to TruMedia in Chrome and open any player or team page.\n"
-        "2. Press **F12**, open the **Network** tab, and reload the page.\n"
-        "3. Right-click a request named **dp-proxy** and choose "
-        "**Copy → Copy as cURL (cmd)**.\n"
-        "4. Paste it below. It is your login, so do not send it to anyone.")
+    _safari, _mac_chrome, _win = st.tabs(
+        ["Safari (Mac)", "Chrome or Edge (Mac)", "Chrome or Edge (Windows)"])
+    _common = ("Type **dp-proxy** in the Network tab's filter box, right-click "
+               "a **dp-proxy** row and choose ")
+    _safari.markdown(
+        "1. **Once only:** Safari menu → **Settings → Advanced**, tick "
+        "**Show features for web developers**.\n"
+        "2. Log in to TruMedia and open any player or team page.\n"
+        "3. Press **⌥⌘I** (Option-Command-I), open the **Network** tab, then "
+        "reload the page with **⌘R**.\n"
+        f"4. {_common}**Copy as cURL**.")
+    _mac_chrome.markdown(
+        "1. Log in to TruMedia and open any player or team page.\n"
+        "2. Press **⌥⌘I** (Option-Command-I), open the **Network** tab, then "
+        "reload the page with **⌘R**.\n"
+        f"3. {_common}**Copy → Copy as cURL**.")
+    _win.markdown(
+        "1. Log in to TruMedia and open any player or team page.\n"
+        "2. Press **F12**, open the **Network** tab, then reload the page.\n"
+        f"3. {_common}**Copy → Copy as cURL (cmd)**.")
+    st.caption("Paste it below. It is your TruMedia login and keeps working "
+               "for weeks, so don't send it to anyone.")
 curl = st.text_area("cURL", height=100, label_visibility="collapsed",
                     placeholder="curl --url \"https://...\" ...")
 if st.button("Connect", disabled=not curl.strip()):
