@@ -1720,8 +1720,13 @@ def count_anchored_games(con):
 INGESTABLE_STATUSES = {"played", "awarded"}
 
 
-def build_work_list(con, fixtures):
+def build_work_list(con, fixtures, known_empty=None):
     """Classify every fixture against what the database actually holds.
+
+    `known_empty` is the config's `known_empty_games` map. None reads it from
+    the local config.json; the Data Updater on Streamlit Cloud passes the
+    MotherDuck copy instead, because the config.json deployed from git is
+    stale.
 
     This is the thing the tool has never had. Today's equivalent is
     "incremental since this team's last game date", which CANNOT SEE a
@@ -1754,7 +1759,7 @@ def build_work_list(con, fixtures):
 
     # Settled, eventless fixtures. Listed by gameId because the status cannot
     # distinguish them - see WORK_NO_DATA above.
-    no_data = set(load_known_empty_games())
+    no_data = set(load_known_empty_games() if known_empty is None else known_empty)
 
     out = fixtures.copy()
     out["sides_present"] = out["gameId"].map(sides).fillna(0).astype(int)
